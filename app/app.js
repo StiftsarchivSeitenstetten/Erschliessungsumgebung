@@ -290,6 +290,11 @@ function showErrors(messages) {
 }
 
 function updateSignatureOutput() {
+  if (state.finalizedCurrentDraft && state.currentDraft) {
+    numberOutput.textContent = String(state.currentDraft.nummer);
+    signatureOutput.textContent = state.currentDraft.signature.anzeige;
+    return;
+  }
   if (!state.format) {
     numberOutput.textContent = "-";
     signatureOutput.textContent = "Bitte Format wählen";
@@ -313,7 +318,7 @@ function generateRecord() {
   state.generatedMarkdown = toMarkdown(record);
   state.generatedFilename = `${record.id}.md`;
   preview.value = state.generatedMarkdown;
-  downloadButton.disabled = false;
+  downloadButton.disabled = true;
   finalizeButton.disabled = state.finalizedCurrentDraft;
 }
 
@@ -323,6 +328,8 @@ function finalizeRecord() {
   const messages = validate(record);
   showErrors(messages);
   if (messages.length) return;
+  record.signatur = buildSignature(record.signatur.format, record.signatur.nummer, "vergeben");
+  state.currentDraft.signature = record.signatur;
   state.generatedMarkdown = toMarkdown(record);
   state.generatedFilename = `${record.id}.md`;
   preview.value = state.generatedMarkdown;

@@ -104,12 +104,28 @@ class FotoCoreTest(unittest.TestCase):
             config=self.config,
         )
         draft = session.preview("B")
+        self.assertEqual(draft["signatur"]["status"], "vorgeschlagen")
         finalized = session.finalize()
         self.assertEqual(finalized, draft)
+        self.assertEqual(finalized["signatur"]["status"], "vergeben")
+        self.assertEqual(session.current_draft["signatur"]["anzeige"], "9.4.2.B.1026")
         self.assertEqual(len(session.inventory), 2)
         with self.assertRaises(ValueError):
             session.finalize()
         self.assertEqual(len(session.inventory), 2)
+
+    def test_finalize_keeps_current_signature_until_new_record(self):
+        session = LocalPilotSession(
+            inventory=[{"id": "foto-000001", "signatur": {"format": "A", "nummer": 8468}}],
+            config=self.config,
+        )
+        finalized = session.preview("A")
+        session.finalize()
+        self.assertEqual(finalized["signatur"]["anzeige"], "9.4.2.A.8469")
+        self.assertEqual(session.current_draft["signatur"]["anzeige"], "9.4.2.A.8469")
+        session.new_record()
+        next_draft = session.preview("A")
+        self.assertEqual(next_draft["signatur"]["anzeige"], "9.4.2.A.8470")
 
     def test_new_record_after_finalize_uses_next_number(self):
         session = LocalPilotSession(

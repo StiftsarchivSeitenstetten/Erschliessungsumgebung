@@ -57,6 +57,13 @@ class LocalPilotSession:
             raise ValueError("Kein Datensatz zur Abschlussaktion vorbereitet")
         if self.finalized_current_draft:
             raise ValueError("Datensatz wurde bereits abgeschlossen")
+        signatur = self.current_draft["signatur"]
+        self.current_draft["signatur"] = build_signature(
+            signatur["format"],
+            signatur["nummer"],
+            self.config,
+            status="vergeben",
+        )
         self.inventory.append(self.current_draft)
         self.finalized_current_draft = True
         return self.current_draft
