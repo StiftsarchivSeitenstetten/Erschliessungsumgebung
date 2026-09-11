@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Anmelden - Erschließungsumgebung</title>
+    <link rel="stylesheet" href="/app/style.css">
+    <link rel="stylesheet" href="/login/login.css">
+  </head>
+  <body>
+    <main class="login-shell">
+      <section class="form-section login-panel" aria-labelledby="login-heading">
+        <p class="eyebrow">Stiftsarchiv Seitenstetten</p>
+        <h1 id="login-heading">Erschließungsumgebung</h1>
+        <form id="login-form" novalidate>
+          <div class="field">
+            <label for="login">Benutzername oder E-Mail</label>
+            <input id="login" name="login" type="text" autocomplete="username" required>
+          </div>
+          <div class="field">
+            <label for="password">Passwort</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" required>
+          </div>
+          <p id="login-error" class="errors" aria-live="assertive"></p>
+          <button type="submit">Anmelden</button>
+        </form>
+      </section>
+    </main>
+    <script src="/login/login.js"></script>
+  </body>
+</html>

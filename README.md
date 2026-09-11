@@ -154,6 +154,10 @@ Der statische Pilot im Verzeichnis `app/` darf keine GitHub-Tokens speichern ode
 
 Innerhalb einer lokalen Arbeitssitzung merkt sich der Browser gespeicherte, noch nicht nach GitHub geschriebene Datensätze in `localStorage`. Das reine Erzeugen oder Aktualisieren der Vorschau verbraucht noch keine technische ID und keine Signaturnummer. Erst die Aktion `Datensatz speichern` setzt die Signatur auf `vergeben`, erzeugt die herunterladbare kanonische Fassung und nimmt den Datensatz in die lokale Sitzungsinventur auf. Diese lokale Fortschreibung ist weiterhin keine produktive Mehrbenutzer-Reservierung.
 
+## Phase 2A: Authentifizierung
+
+Der Branch `feature/echtbetrieb-auth-speicherung` ergänzt ein kleines FastAPI-Backend mit eigener Anmeldung, SQLite-Entwicklungsdatenbank, SQLAlchemy/Alembic, Argon2id-Passwort-Hashes, serverseitigen Sessions, Rollen und Arbeitsbereichen. Details stehen in [docs/authentifizierung.md](docs/authentifizierung.md).
+
 Die Funktion `Lokale Sitzungsdaten zurücksetzen` entfernt nur lokal gespeicherte Pilot-Datensätze. Aktive Vorbelegungen und das gewählte UI-Profil bleiben erhalten.
 
 Lokal starten:

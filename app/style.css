@@ -48,6 +48,19 @@ body.barrierearm {
   background: var(--panel);
 }
 
+.auth-user {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-left: auto;
+  font-weight: 800;
+}
+
+.auth-user button {
+  min-height: 44px;
+  padding: 10px 16px;
+}
+
 .eyebrow {
   margin: 0 0 4px;
   color: var(--muted);

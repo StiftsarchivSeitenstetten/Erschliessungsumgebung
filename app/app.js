@@ -1,6 +1,12 @@
 const PRESET_KEY = "erschliessung.papierabzuege.activePreset.v2";
 const PROFILE_KEY = "erschliessung.papierabzuege.profile";
 const LOCAL_RECORDS_KEY = "erschliessung.papierabzuege.localRecords";
+const REQUIRED_MODULE = "foto_papierabzuege";
+const USER_PROFILE_MAP = {
+  "ehrenamt-standard": "standard",
+  "ehrenamt-barrierearm": "barrierearm",
+  redaktion: "redaktion"
+};
 
 let config = null;
 const state = {
@@ -9,7 +15,8 @@ const state = {
   generatedFilename: "foto-000004.md",
   inventory: [],
   currentDraft: null,
-  finalizedCurrentDraft: false
+  finalizedCurrentDraft: false,
+  user: null
 };
 
 const form = document.querySelector("#record-form");
@@ -24,6 +31,7 @@ const archivisDateOutput = document.querySelector("#archivis-date");
 const presetStatus = document.querySelector("#preset-status");
 const presetEditor = document.querySelector("#preset-editor");
 const presetFieldList = document.querySelector("#preset-field-list");
+const currentUserOutput = document.querySelector("#current-user");
 
 const fieldMap = {
   titel: { label: "Titel", kind: "scalar", selector: "#titel" },
@@ -42,15 +50,46 @@ const fieldMap = {
 };
 
 async function init() {
+  state.user = await loadCurrentUser();
   config = await loadConfig();
   state.inventory = [...config.existing_records, ...loadLocalRecords()];
   buildFormatOptions();
   addPersonRow();
   bindEvents();
-  setProfile(localStorage.getItem(PROFILE_KEY) || "standard");
+  const profile = USER_PROFILE_MAP[state.user.ui_profile] || "standard";
+  setProfile(profile);
+  currentUserOutput.textContent = state.user.display_name;
   applyPreset({ onlyEmpty: true });
   updateSignatureOutput();
   updateArchivisDate();
+}
+
+async function loadCurrentUser() {
+  const response = await fetch("/api/auth/me", { credentials: "same-origin" });
+  if (response.status === 401) {
+    window.location.href = "/login/";
+    throw new Error("Nicht angemeldet");
+  }
+  if (!response.ok) throw new Error("Benutzer konnte nicht geladen werden.");
+  const user = await response.json();
+  if (!user.modules.includes(REQUIRED_MODULE)) {
+    window.location.href = "/arbeitsbereiche";
+    throw new Error("Arbeitsbereich nicht freigegeben");
+  }
+  const moduleResponse = await fetch(`/api/modules/${REQUIRED_MODULE}`, { credentials: "same-origin" });
+  if (!moduleResponse.ok) {
+    window.location.href = "/arbeitsbereiche";
+    throw new Error("Arbeitsbereich nicht freigegeben");
+  }
+  return user;
+}
+
+function csrfToken() {
+  return document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("erschliessung_csrf="))
+    ?.split("=")[1];
 }
 
 async function loadConfig() {
@@ -89,6 +128,7 @@ function bindEvents() {
   document.querySelector("#new-record").addEventListener("click", startNewRecord);
   document.querySelector("#reset-session").addEventListener("click", resetLocalSessionRecords);
   document.querySelector("#add-person").addEventListener("click", () => addPersonRow());
+  document.querySelector("#logout").addEventListener("click", logout);
   downloadButton.addEventListener("click", downloadMarkdown);
 
   document.querySelector("#edit-preset").addEventListener("click", () => {
@@ -110,6 +150,15 @@ function bindEvents() {
     savePreset(readCurrentValuesAsPreset({ includeEmpty: false }));
     syncPresetEditor();
   });
+}
+
+async function logout() {
+  await fetch("/api/auth/logout", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "X-CSRF-Token": csrfToken() || "" }
+  });
+  window.location.href = "/login/";
 }
 
 function nextNumber(format) {
