@@ -31,7 +31,8 @@
         "objektgruppe": { "const": "2" },
         "format": { "type": "string", "enum": ["A", "B", "C", "D", "E", "F"] },
         "nummer": { "type": "integer", "minimum": 1 },
-        "anzeige": { "type": "string", "pattern": "^9\\.4\\.2\\.[A-F]\\.[1-9][0-9]*$" },
+        "zusatz": { "type": ["string", "null"], "pattern": "^[a-z]+$" },
+        "anzeige": { "type": "string", "pattern": "^9\\.4\\.2\\.[A-F]\\.[1-9][0-9]*[a-z]*$" },
         "status": { "type": "string", "enum": ["vorgeschlagen", "vergeben"] }
       }
     },
@@ -79,7 +80,7 @@
       }
     },
     "korrespondenzstueck": {
-      "type": "boolean",
+      "type": ["boolean", "null"],
       "default": false
     },
     "datierung": {

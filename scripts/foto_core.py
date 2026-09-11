@@ -314,9 +314,13 @@ def validate_signature(signatur: dict[str, Any], config: dict[str, Any] | None =
         errors.append("signatur.nummer muss eine positive Ganzzahl sein")
     if format_code in signature["formats"] and isinstance(number, int):
         status = signatur.get("status", "vergeben")
-        expected = build_signature(format_code, number, config, status)["anzeige"]
+        suffix = signatur.get("zusatz") or ""
+        expected = build_signature(format_code, number, config, status)["anzeige"] + suffix
         if signatur.get("anzeige") != expected:
             errors.append("signatur.anzeige entspricht nicht den Einzelkomponenten")
+    suffix = signatur.get("zusatz")
+    if suffix is not None and (not isinstance(suffix, str) or not re.fullmatch(r"[a-z]+", suffix)):
+        errors.append("signatur.zusatz muss aus Kleinbuchstaben bestehen oder leer sein")
     if signatur.get("status") not in signature["status_values"]:
         errors.append("signatur.status ist unzulaessig")
     return errors

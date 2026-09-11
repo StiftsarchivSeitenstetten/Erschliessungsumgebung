@@ -13,6 +13,14 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from foto_core import archivis_date_value, load_records  # noqa: E402
 
 
+def yes_no_empty(value: object) -> str:
+    if value is True:
+        return "Ja"
+    if value is False:
+        return "Nein"
+    return ""
+
+
 FIELDS = [
     "id",
     "Signatur",
@@ -52,7 +60,7 @@ def main() -> int:
                 "Beschriftung": erschliessung.get("beschriftung") or "",
                 "Beschreibung": erschliessung.get("beschreibung") or "",
                 "DatierungArchivis": archivis_date_value(data["datierung"]),
-                "Korrespondenzstueck": "Ja" if data.get("korrespondenzstueck") else "Nein",
+                "Korrespondenzstueck": yes_no_empty(data.get("korrespondenzstueck")),
                 "Herkunft": erschliessung.get("herkunft") or "",
                 "Sammler": erschliessung.get("sammler") or "",
                 "Fotograf": erschliessung.get("fotograf") or "",
