@@ -15,5 +15,9 @@ class RepositoryConflictError(RepositoryError):
     pass
 
 
+class RepositoryEmptyError(RepositoryError):
+    pass
+
+
 class RepositoryAuthError(RepositoryError):
     pass
