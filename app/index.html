@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Fotoerschließung 9.4.2</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Stiftsarchiv Seitenstetten</p>
+        <h1>9.4.2 - Einzelne Papierabzüge</h1>
+      </div>
+      <div class="profile-switch" aria-label="UI-Profil">
+        <button type="button" class="profile-button active" data-profile="standard">Standard</button>
+        <button type="button" class="profile-button" data-profile="barrierearm">Barrierearm</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="status-band" aria-labelledby="module-heading">
+        <div>
+          <h2 id="module-heading">Papierabzug-Modul aktiv</h2>
+          <p>Die Objektgruppe ist fest auf <strong>9.4.2</strong> gesetzt. Album, Negativ und Dia werden in diesem Modul nicht ausgewählt.</p>
+        </div>
+        <div class="warning-note">
+          Nummernvorschläge sind lokal berechnet und noch keine kollisionssichere Mehrbenutzer-Reservierung.
+        </div>
+      </section>
+
+      <form id="record-form" novalidate>
+        <section class="form-section" aria-labelledby="signature-heading">
+          <h2 id="signature-heading">Format und Signatur</h2>
+          <fieldset>
+            <legend>Format wählen</legend>
+            <div class="format-grid" role="radiogroup" aria-label="Format">
+              <button type="button" class="format-button" data-format="A" aria-pressed="false">A</button>
+              <button type="button" class="format-button" data-format="B" aria-pressed="false">B</button>
+              <button type="button" class="format-button" data-format="C" aria-pressed="false">C</button>
+              <button type="button" class="format-button" data-format="D" aria-pressed="false">D</button>
+              <button type="button" class="format-button" data-format="E" aria-pressed="false">E</button>
+              <button type="button" class="format-button" data-format="F" aria-pressed="false">F</button>
+            </div>
+          </fieldset>
+          <div class="signature-output" aria-live="polite">
+            <div>
+              <span class="label">Nächste Nummer</span>
+              <strong id="number-output">-</strong>
+            </div>
+            <div>
+              <span class="label">Signatur</span>
+              <strong id="signature-output">Bitte Format wählen</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="form-section" aria-labelledby="preset-heading">
+          <div class="section-title-row">
+            <h2 id="preset-heading">Vorbelegung</h2>
+            <div class="button-row">
+              <button type="button" id="edit-preset">Vorbelegung bearbeiten</button>
+              <button type="button" id="disable-preset">Vorbelegung deaktivieren</button>
+              <button type="button" id="adopt-preset">Aktuelle Werte übernehmen</button>
+            </div>
+          </div>
+          <p id="preset-status" class="help-text" aria-live="polite"></p>
+          <div id="preset-editor" class="preset-editor" hidden>
+            <div class="field">
+              <label for="preset-herkunft">Herkunft als aktive Vorbelegung</label>
+              <input id="preset-herkunft" type="text" autocomplete="off">
+            </div>
+            <button type="button" id="save-preset">Vorbelegung speichern</button>
+          </div>
+        </section>
+
+        <section class="form-section" aria-labelledby="metadata-heading">
+          <h2 id="metadata-heading">Erschließung</h2>
+          <div class="field-grid">
+            <div class="field">
+              <label for="beschriftung">Beschriftung</label>
+              <input id="beschriftung" name="beschriftung" type="text">
+            </div>
+            <div class="field">
+              <label for="titel">Titel</label>
+              <input id="titel" name="titel" type="text">
+            </div>
+            <div class="field wide">
+              <label for="beschreibung">Beschreibung</label>
+              <textarea id="beschreibung" name="beschreibung" rows="4"></textarea>
+            </div>
+            <div class="field">
+              <label for="personen">Dargestellte Personen</label>
+              <input id="personen" name="personen" type="text" aria-describedby="personen-help">
+              <p id="personen-help" class="help-text">Mehrere Werte mit Semikolon trennen.</p>
+            </div>
+            <div class="field">
+              <label for="herkunft">Herkunft</label>
+              <input id="herkunft" name="herkunft" type="text">
+            </div>
+            <div class="field">
+              <label for="sammler">Sammler</label>
+              <input id="sammler" name="sammler" type="text">
+            </div>
+            <div class="field">
+              <label for="fotograf">Fotograf</label>
+              <input id="fotograf" name="fotograf" type="text">
+            </div>
+            <div class="field">
+              <label for="rechteinhaber">Rechteinhaber</label>
+              <input id="rechteinhaber" name="rechteinhaber" type="text">
+            </div>
+            <div class="field">
+              <label for="orte">Orte</label>
+              <input id="orte" name="orte" type="text" aria-describedby="orte-help">
+              <p id="orte-help" class="help-text">Mehrere Werte mit Semikolon trennen.</p>
+            </div>
+            <div class="field">
+              <label for="schlagworte">Schlagworte</label>
+              <input id="schlagworte" name="schlagworte" type="text" aria-describedby="schlagworte-help">
+              <p id="schlagworte-help" class="help-text">Mehrere Werte mit Semikolon trennen.</p>
+            </div>
+            <div class="field">
+              <label for="altsignaturen">Altsignaturen</label>
+              <input id="altsignaturen" name="altsignaturen" type="text" aria-describedby="altsignaturen-help">
+              <p id="altsignaturen-help" class="help-text">Mehrere Werte mit Semikolon trennen.</p>
+            </div>
+            <div class="field wide">
+              <label for="interne-bemerkung">Interne Bemerkung</label>
+              <textarea id="interne-bemerkung" name="interne-bemerkung" rows="3"></textarea>
+            </div>
+          </div>
+        </section>
+
+        <section class="form-section" aria-labelledby="date-heading">
+          <h2 id="date-heading">Datierung</h2>
+          <div class="date-grid">
+            <div class="field">
+              <label for="jahr">Jahr</label>
+              <input id="jahr" name="jahr" inputmode="numeric" pattern="[0-9]*">
+            </div>
+            <div class="field">
+              <label for="monat">Monat</label>
+              <input id="monat" name="monat" inputmode="numeric" pattern="[0-9]*">
+            </div>
+            <div class="field">
+              <label for="tag">Tag</label>
+              <input id="tag" name="tag" inputmode="numeric" pattern="[0-9]*">
+            </div>
+            <div class="field">
+              <label for="original-datum">Originaldatum aus Altdaten</label>
+              <input id="original-datum" name="original-datum" type="text">
+            </div>
+          </div>
+          <p class="help-text">Archivis-Exportwert: <strong id="archivis-date">-</strong></p>
+        </section>
+
+        <section class="form-section" aria-labelledby="actions-heading">
+          <h2 id="actions-heading">Prüfen und erzeugen</h2>
+          <div id="errors" class="errors" aria-live="assertive"></div>
+          <div class="button-row">
+            <button type="button" id="generate">Datensatz erzeugen</button>
+            <button type="button" id="download" disabled>Markdown herunterladen</button>
+            <button type="reset">Neuer Datensatz</button>
+          </div>
+          <div class="preview-grid">
+            <div class="field">
+              <label for="preview">YAML/Markdown-Vorschau</label>
+              <textarea id="preview" rows="20" readonly></textarea>
+            </div>
+          </div>
+        </section>
+      </form>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
