@@ -268,6 +268,7 @@ function readRecord() {
       altsignaturen: splitList(document.querySelector("#altsignaturen").value),
       interne_bemerkung: readScalar("interne_bemerkung")
     },
+    korrespondenzstueck: document.querySelector("#korrespondenzstueck").checked,
     datierung: readDatierung(),
     redaktion: { stufe: config.defaults.redaktion_stufe },
     bearbeitung: { status: config.defaults.bearbeitung_status },
@@ -333,11 +334,24 @@ function yamlPersonList(values) {
   return `\n${values.map((person) => `    - name: ${yamlScalar(person.name)}\n      hinweis: ${yamlScalar(person.hinweis)}`).join("\n")}`;
 }
 
+function yamlDatierung(datierung) {
+  const lines = [
+    "datierung:",
+    `  jahr: ${datierung.jahr ?? "null"}`,
+    `  monat: ${datierung.monat ?? "null"}`,
+    `  tag: ${datierung.tag ?? "null"}`,
+    `  anmerkung: ${yamlScalar(datierung.anmerkung)}`
+  ];
+  if (datierung.original) lines.push(`  original: ${yamlScalar(datierung.original)}`);
+  if (datierung.original_typ) lines.push(`  original_typ: ${yamlScalar(datierung.original_typ)}`);
+  return lines.join("\n");
+}
+
 function toMarkdown(record) {
   const e = record.erschliessung;
   const d = record.datierung;
   const s = record.signatur;
-  return `---\nschema_version: 1\nid: ${record.id}\ndatensatz_typ: ${record.datensatz_typ}\nmodul: ${record.modul}\nsignatur:\n  bestand: ${yamlScalar(s.bestand)}\n  objektgruppe: ${yamlScalar(s.objektgruppe)}\n  format: ${yamlScalar(s.format)}\n  nummer: ${s.nummer}\n  anzeige: ${yamlScalar(s.anzeige)}\n  status: ${s.status}\nerschliessung:\n  titel: ${yamlScalar(e.titel)}\n  beschriftung: ${yamlScalar(e.beschriftung)}\n  beschreibung: ${yamlScalar(e.beschreibung)}\n  dargestellte_personen: ${yamlPersonList(e.dargestellte_personen)}\n  herkunft: ${yamlScalar(e.herkunft)}\n  sammler: ${yamlScalar(e.sammler)}\n  fotograf: ${yamlScalar(e.fotograf)}\n  rechteinhaber: ${yamlScalar(e.rechteinhaber)}\n  orte: ${yamlList(e.orte, "    ")}\n  schlagworte: ${yamlList(e.schlagworte, "    ")}\n  altsignaturen: ${yamlList(e.altsignaturen, "    ")}\n  interne_bemerkung: ${yamlScalar(e.interne_bemerkung)}\ndatierung:\n  jahr: ${d.jahr ?? "null"}\n  monat: ${d.monat ?? "null"}\n  tag: ${d.tag ?? "null"}\n  anmerkung: ${yamlScalar(d.anmerkung)}\n  original: ${yamlScalar(d.original)}\n  original_typ: ${yamlScalar(d.original_typ)}\nredaktion:\n  stufe: ${record.redaktion.stufe}\nbearbeitung:\n  status: ${record.bearbeitung.status}\npublikation:\n  status: ${record.publikation.status}\ntechnik:\n  quelle: ${yamlScalar(record.technik.quelle)}\n  erstellt_am: null\n  geaendert_am: null\n---\n`;
+  return `---\nschema_version: 1\nid: ${record.id}\ndatensatz_typ: ${record.datensatz_typ}\nmodul: ${record.modul}\nsignatur:\n  bestand: ${yamlScalar(s.bestand)}\n  objektgruppe: ${yamlScalar(s.objektgruppe)}\n  format: ${yamlScalar(s.format)}\n  nummer: ${s.nummer}\n  anzeige: ${yamlScalar(s.anzeige)}\n  status: ${s.status}\nerschliessung:\n  titel: ${yamlScalar(e.titel)}\n  beschriftung: ${yamlScalar(e.beschriftung)}\n  beschreibung: ${yamlScalar(e.beschreibung)}\n  dargestellte_personen: ${yamlPersonList(e.dargestellte_personen)}\n  herkunft: ${yamlScalar(e.herkunft)}\n  sammler: ${yamlScalar(e.sammler)}\n  fotograf: ${yamlScalar(e.fotograf)}\n  rechteinhaber: ${yamlScalar(e.rechteinhaber)}\n  orte: ${yamlList(e.orte, "    ")}\n  schlagworte: ${yamlList(e.schlagworte, "    ")}\n  altsignaturen: ${yamlList(e.altsignaturen, "    ")}\n  interne_bemerkung: ${yamlScalar(e.interne_bemerkung)}\nkorrespondenzstueck: ${record.korrespondenzstueck ? "true" : "false"}\n${yamlDatierung(d)}\nredaktion:\n  stufe: ${record.redaktion.stufe}\nbearbeitung:\n  status: ${record.bearbeitung.status}\npublikation:\n  status: ${record.publikation.status}\ntechnik:\n  quelle: ${yamlScalar(record.technik.quelle)}\n  erstellt_am: null\n  geaendert_am: null\n---\n`;
 }
 
 function showErrors(messages) {

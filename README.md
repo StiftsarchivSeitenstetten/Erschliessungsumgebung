@@ -107,6 +107,8 @@ Für gegenwärtige und künftige Erfassungsmasken gelten diese allgemeinen UI-Re
 - `Beschriftung` und `Beschreibung` sind fachlich verschiedene, aber ergonomisch gleichwertige große Textfelder mit gleicher Eingabekomponente, gleicher Breite und gleicher sichtbarer Höhe.
 - Dargestellte Personen werden in Erfassungsmasken als wiederholbare Personenzeilen erfasst. Jede Person kann einen Namen und optional einen Hinweis erhalten, zum Beispiel `vermutlich`, `2. von links` oder `Identifizierung laut Beschriftung`.
 - Ehrenamtliche erfassen Datierungen über ein einfaches Feld `Datierung` mit Eingaben wie `1966`, `07.1980` oder `25.12.1980` sowie ein Feld `Anmerkung zur Datierung`. Intern wird daraus weiterhin die strukturierte Datierung für Validierung und Archivis-Export erzeugt.
+- `datierung.original` und `datierung.original_typ` sind optionale Felder für importierte oder ältere Daten. Neue Ehrenamtsdatensätze materialisieren diese Felder nicht leer.
+- `korrespondenzstueck` ist ein boolesches Fotofeld mit Standardwert `false`. Ehrenamtliche erfassen es über eine Checkbox zwischen Erschließung und Datierung; es ist derzeit nicht vorbelegbar.
 - Der Benutzerbegriff für die verbindliche lokale Abschlussaktion lautet `Datensatz speichern`. Technisch setzt diese Aktion die Signatur auf `vergeben`, aktualisiert die lokale Sitzungsinventur und schaltet den Download frei.
 
 ## Vorläufige Repository-Struktur

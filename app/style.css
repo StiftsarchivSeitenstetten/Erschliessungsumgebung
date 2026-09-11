@@ -264,6 +264,14 @@ textarea {
   font: inherit;
 }
 
+input[type="checkbox"] {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+}
+
 textarea {
   resize: vertical;
 }
@@ -299,6 +307,20 @@ textarea {
 
 .person-row input {
   margin-top: 6px;
+}
+
+.checkbox-field {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  width: fit-content;
+  min-height: 52px;
+  padding: 10px 0;
+  font-weight: 800;
+}
+
+.checkbox-field span {
+  line-height: 1.35;
 }
 
 .preset-field-list {
@@ -363,6 +385,12 @@ body.barrierearm textarea {
   line-height: 1.65;
 }
 
+body.barrierearm input[type="checkbox"] {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+}
+
 body.barrierearm label,
 body.barrierearm legend,
 body.barrierearm .label {
@@ -380,6 +408,12 @@ body.barrierearm .field-grid,
 body.barrierearm .date-grid,
 body.barrierearm .person-list {
   gap: 28px;
+}
+
+body.barrierearm .checkbox-field {
+  min-height: 76px;
+  gap: 18px;
+  font-size: 1.12em;
 }
 
 body.barrierearm .person-row {

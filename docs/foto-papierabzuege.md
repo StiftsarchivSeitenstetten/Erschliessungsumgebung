@@ -53,6 +53,8 @@ Die etablierten Erschließungsfelder werden kanonisch im YAML-Frontmatter gespei
 
 Dargestellte Personen werden in der Ehrenamtsmaske als wiederholbare Personenzeilen erfasst. Jede Zeile besitzt ein Feld `Name` und ein Feld `Hinweis`, zum Beispiel `vermutlich`, `2. von links`, `stehend rechts` oder `Identifizierung laut Beschriftung`.
 
+Das Fotofeld `korrespondenzstueck` wird als boolescher Wert geführt. Neue Datensätze erhalten standardmäßig `korrespondenzstueck: false`; eine gesetzte Checkbox erzeugt `korrespondenzstueck: true`. In der Ehrenamtsmaske steht diese Checkbox zwischen Erschließung und Datierung und ist vorerst nicht Teil der Vorbelegungsfunktion.
+
 ## Nummernkreise A-F
 
 Die Formate `A`, `B`, `C`, `D`, `E` und `F` besitzen getrennte fortlaufende Nummernkreise.
@@ -94,6 +96,8 @@ Das Feld `Datierung` akzeptiert einfache Eingaben:
 
 Diese Eingaben werden intern in `jahr`, `monat` und `tag` umgesetzt. Importbezogene Felder wie `original` und `original_typ` bleiben für Altdaten im Modell erhalten, werden in Ehrenamtsmasken aber nicht angezeigt.
 
+Bei neu erfassten Ehrenamtsdatensätzen werden `datierung.original` und `datierung.original_typ` nicht leer ausgegeben. Sie bleiben optionale Felder für importierte oder ältere Daten. Die Bezeichnungen werden vorerst beibehalten, weil eine Umbenennung in `altwert` o. Ä. eine Migration vorhandener Importdaten und Validierungsregeln auslösen würde.
+
 Mindestens möglich sind:
 
 - genaues Datum
@@ -121,6 +125,8 @@ Juli 1980  -> 19800799
 ```
 
 Diese Exportwerte sind Textwerte und sollen später in Excel nicht automatisch in Excel-Datumswerte umgewandelt werden.
+
+Der Pilot-CSV-Export gibt `korrespondenzstueck` zusätzlich als eigene Spalte `Korrespondenzstueck` mit den Werten `Ja` oder `Nein` aus. Eine endgültige Archivis-Zuordnung kann später noch präzisiert werden.
 
 ## Redaktionsstufen
 

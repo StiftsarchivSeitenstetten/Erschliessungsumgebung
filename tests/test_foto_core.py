@@ -1,4 +1,5 @@
 from pathlib import Path
+from copy import deepcopy
 import re
 import unittest
 
@@ -17,6 +18,7 @@ from foto_core import (  # noqa: E402
     load_records,
     next_number,
     parse_simple_date,
+    render_photo_markdown,
     reset_local_session_storage,
     validate_record_schema,
     validate_collection,
@@ -202,6 +204,48 @@ class FotoCoreTest(unittest.TestCase):
         ]
         self.assertEqual(validate_record_schema(record), [])
 
+    def test_schema_accepts_date_without_import_original_fields(self):
+        record = deepcopy(load_records(ROOT / "data" / "fotos")[0].data)
+        record["datierung"].pop("original", None)
+        record["datierung"].pop("original_typ", None)
+        self.assertEqual(validate_record_schema(record), [])
+
+    def test_schema_accepts_imported_date_original_fields(self):
+        record = deepcopy(load_records(ROOT / "data" / "fotos")[0].data)
+        record["datierung"]["original"] = "00.00.1966"
+        record["datierung"]["original_typ"] = "importierte_arbeitsdaten"
+        self.assertEqual(validate_record_schema(record), [])
+
+    def test_new_ehrenamt_markdown_omits_empty_import_original_fields(self):
+        record = deepcopy(load_records(ROOT / "data" / "fotos")[0].data)
+        record["datierung"] = {
+            "jahr": 1966,
+            "monat": None,
+            "tag": None,
+            "anmerkung": "vermutet",
+            "original": None,
+            "original_typ": None,
+        }
+        markdown = render_photo_markdown(record)
+        self.assertIn("datierung:\n", markdown)
+        self.assertIn("  anmerkung: vermutet\n", markdown)
+        self.assertNotIn("  original: null", markdown)
+        self.assertNotIn("  original_typ: null", markdown)
+
+    def test_korrespondenzstueck_false_is_schema_valid_and_serialized(self):
+        record = deepcopy(load_records(ROOT / "data" / "fotos")[0].data)
+        record["korrespondenzstueck"] = False
+        markdown = render_photo_markdown(record)
+        self.assertEqual(validate_record_schema(record), [])
+        self.assertIn("korrespondenzstueck: false\n", markdown)
+
+    def test_korrespondenzstueck_true_is_schema_valid_and_serialized(self):
+        record = deepcopy(load_records(ROOT / "data" / "fotos")[0].data)
+        record["korrespondenzstueck"] = True
+        markdown = render_photo_markdown(record)
+        self.assertEqual(validate_record_schema(record), [])
+        self.assertIn("korrespondenzstueck: true\n", markdown)
+
     def test_fixture_records_validate(self):
         records = load_records(ROOT / "data" / "fotos")
         self.assertEqual(validate_collection(records), [])
@@ -244,6 +288,29 @@ class FotoCoreTest(unittest.TestCase):
 
     def test_redaktion_profile_allows_technical_preview(self):
         self.assertTrue(self.config["ui_profiles"]["redaktion"]["technical_preview"])
+
+    def test_ehrenamt_checkbox_for_korrespondenzstueck_exists(self):
+        html = (ROOT / "app" / "index.html").read_text(encoding="utf-8")
+        self.assertRegex(html, r'<input id="korrespondenzstueck"[^>]+type="checkbox"')
+        self.assertIn("<span>Korrespondenzstück</span>", html)
+        self.assertFalse(self.config["ui_profiles"]["standard"]["technical_preview"])
+        self.assertFalse(self.config["ui_profiles"]["barrierearm"]["technical_preview"])
+
+    def test_barrierearm_profile_styles_korrespondenz_checkbox(self):
+        css = (ROOT / "app" / "style.css").read_text(encoding="utf-8")
+        self.assertIn('body.barrierearm input[type="checkbox"]', css)
+        self.assertIn("body.barrierearm .checkbox-field", css)
+
+    def test_new_record_resets_korrespondenz_checkbox_to_false(self):
+        js = (ROOT / "app" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('document.querySelector("#korrespondenzstueck").checked', js)
+        self.assertIn("function startNewRecord()", js)
+        self.assertIn("form.reset();", js)
+        self.assertNotIn("korrespondenzstueck: {", js)
+
+    def test_korrespondenzstueck_is_not_presettable(self):
+        self.assertNotIn("korrespondenzstueck", self.config["presettable_fields"])
+        self.assertIn("korrespondenzstueck", self.config["never_presettable_fields"])
 
 
 if __name__ == "__main__":

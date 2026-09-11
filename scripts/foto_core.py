@@ -214,6 +214,26 @@ def reset_local_session_storage(storage: dict[str, Any], local_records_key: str 
     storage.pop(local_records_key, None)
 
 
+def normalize_new_photo_record(record: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(record)
+    normalized.setdefault("korrespondenzstueck", False)
+    datierung = dict(normalized.get("datierung", {}))
+    for field in ("original", "original_typ"):
+        if datierung.get(field) in (None, ""):
+            datierung.pop(field, None)
+    normalized["datierung"] = datierung
+    return normalized
+
+
+def render_photo_markdown(record: dict[str, Any], body: str = "") -> str:
+    yaml_text = yaml.safe_dump(
+        normalize_new_photo_record(record),
+        allow_unicode=True,
+        sort_keys=False,
+    )
+    return f"---\n{yaml_text}---\n{body}"
+
+
 def extract_frontmatter(text: str) -> tuple[str, str]:
     if not text.startswith("---\n"):
         raise ValueError("Markdown-Datei beginnt nicht mit YAML-Frontmatter")
