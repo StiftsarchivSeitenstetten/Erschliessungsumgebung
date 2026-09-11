@@ -27,6 +27,10 @@ def create_app() -> FastAPI:
     app.mount("/config", StaticFiles(directory=settings.config_dir), name="config")
     app.mount("/login", StaticFiles(directory=ROOT / "backend" / "static" / "login", html=True), name="login")
 
+    @app.get("/health")
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
     @app.get("/")
     def root() -> RedirectResponse:
         return RedirectResponse("/login/")
