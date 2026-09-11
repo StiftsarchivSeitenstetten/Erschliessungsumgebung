@@ -46,7 +46,11 @@ Beispiel:
 data/fotos/foto-000001.md
 ```
 
-Die Datei `foto-000001.md` wird noch nicht automatisch erzeugt. Sie soll im nächsten Schritt gemeinsam anhand eines realen Fotos entwickelt werden. Erst aus diesem realen Beispieldatensatz werden anschließend Schema, Vokabulare und Formularlogik abgeleitet.
+Der erste Pilotbereich ist `9.4.2 - Einzelne Papierabzüge`. Albumseiten, Negative und Diapositive werden in diesem Pilot noch nicht produktiv umgesetzt.
+
+Innerhalb von `9.4.2` wählen Bearbeiterinnen und Bearbeiter nur das Format `A` bis `F`. Jedes Format besitzt einen eigenen fortlaufenden Nummernkreis. Die Signatur wird nach dem Muster `9.4.2.<FORMAT>.<NUMMER>` gebildet, zum Beispiel `9.4.2.C.500`.
+
+Die Datei `foto-000001.md` wird aus realen Papierabzug-Testdaten entwickelt und dient als Grundlage für Schema, Validierung und Formularlogik.
 
 ## Datenmodell
 
@@ -75,11 +79,23 @@ Eine verbindliche automatische Signaturvergabe darf nicht ausschließlich im Bro
 
 Einmal vergebene Signaturen sollen stabil bleiben. Änderungen an Signaturen sind ein eigener redaktioneller Vorgang.
 
+Der aktuelle Pilot berechnet Signaturvorschläge aus vorhandenen Test- und Bestandsdaten. Das ist noch keine transaktionssichere Mehrbenutzer-Reservierung.
+
 ## Digitalisate
 
 Hochauflösende Masterdateien, insbesondere TIFFs, sollen voraussichtlich nicht dauerhaft in diesem Git-Repository liegen.
 
 Das Repository speichert in erster Linie Erschließungsdaten und Verweise auf Digitalisate, zum Beispiel Dateinamen, Vorschaubilder, spätere URLs oder IIIF-Referenzen.
+
+## Bedienprofile
+
+Datenmodell und Benutzeroberflächen bleiben getrennt. Für den Pilot werden mindestens diese Profile vorbereitet:
+
+- Redaktion
+- Ehrenamt - Standard
+- Ehrenamt - sehbehindert/barrierearm
+
+Die barrierearme Maske soll große Schrift, hohe Kontraste, große Bedienelemente, echte HTML-Labels, sichtbaren Fokus und vollständige Tastaturbedienung unterstützen.
 
 ## Vorläufige Repository-Struktur
 
@@ -92,7 +108,12 @@ Erschliessungsumgebung/
 ├── schemas/
 ├── vocabularies/
 ├── signatures/
+├── presets/
+├── ui/
+├── exports/
+├── docs/
 ├── scripts/
+├── tests/
 └── .github/
     └── workflows/
 ```
@@ -115,3 +136,7 @@ Die Struktur ist bewusst vorläufig. Sie darf angepasst werden, wenn sich beim A
    - wie die Signatur tatsächlich aufgebaut ist.
 5. Erst danach `schemas/foto.schema.json` entwickeln.
 6. Erst danach das erste Erfassungsformular bauen.
+
+## Lokaler Pilot
+
+Der statische Pilot im Verzeichnis `app/` darf keine GitHub-Tokens speichern oder verlangen. Er erzeugt lokal YAML/Markdown, zeigt eine Vorschau und kann Datensätze herunterladen. Produktives Schreiben nach GitHub, Benutzerrollen und kollisionssichere Signaturvergabe bleiben spätere Arbeitsschritte.
