@@ -140,3 +140,23 @@ Die Struktur ist bewusst vorläufig. Sie darf angepasst werden, wenn sich beim A
 ## Lokaler Pilot
 
 Der statische Pilot im Verzeichnis `app/` darf keine GitHub-Tokens speichern oder verlangen. Er erzeugt lokal YAML/Markdown, zeigt eine Vorschau und kann Datensätze herunterladen. Produktives Schreiben nach GitHub, Benutzerrollen und kollisionssichere Signaturvergabe bleiben spätere Arbeitsschritte.
+
+Lokal starten:
+
+```bash
+python3 -m http.server 8765
+```
+
+Danach im Browser öffnen:
+
+```text
+http://127.0.0.1:8765/app/
+```
+
+Tests und Validierung:
+
+```bash
+python3 -m unittest discover -s tests
+python3 scripts/validate.py
+python3 exports/archivis/export.py
+```
