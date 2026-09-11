@@ -16,6 +16,7 @@ from foto_core import (  # noqa: E402
     load_config,
     load_records,
     next_number,
+    parse_simple_date,
     reset_local_session_storage,
     validate_record_schema,
     validate_collection,
@@ -177,6 +178,30 @@ class FotoCoreTest(unittest.TestCase):
             "19801225",
         )
 
+    def test_parse_simple_dates_for_ehrenamt(self):
+        self.assertEqual(parse_simple_date("1966"), {"jahr": 1966, "monat": None, "tag": None})
+        self.assertEqual(parse_simple_date("07.1980"), {"jahr": 1980, "monat": 7, "tag": None})
+        self.assertEqual(parse_simple_date("25.12.1980"), {"jahr": 1980, "monat": 12, "tag": 25})
+
+    def test_parse_simple_date_rejects_invalid_values(self):
+        for value in ("1980.07", "32.12.1980", "13.1980", "Sommer 1980"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    parse_simple_date(value)
+
+    def test_datierung_anmerkung_is_schema_valid(self):
+        record = load_records(ROOT / "data" / "fotos")[0].data
+        record["datierung"]["anmerkung"] = "Datierung auf dem Foto notiert."
+        self.assertEqual(validate_record_schema(record), [])
+
+    def test_persons_with_and_without_hinweis_are_schema_valid(self):
+        record = load_records(ROOT / "data" / "fotos")[0].data
+        record["erschliessung"]["dargestellte_personen"] = [
+            {"name": "Kurzwernhart, Albert", "hinweis": "2. von links"},
+            {"name": "Raus, Otto", "hinweis": None},
+        ]
+        self.assertEqual(validate_record_schema(record), [])
+
     def test_fixture_records_validate(self):
         records = load_records(ROOT / "data" / "fotos")
         self.assertEqual(validate_collection(records), [])
@@ -205,6 +230,20 @@ class FotoCoreTest(unittest.TestCase):
         html = (ROOT / "app" / "index.html").read_text(encoding="utf-8")
         self.assertIn("Datensatz speichern", html)
         self.assertNotIn("Datensatz abschließen", html)
+
+    def test_ehrenamt_profiles_have_no_technical_preview(self):
+        profiles = self.config["ui_profiles"]
+        self.assertFalse(profiles["standard"]["technical_preview"])
+        self.assertFalse(profiles["barrierearm"]["technical_preview"])
+
+    def test_ehrenamt_profiles_need_no_preview_step_before_save(self):
+        html = (ROOT / "app" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('class="form-section technical-panel"', html)
+        self.assertIn('id="generate">Vorschau erzeugen', html)
+        self.assertIn('class="form-section technical-panel" aria-labelledby="technical-heading" hidden', html)
+
+    def test_redaktion_profile_allows_technical_preview(self):
+        self.assertTrue(self.config["ui_profiles"]["redaktion"]["technical_preview"])
 
 
 if __name__ == "__main__":

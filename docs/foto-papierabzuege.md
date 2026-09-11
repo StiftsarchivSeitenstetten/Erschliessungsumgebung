@@ -51,6 +51,8 @@ Die etablierten Erschließungsfelder werden kanonisch im YAML-Frontmatter gespei
 
 `Beschriftung` und `Beschreibung` bleiben fachlich getrennt. In Erfassungsmasken werden sie als gleichwertige große Textfelder mit gleicher Eingabekomponente, gleicher Breite und gleicher sichtbarer Höhe dargestellt.
 
+Dargestellte Personen werden in der Ehrenamtsmaske als wiederholbare Personenzeilen erfasst. Jede Zeile besitzt ein Feld `Name` und ein Feld `Hinweis`, zum Beispiel `vermutlich`, `2. von links`, `stehend rechts` oder `Identifizierung laut Beschriftung`.
+
 ## Nummernkreise A-F
 
 Die Formate `A`, `B`, `C`, `D`, `E` und `F` besitzen getrennte fortlaufende Nummernkreise.
@@ -59,7 +61,7 @@ Ein neuer Vorschlag für `A` wird nur aus vorhandenen `A`-Signaturen berechnet. 
 
 Im Pilot wird die nächste Nummer aus vorhandenen lokalen Test- und Bestandsdaten berechnet. Das ist noch keine transaktionssichere Mehrbenutzer-Reservierung.
 
-Der Browser merkt sich zusätzlich lokal gespeicherte, noch nicht nach GitHub geschriebene Datensätze in `localStorage`. Das Erzeugen oder Aktualisieren einer Vorschau verbraucht noch keine technische ID und keine Signaturnummer. Erst `Datensatz speichern` setzt die Signatur auf `vergeben`, erzeugt die herunterladbare kanonische Markdown-Datei und nimmt den Datensatz in die lokale Sitzungsinventur auf.
+Der Browser merkt sich zusätzlich lokal gespeicherte, noch nicht nach GitHub geschriebene Datensätze in `localStorage`. In Ehrenamtsprofilen gibt es keinen sichtbaren YAML-Vorschau-Schritt. `Datensatz speichern` validiert die Eingaben, setzt die Signatur auf `vergeben`, erzeugt im Hintergrund die kanonische Markdown-Datei und nimmt den Datensatz in die lokale Sitzungsinventur auf.
 
 Nach erfolgreichem Speichern kann derselbe Datensatz nicht erneut gespeichert werden. Mit `Neuer Datensatz` beginnt der nächste lokale Draft; dann werden technische ID und Nummer des gewählten Formats fortgeführt.
 
@@ -74,9 +76,23 @@ datierung:
   jahr: 1980
   monat: 7
   tag: null
+  anmerkung: "Datierung auf der Rückseite notiert."
   original: "00.07.1980"
   original_typ: "importierte_arbeitsdaten"
 ```
+
+In Ehrenamtsprofilen wird diese Struktur nicht technisch angezeigt. Dort gibt es nur:
+
+- `Datierung`
+- `Anmerkung zur Datierung`
+
+Das Feld `Datierung` akzeptiert einfache Eingaben:
+
+- `1966`
+- `07.1980`
+- `25.12.1980`
+
+Diese Eingaben werden intern in `jahr`, `monat` und `tag` umgesetzt. Importbezogene Felder wie `original` und `original_typ` bleiben für Altdaten im Modell erhalten, werden in Ehrenamtsmasken aber nicht angezeigt.
 
 Mindestens möglich sind:
 
@@ -131,6 +147,8 @@ Nicht vorbelegbar sind insbesondere:
 - technische Bearbeitungsprovenienz
 
 Im Webpilot kann die aktive Vorbelegung in `localStorage` gespeichert werden.
+
+In der Ehrenamtsmaske steht die Vorbelegung am Ende der Arbeitsmaske. Der normale Arbeitsfluss bleibt: Signatur/Format, Erfassungsfelder, Datensatz speichern, neuer Datensatz, Vorbelegung und Pilot-/Wartungsfunktionen.
 
 Vorbelegbar sind nur fachliche Erschließungsfelder, darunter Herkunft, Titel, Beschriftung, Beschreibung, Datierung, dargestellte Personen, Sammler, Fotograf, Rechteinhaber, Orte, Schlagworte, Altsignaturen und interne Bemerkung.
 

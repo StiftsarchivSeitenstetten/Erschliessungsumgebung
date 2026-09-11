@@ -49,23 +49,6 @@
           </div>
         </section>
 
-        <section class="form-section" aria-labelledby="preset-heading">
-          <div class="section-title-row">
-            <h2 id="preset-heading">Vorbelegung</h2>
-            <div class="button-row">
-              <button type="button" id="edit-preset">Vorbelegung bearbeiten</button>
-              <button type="button" id="disable-preset">Vorbelegung deaktivieren</button>
-              <button type="button" id="adopt-preset">Aktuelle Werte übernehmen</button>
-            </div>
-          </div>
-          <p id="preset-status" class="help-text" aria-live="polite"></p>
-          <div id="preset-editor" class="preset-editor" hidden>
-            <p class="help-text">Wähle aus, welche aktuellen fachlichen Felder künftig automatisch vorbelegt werden.</p>
-            <div id="preset-field-list" class="preset-field-list"></div>
-            <button type="button" id="save-preset">Vorbelegung speichern</button>
-          </div>
-        </section>
-
         <section class="form-section" aria-labelledby="metadata-heading">
           <h2 id="metadata-heading">Erschließung</h2>
           <div class="field-grid">
@@ -81,10 +64,11 @@
               <label for="beschreibung">Beschreibung</label>
               <textarea id="beschreibung" name="beschreibung" rows="4"></textarea>
             </div>
-            <div class="field">
+            <div class="field wide" data-field-wrapper="dargestellte_personen">
               <label for="personen">Dargestellte Personen</label>
-              <input id="personen" name="personen" type="text" aria-describedby="personen-help">
-              <p id="personen-help" class="help-text">Mehrere Werte mit Semikolon trennen.</p>
+              <div id="personen-list" class="person-list"></div>
+              <button type="button" id="add-person">Person hinzufügen</button>
+              <p id="personen-help" class="help-text">Je Person können Name und Hinweis erfasst werden, zum Beispiel „vermutlich“ oder „2. von links“.</p>
             </div>
             <div class="field">
               <label for="herkunft">Herkunft</label>
@@ -127,19 +111,16 @@
         <section class="form-section" aria-labelledby="date-heading">
           <h2 id="date-heading">Datierung</h2>
           <div class="date-grid">
-            <div class="field">
-              <label for="jahr">Jahr</label>
-              <input id="jahr" name="jahr" inputmode="numeric" pattern="[0-9]*">
+            <div class="field" data-field-wrapper="datierung">
+              <label for="datierung-einfach">Datierung</label>
+              <input id="datierung-einfach" name="datierung-einfach" type="text" inputmode="numeric" aria-describedby="datierung-help">
+              <p id="datierung-help" class="help-text">Möglich sind 1966, 07.1980 oder 25.12.1980.</p>
             </div>
-            <div class="field">
-              <label for="monat">Monat</label>
-              <input id="monat" name="monat" inputmode="numeric" pattern="[0-9]*">
+            <div class="field" data-field-wrapper="datierung">
+              <label for="datierung-anmerkung">Anmerkung zur Datierung</label>
+              <textarea id="datierung-anmerkung" name="datierung-anmerkung" rows="3"></textarea>
             </div>
-            <div class="field">
-              <label for="tag">Tag</label>
-              <input id="tag" name="tag" inputmode="numeric" pattern="[0-9]*">
-            </div>
-            <div class="field">
+            <div class="field technical-date-field" data-field-wrapper="datierung" hidden>
               <label for="original-datum">Originaldatum aus Altdaten</label>
               <input id="original-datum" name="original-datum" type="text">
             </div>
@@ -151,11 +132,16 @@
           <h2 id="actions-heading">Prüfen und erzeugen</h2>
           <div id="errors" class="errors" aria-live="assertive"></div>
           <div class="button-row">
-            <button type="button" id="generate">Vorschau erzeugen</button>
             <button type="button" id="finalize" disabled>Datensatz speichern</button>
-            <button type="button" id="download" disabled>Markdown herunterladen</button>
             <button type="button" id="new-record">Neuer Datensatz</button>
-            <button type="button" id="reset-session" class="danger-button">Lokale Sitzungsdaten zurücksetzen</button>
+          </div>
+        </section>
+
+        <section class="form-section technical-panel" aria-labelledby="technical-heading" hidden>
+          <h2 id="technical-heading">Technische Vorschau</h2>
+          <div class="button-row">
+            <button type="button" id="generate">Vorschau erzeugen</button>
+            <button type="button" id="download" disabled>Markdown herunterladen</button>
           </div>
           <div class="preview-grid">
             <div class="field">
@@ -163,6 +149,28 @@
               <textarea id="preview" rows="20" readonly></textarea>
             </div>
           </div>
+        </section>
+
+        <section class="form-section" aria-labelledby="preset-heading">
+          <div class="section-title-row">
+            <h2 id="preset-heading">Vorbelegung</h2>
+            <div class="button-row">
+              <button type="button" id="edit-preset">Vorbelegung bearbeiten</button>
+              <button type="button" id="disable-preset">Vorbelegung deaktivieren</button>
+              <button type="button" id="adopt-preset">Aktuelle Werte übernehmen</button>
+            </div>
+          </div>
+          <p id="preset-status" class="help-text" aria-live="polite"></p>
+          <div id="preset-editor" class="preset-editor" hidden>
+            <p class="help-text">Wähle aus, welche aktuellen fachlichen Felder künftig automatisch vorbelegt werden.</p>
+            <div id="preset-field-list" class="preset-field-list"></div>
+            <button type="button" id="save-preset">Vorbelegung speichern</button>
+          </div>
+        </section>
+
+        <section class="form-section maintenance-panel" aria-labelledby="maintenance-heading">
+          <h2 id="maintenance-heading">Pilot-/Wartungsfunktionen</h2>
+          <button type="button" id="reset-session" class="danger-button">Lokale Sitzungsdaten zurücksetzen</button>
         </section>
       </form>
     </main>

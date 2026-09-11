@@ -46,6 +46,7 @@
     "standard": {
       "role": "ehrenamt",
       "label": "Ehrenamt - Standard",
+      "technical_preview": false,
       "editable_fields": [
         "beschriftung",
         "beschreibung",
@@ -64,6 +65,7 @@
     "barrierearm": {
       "role": "ehrenamt",
       "label": "Ehrenamt - sehbehindert/barrierearm",
+      "technical_preview": false,
       "editable_fields": [
         "beschriftung",
         "beschreibung",
@@ -82,6 +84,7 @@
     "redaktion": {
       "role": "redaktion",
       "label": "Redaktion",
+      "technical_preview": true,
       "editable_fields": [
         "titel",
         "beschriftung",

@@ -105,6 +105,8 @@ Für gegenwärtige und künftige Erfassungsmasken gelten diese allgemeinen UI-Re
 
 - `Titel` ist ein redaktionelles Feld. Ehrenamtliche erfassen keinen Titel; in ehrenamtlichen Erfassungsmasken wird das Eingabefeld nicht angezeigt.
 - `Beschriftung` und `Beschreibung` sind fachlich verschiedene, aber ergonomisch gleichwertige große Textfelder mit gleicher Eingabekomponente, gleicher Breite und gleicher sichtbarer Höhe.
+- Dargestellte Personen werden in Erfassungsmasken als wiederholbare Personenzeilen erfasst. Jede Person kann einen Namen und optional einen Hinweis erhalten, zum Beispiel `vermutlich`, `2. von links` oder `Identifizierung laut Beschriftung`.
+- Ehrenamtliche erfassen Datierungen über ein einfaches Feld `Datierung` mit Eingaben wie `1966`, `07.1980` oder `25.12.1980` sowie ein Feld `Anmerkung zur Datierung`. Intern wird daraus weiterhin die strukturierte Datierung für Validierung und Archivis-Export erzeugt.
 - Der Benutzerbegriff für die verbindliche lokale Abschlussaktion lautet `Datensatz speichern`. Technisch setzt diese Aktion die Signatur auf `vergeben`, aktualisiert die lokale Sitzungsinventur und schaltet den Download frei.
 
 ## Vorläufige Repository-Struktur
@@ -146,7 +148,7 @@ Als nächstes vorgesehen:
 
 ## Lokaler Pilot
 
-Der statische Pilot im Verzeichnis `app/` darf keine GitHub-Tokens speichern oder verlangen. Er erzeugt lokal YAML/Markdown, zeigt eine Vorschau und kann gespeicherte Datensätze herunterladen. Produktives Schreiben nach GitHub, Benutzerrollen und kollisionssichere Signaturvergabe bleiben spätere Arbeitsschritte.
+Der statische Pilot im Verzeichnis `app/` darf keine GitHub-Tokens speichern oder verlangen. Ehrenamtliche speichern direkt über `Datensatz speichern`; YAML/Markdown-Erzeugung und Validierung laufen dabei im Hintergrund. Eine technische YAML-Vorschau bleibt nur für das Redaktions-/Entwicklungsprofil verfügbar. Produktives Schreiben nach GitHub, Benutzerrollen und kollisionssichere Signaturvergabe bleiben spätere Arbeitsschritte.
 
 Innerhalb einer lokalen Arbeitssitzung merkt sich der Browser gespeicherte, noch nicht nach GitHub geschriebene Datensätze in `localStorage`. Das reine Erzeugen oder Aktualisieren der Vorschau verbraucht noch keine technische ID und keine Signaturnummer. Erst die Aktion `Datensatz speichern` setzt die Signatur auf `vergeben`, erzeugt die herunterladbare kanonische Fassung und nimmt den Datensatz in die lokale Sitzungsinventur auf. Diese lokale Fortschreibung ist weiterhin keine produktive Mehrbenutzer-Reservierung.
 

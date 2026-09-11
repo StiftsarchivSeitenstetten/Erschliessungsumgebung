@@ -136,6 +136,35 @@ def archivis_date_value(datierung: dict[str, Any]) -> str:
     return f"{int(year):04d}{int(month):02d}{int(day):02d}"
 
 
+def parse_simple_date(value: str) -> dict[str, int | None]:
+    value = value.strip()
+    if not value:
+        return {"jahr": None, "monat": None, "tag": None}
+    year_only = re.fullmatch(r"([0-9]{4})", value)
+    if year_only:
+        return {"jahr": int(year_only.group(1)), "monat": None, "tag": None}
+    month_year = re.fullmatch(r"([0-9]{1,2})\.([0-9]{4})", value)
+    if month_year:
+        month = int(month_year.group(1))
+        year = int(month_year.group(2))
+        datierung = {"jahr": year, "monat": month, "tag": None}
+        errors = validate_datierung(datierung)
+        if errors:
+            raise ValueError("; ".join(errors))
+        return datierung
+    day_month_year = re.fullmatch(r"([0-9]{1,2})\.([0-9]{1,2})\.([0-9]{4})", value)
+    if day_month_year:
+        day = int(day_month_year.group(1))
+        month = int(day_month_year.group(2))
+        year = int(day_month_year.group(3))
+        datierung = {"jahr": year, "monat": month, "tag": day}
+        errors = validate_datierung(datierung)
+        if errors:
+            raise ValueError("; ".join(errors))
+        return datierung
+    raise ValueError("Datierung muss als JJJJ, MM.JJJJ oder TT.MM.JJJJ eingegeben werden")
+
+
 def next_number(records: list[dict[str, Any]], format_code: str, config: dict[str, Any] | None = None) -> int:
     formats = valid_formats(config)
     format_code = format_code.upper()

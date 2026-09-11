@@ -29,7 +29,7 @@ const fieldMap = {
   titel: { label: "Titel", kind: "scalar", selector: "#titel" },
   beschriftung: { label: "Beschriftung", kind: "scalar", selector: "#beschriftung" },
   beschreibung: { label: "Beschreibung", kind: "scalar", selector: "#beschreibung" },
-  dargestellte_personen: { label: "Dargestellte Personen", kind: "list", selector: "#personen" },
+  dargestellte_personen: { label: "Dargestellte Personen", kind: "persons", selector: "#personen-list" },
   herkunft: { label: "Herkunft", kind: "scalar", selector: "#herkunft" },
   sammler: { label: "Sammler", kind: "scalar", selector: "#sammler" },
   fotograf: { label: "Fotograf", kind: "scalar", selector: "#fotograf" },
@@ -45,6 +45,7 @@ async function init() {
   config = await loadConfig();
   state.inventory = [...config.existing_records, ...loadLocalRecords()];
   buildFormatOptions();
+  addPersonRow();
   bindEvents();
   setProfile(localStorage.getItem(PROFILE_KEY) || "standard");
   applyPreset({ onlyEmpty: true });
@@ -81,14 +82,13 @@ function bindEvents() {
     button.addEventListener("click", () => setProfile(button.dataset.profile));
   });
 
-  ["jahr", "monat", "tag"].forEach((id) => {
-    document.querySelector(`#${id}`).addEventListener("input", updateArchivisDate);
-  });
+  document.querySelector("#datierung-einfach").addEventListener("input", updateArchivisDate);
 
   document.querySelector("#generate").addEventListener("click", generateRecord);
   finalizeButton.addEventListener("click", finalizeRecord);
   document.querySelector("#new-record").addEventListener("click", startNewRecord);
   document.querySelector("#reset-session").addEventListener("click", resetLocalSessionRecords);
+  document.querySelector("#add-person").addEventListener("click", () => addPersonRow());
   downloadButton.addEventListener("click", downloadMarkdown);
 
   document.querySelector("#edit-preset").addEventListener("click", () => {
@@ -170,6 +170,18 @@ function parseIntegerField(id) {
   return Number(value);
 }
 
+function parseSimpleDate(value) {
+  const trimmed = value.trim();
+  if (!trimmed) return { jahr: null, monat: null, tag: null };
+  let match = trimmed.match(/^([0-9]{4})$/);
+  if (match) return { jahr: Number(match[1]), monat: null, tag: null };
+  match = trimmed.match(/^([0-9]{1,2})\.([0-9]{4})$/);
+  if (match) return { jahr: Number(match[2]), monat: Number(match[1]), tag: null };
+  match = trimmed.match(/^([0-9]{1,2})\.([0-9]{1,2})\.([0-9]{4})$/);
+  if (match) return { jahr: Number(match[3]), monat: Number(match[2]), tag: Number(match[1]) };
+  return { jahr: Number.NaN, monat: Number.NaN, tag: Number.NaN };
+}
+
 function archivisDateValue({ jahr, monat, tag }) {
   if (!jahr) return "";
   if (!monat) return `${String(jahr).padStart(4, "0")}9999`;
@@ -188,11 +200,47 @@ function joinList(values) {
   return Array.isArray(values) ? values.join("; ") : "";
 }
 
+function addPersonRow(person = { name: "", hinweis: "" }) {
+  const list = document.querySelector("#personen-list");
+  const row = document.createElement("div");
+  row.className = "person-row";
+  row.innerHTML = `
+    <div class="field">
+      <label>Name <input class="person-name" type="text" value="${escapeAttribute(person.name || "")}"></label>
+    </div>
+    <div class="field">
+      <label>Hinweis <input class="person-hinweis" type="text" value="${escapeAttribute(person.hinweis || "")}"></label>
+    </div>
+    <button type="button" class="remove-person">Person entfernen</button>
+  `;
+  row.querySelector(".remove-person").addEventListener("click", () => {
+    row.remove();
+    if (!list.querySelector(".person-row")) addPersonRow();
+  });
+  list.append(row);
+}
+
+function escapeAttribute(value) {
+  return String(value).replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
+}
+
+function readPersons() {
+  return Array.from(document.querySelectorAll(".person-row"))
+    .map((row) => ({
+      name: row.querySelector(".person-name").value.trim(),
+      hinweis: row.querySelector(".person-hinweis").value.trim() || null
+    }))
+    .filter((person) => person.name || person.hinweis)
+    .map((person) => ({ name: person.name, hinweis: person.hinweis }));
+}
+
 function readDatierung() {
+  const parsed = parseSimpleDate(document.querySelector("#datierung-einfach").value);
   return {
-    jahr: parseIntegerField("jahr"),
-    monat: parseIntegerField("monat"),
-    tag: parseIntegerField("tag"),
+    jahr: parsed.jahr,
+    monat: parsed.monat,
+    tag: parsed.tag,
+    anmerkung: document.querySelector("#datierung-anmerkung").value.trim() || null,
     original: document.querySelector("#original-datum").value.trim() || null,
     original_typ: document.querySelector("#original-datum").value.trim() ? "importierte_arbeitsdaten" : null
   };
@@ -210,7 +258,7 @@ function readRecord() {
       titel: readScalar("titel"),
       beschriftung: readScalar("beschriftung"),
       beschreibung: readScalar("beschreibung"),
-      dargestellte_personen: splitList(document.querySelector("#personen").value).map((name) => ({ name, hinweis: null })),
+      dargestellte_personen: readPersons(),
       herkunft: readScalar("herkunft"),
       sammler: readScalar("sammler"),
       fotograf: readScalar("fotograf"),
@@ -243,20 +291,26 @@ function isFieldEditable(field) {
 function validate(record) {
   const messages = [];
   if (!record.signatur) messages.push("Bitte ein Format wählen.");
-  if (record.datierung.jahr !== null && (Number.isNaN(record.datierung.jahr) || record.datierung.jahr < 1 || record.datierung.jahr > 9999)) {
+  if (
+    Number.isNaN(record.datierung.jahr) ||
+    Number.isNaN(record.datierung.monat) ||
+    Number.isNaN(record.datierung.tag)
+  ) {
+    messages.push("Die Datierung muss als JJJJ, MM.JJJJ oder TT.MM.JJJJ eingegeben werden.");
+  } else if (record.datierung.jahr !== null && (record.datierung.jahr < 1 || record.datierung.jahr > 9999)) {
     messages.push("Das Jahr muss eine Zahl zwischen 1 und 9999 sein.");
-  }
-  if (record.datierung.monat !== null && (Number.isNaN(record.datierung.monat) || record.datierung.monat < 1 || record.datierung.monat > 12)) {
+  } else if (record.datierung.monat !== null && (record.datierung.monat < 1 || record.datierung.monat > 12)) {
     messages.push("Der Monat muss leer oder eine Zahl zwischen 1 und 12 sein.");
-  }
-  if (record.datierung.tag !== null && (Number.isNaN(record.datierung.tag) || record.datierung.tag < 1 || record.datierung.tag > 31)) {
-    messages.push("Der Tag muss leer oder eine Zahl zwischen 1 und 31 sein.");
-  }
-  if (record.datierung.monat !== null && record.datierung.jahr === null) {
-    messages.push("Ein Monat darf nicht ohne Jahr erfasst werden.");
-  }
-  if (record.datierung.tag !== null && record.datierung.monat === null) {
-    messages.push("Ein Tag darf nicht ohne Monat erfasst werden.");
+  } else if (record.datierung.tag !== null) {
+    const date = new Date(record.datierung.jahr, record.datierung.monat - 1, record.datierung.tag);
+    if (
+      record.datierung.tag < 1 ||
+      date.getFullYear() !== record.datierung.jahr ||
+      date.getMonth() !== record.datierung.monat - 1 ||
+      date.getDate() !== record.datierung.tag
+    ) {
+      messages.push("Der Tag passt nicht zum angegebenen Monat und Jahr.");
+    }
   }
   if (!record.erschliessung.beschriftung && !record.erschliessung.beschreibung) {
     messages.push("Bitte mindestens Beschriftung oder Beschreibung erfassen.");
@@ -283,7 +337,7 @@ function toMarkdown(record) {
   const e = record.erschliessung;
   const d = record.datierung;
   const s = record.signatur;
-  return `---\nschema_version: 1\nid: ${record.id}\ndatensatz_typ: ${record.datensatz_typ}\nmodul: ${record.modul}\nsignatur:\n  bestand: ${yamlScalar(s.bestand)}\n  objektgruppe: ${yamlScalar(s.objektgruppe)}\n  format: ${yamlScalar(s.format)}\n  nummer: ${s.nummer}\n  anzeige: ${yamlScalar(s.anzeige)}\n  status: ${s.status}\nerschliessung:\n  titel: ${yamlScalar(e.titel)}\n  beschriftung: ${yamlScalar(e.beschriftung)}\n  beschreibung: ${yamlScalar(e.beschreibung)}\n  dargestellte_personen: ${yamlPersonList(e.dargestellte_personen)}\n  herkunft: ${yamlScalar(e.herkunft)}\n  sammler: ${yamlScalar(e.sammler)}\n  fotograf: ${yamlScalar(e.fotograf)}\n  rechteinhaber: ${yamlScalar(e.rechteinhaber)}\n  orte: ${yamlList(e.orte, "    ")}\n  schlagworte: ${yamlList(e.schlagworte, "    ")}\n  altsignaturen: ${yamlList(e.altsignaturen, "    ")}\n  interne_bemerkung: ${yamlScalar(e.interne_bemerkung)}\ndatierung:\n  jahr: ${d.jahr ?? "null"}\n  monat: ${d.monat ?? "null"}\n  tag: ${d.tag ?? "null"}\n  original: ${yamlScalar(d.original)}\n  original_typ: ${yamlScalar(d.original_typ)}\nredaktion:\n  stufe: ${record.redaktion.stufe}\nbearbeitung:\n  status: ${record.bearbeitung.status}\npublikation:\n  status: ${record.publikation.status}\ntechnik:\n  quelle: ${yamlScalar(record.technik.quelle)}\n  erstellt_am: null\n  geaendert_am: null\n---\n`;
+  return `---\nschema_version: 1\nid: ${record.id}\ndatensatz_typ: ${record.datensatz_typ}\nmodul: ${record.modul}\nsignatur:\n  bestand: ${yamlScalar(s.bestand)}\n  objektgruppe: ${yamlScalar(s.objektgruppe)}\n  format: ${yamlScalar(s.format)}\n  nummer: ${s.nummer}\n  anzeige: ${yamlScalar(s.anzeige)}\n  status: ${s.status}\nerschliessung:\n  titel: ${yamlScalar(e.titel)}\n  beschriftung: ${yamlScalar(e.beschriftung)}\n  beschreibung: ${yamlScalar(e.beschreibung)}\n  dargestellte_personen: ${yamlPersonList(e.dargestellte_personen)}\n  herkunft: ${yamlScalar(e.herkunft)}\n  sammler: ${yamlScalar(e.sammler)}\n  fotograf: ${yamlScalar(e.fotograf)}\n  rechteinhaber: ${yamlScalar(e.rechteinhaber)}\n  orte: ${yamlList(e.orte, "    ")}\n  schlagworte: ${yamlList(e.schlagworte, "    ")}\n  altsignaturen: ${yamlList(e.altsignaturen, "    ")}\n  interne_bemerkung: ${yamlScalar(e.interne_bemerkung)}\ndatierung:\n  jahr: ${d.jahr ?? "null"}\n  monat: ${d.monat ?? "null"}\n  tag: ${d.tag ?? "null"}\n  anmerkung: ${yamlScalar(d.anmerkung)}\n  original: ${yamlScalar(d.original)}\n  original_typ: ${yamlScalar(d.original_typ)}\nredaktion:\n  stufe: ${record.redaktion.stufe}\nbearbeitung:\n  status: ${record.bearbeitung.status}\npublikation:\n  status: ${record.publikation.status}\ntechnik:\n  quelle: ${yamlScalar(record.technik.quelle)}\n  erstellt_am: null\n  geaendert_am: null\n---\n`;
 }
 
 function showErrors(messages) {
@@ -303,11 +357,13 @@ function updateSignatureOutput() {
   if (!state.format) {
     numberOutput.textContent = "-";
     signatureOutput.textContent = "Bitte Format wählen";
+    finalizeButton.disabled = true;
     return;
   }
   const number = nextNumber(state.format);
   numberOutput.textContent = String(number);
   signatureOutput.textContent = buildSignature(state.format, number).anzeige;
+  finalizeButton.disabled = state.finalizedCurrentDraft;
 }
 
 function updateArchivisDate() {
@@ -372,6 +428,8 @@ function loadLocalRecords() {
 function startNewRecord() {
   const selectedFormat = state.format;
   form.reset();
+  document.querySelector("#personen-list").innerHTML = "";
+  addPersonRow();
   if (selectedFormat) {
     const input = document.querySelector(`input[name='format'][value='${selectedFormat}']`);
     input.checked = true;
@@ -480,7 +538,10 @@ function readCurrentValuesAsPreset({ includeEmpty }) {
     if (!definition) return;
     if (definition.kind === "date") {
       const value = readDatierung();
-      if (includeEmpty || value.jahr || value.monat || value.tag || value.original) values[field] = value;
+      if (includeEmpty || value.jahr || value.monat || value.tag || value.anmerkung || value.original) values[field] = value;
+    } else if (definition.kind === "persons") {
+      const value = readPersons();
+      if (includeEmpty || value.length) values[field] = value;
     } else if (definition.kind === "list") {
       const value = splitList(document.querySelector(definition.selector).value);
       if (includeEmpty || value.length) values[field] = value;
@@ -504,6 +565,8 @@ function applyPreset({ onlyEmpty }) {
     if (!definition) return;
     if (definition.kind === "date") {
       applyDatePreset(value, onlyEmpty);
+    } else if (definition.kind === "persons") {
+      applyPersonsPreset(value, onlyEmpty);
     } else if (definition.kind === "list") {
       const element = document.querySelector(definition.selector);
       if (!onlyEmpty || !element.value.trim()) element.value = joinList(value);
@@ -516,17 +579,30 @@ function applyPreset({ onlyEmpty }) {
 }
 
 function applyDatePreset(value, onlyEmpty) {
-  const fields = [
-    ["jahr", value?.jahr],
-    ["monat", value?.monat],
-    ["tag", value?.tag],
-    ["original-datum", value?.original]
-  ];
-  fields.forEach(([id, fieldValue]) => {
-    const element = document.querySelector(`#${id}`);
-    if (!onlyEmpty || !element.value.trim()) element.value = fieldValue ?? "";
-  });
+  const dateValue = formatSimpleDate(value || {});
+  const dateInput = document.querySelector("#datierung-einfach");
+  const noteInput = document.querySelector("#datierung-anmerkung");
+  const originalInput = document.querySelector("#original-datum");
+  if (!onlyEmpty || !dateInput.value.trim()) dateInput.value = dateValue;
+  if (!onlyEmpty || !noteInput.value.trim()) noteInput.value = value?.anmerkung ?? "";
+  if (!onlyEmpty || !originalInput.value.trim()) originalInput.value = value?.original ?? "";
   updateArchivisDate();
+}
+
+function formatSimpleDate(value) {
+  if (!value?.jahr) return "";
+  if (!value.monat) return String(value.jahr);
+  if (!value.tag) return `${String(value.monat).padStart(2, "0")}.${value.jahr}`;
+  return `${String(value.tag).padStart(2, "0")}.${String(value.monat).padStart(2, "0")}.${value.jahr}`;
+}
+
+function applyPersonsPreset(value, onlyEmpty) {
+  const hasExisting = readPersons().length > 0;
+  if (onlyEmpty && hasExisting) return;
+  const list = document.querySelector("#personen-list");
+  list.innerHTML = "";
+  const persons = Array.isArray(value) && value.length ? value : [{ name: "", hinweis: "" }];
+  persons.forEach((person) => addPersonRow(person));
 }
 
 function setProfile(profile) {
@@ -537,8 +613,26 @@ function setProfile(profile) {
   });
   localStorage.setItem(PROFILE_KEY, profile);
   applyFieldPermissions(profile);
+  applyTechnicalVisibility(profile);
   buildPresetEditor();
   syncPresetEditor();
+}
+
+function applyTechnicalVisibility(profile) {
+  const isTechnicalProfile = Boolean(config.ui_profiles?.[profile]?.technical_preview);
+  document.querySelectorAll(".technical-panel, .technical-date-field").forEach((element) => {
+    element.hidden = !isTechnicalProfile;
+    element.querySelectorAll?.("input, textarea, button").forEach((control) => {
+      control.disabled = !isTechnicalProfile;
+    });
+  });
+  generateButton.hidden = !isTechnicalProfile;
+  if (!isTechnicalProfile) {
+    generateButton.disabled = true;
+    downloadButton.disabled = true;
+  } else if (!state.finalizedCurrentDraft) {
+    generateButton.disabled = false;
+  }
 }
 
 function applyFieldPermissions(profile) {

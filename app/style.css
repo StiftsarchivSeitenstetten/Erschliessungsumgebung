@@ -249,6 +249,10 @@ label,
   grid-column: 1 / -1;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 input,
 textarea {
   width: 100%;
@@ -271,6 +275,30 @@ textarea {
 
 .preset-editor {
   margin-top: 16px;
+}
+
+.person-list {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.person-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 14px;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+}
+
+.person-row label {
+  margin-bottom: 0;
+}
+
+.person-row input {
+  margin-top: 6px;
 }
 
 .preset-field-list {
@@ -349,8 +377,15 @@ body.barrierearm .help-text {
 }
 
 body.barrierearm .field-grid,
-body.barrierearm .date-grid {
+body.barrierearm .date-grid,
+body.barrierearm .person-list {
   gap: 28px;
+}
+
+body.barrierearm .person-row {
+  grid-template-columns: 1fr;
+  gap: 20px;
+  padding: 20px;
 }
 
 body.barrierearm .format-option span {
@@ -368,7 +403,8 @@ body.barrierearm .format-option span {
 
   .field-grid,
   .date-grid,
-  .signature-output {
+  .signature-output,
+  .person-row {
     grid-template-columns: 1fr;
   }
 
