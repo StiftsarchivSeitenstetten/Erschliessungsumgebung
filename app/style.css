@@ -130,6 +130,15 @@ button:disabled {
   opacity: 0.55;
 }
 
+.danger-button {
+  background: #9f1d1d;
+  border-color: #6f1111;
+}
+
+.danger-button:hover {
+  background: #6f1111;
+}
+
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible {

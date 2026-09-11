@@ -143,7 +143,9 @@ Die Struktur ist bewusst vorläufig. Sie darf angepasst werden, wenn sich beim A
 
 Der statische Pilot im Verzeichnis `app/` darf keine GitHub-Tokens speichern oder verlangen. Er erzeugt lokal YAML/Markdown, zeigt eine Vorschau und kann Datensätze herunterladen. Produktives Schreiben nach GitHub, Benutzerrollen und kollisionssichere Signaturvergabe bleiben spätere Arbeitsschritte.
 
-Innerhalb einer lokalen Arbeitssitzung merkt sich der Browser bereits erzeugte, noch nicht nach GitHub geschriebene Datensätze in `localStorage`. Dadurch werden technische IDs und formatbezogene Nummernvorschläge lokal fortgeführt. Diese lokale Fortschreibung ist weiterhin keine produktive Mehrbenutzer-Reservierung.
+Innerhalb einer lokalen Arbeitssitzung merkt sich der Browser abgeschlossene, noch nicht nach GitHub geschriebene Datensätze in `localStorage`. Das reine Erzeugen oder Aktualisieren der Vorschau verbraucht noch keine technische ID und keine Signaturnummer. Erst die Aktion `Datensatz abschließen` nimmt den Datensatz in die lokale Sitzungsinventur auf. Diese lokale Fortschreibung ist weiterhin keine produktive Mehrbenutzer-Reservierung.
+
+Die Funktion `Lokale Sitzungsdaten zurücksetzen` entfernt nur lokal gespeicherte Pilot-Datensätze. Aktive Vorbelegungen und das gewählte UI-Profil bleiben erhalten.
 
 Lokal starten:
 

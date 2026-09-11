@@ -7,17 +7,24 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from foto_core import (  # noqa: E402
+    LOCAL_RECORDS_KEY,
+    LocalPilotSession,
     append_local_record,
     archivis_date_value,
     build_signature,
+    load_config,
     load_records,
     next_number,
+    reset_local_session_storage,
     validate_record_schema,
     validate_collection,
 )
 
 
 class FotoCoreTest(unittest.TestCase):
+    def setUp(self):
+        self.config = load_config()
+
     def test_signature_building(self):
         self.assertEqual(
             build_signature("C", 505)["anzeige"],
@@ -62,6 +69,72 @@ class FotoCoreTest(unittest.TestCase):
         self.assertEqual(b["signatur"]["anzeige"], "9.4.2.B.1026")
         self.assertEqual(c["signatur"]["anzeige"], "9.4.2.C.501")
         self.assertEqual(a_again["signatur"]["anzeige"], "9.4.2.A.8470")
+
+    def test_repeated_preview_does_not_consume_id_or_signature(self):
+        session = LocalPilotSession(
+            inventory=[{"id": "foto-000001", "signatur": {"format": "A", "nummer": 8468}}],
+            config=self.config,
+        )
+        first = session.preview("A")
+        second = session.preview("A")
+        third = session.preview("A")
+        self.assertEqual(first["id"], "foto-000002")
+        self.assertEqual(second["id"], "foto-000002")
+        self.assertEqual(third["id"], "foto-000002")
+        self.assertEqual(first["signatur"]["anzeige"], "9.4.2.A.8469")
+        self.assertEqual(second["signatur"]["anzeige"], "9.4.2.A.8469")
+        self.assertEqual(third["signatur"]["anzeige"], "9.4.2.A.8469")
+        self.assertEqual(len(session.inventory), 1)
+
+    def test_correction_after_preview_keeps_number(self):
+        session = LocalPilotSession(
+            inventory=[{"id": "foto-000001", "signatur": {"format": "C", "nummer": 500}}],
+            config=self.config,
+        )
+        before_correction = session.preview("C")
+        # Form corrections do not touch the technical draft.
+        after_correction = session.preview("C")
+        self.assertIs(before_correction, after_correction)
+        self.assertEqual(after_correction["id"], "foto-000002")
+        self.assertEqual(after_correction["signatur"]["anzeige"], "9.4.2.C.501")
+
+    def test_finalize_consumes_number_once(self):
+        session = LocalPilotSession(
+            inventory=[{"id": "foto-000001", "signatur": {"format": "B", "nummer": 1025}}],
+            config=self.config,
+        )
+        draft = session.preview("B")
+        finalized = session.finalize()
+        self.assertEqual(finalized, draft)
+        self.assertEqual(len(session.inventory), 2)
+        with self.assertRaises(ValueError):
+            session.finalize()
+        self.assertEqual(len(session.inventory), 2)
+
+    def test_new_record_after_finalize_uses_next_number(self):
+        session = LocalPilotSession(
+            inventory=[{"id": "foto-000001", "signatur": {"format": "A", "nummer": 8468}}],
+            config=self.config,
+        )
+        session.preview("A")
+        session.finalize()
+        session.new_record()
+        next_draft = session.preview("A")
+        self.assertEqual(next_draft["id"], "foto-000003")
+        self.assertEqual(next_draft["signatur"]["anzeige"], "9.4.2.A.8470")
+
+    def test_reset_local_session_inventory_keeps_preset(self):
+        preset_key = "erschliessung.papierabzuege.activePreset.v2"
+        profile_key = "erschliessung.papierabzuege.profile"
+        storage = {
+            LOCAL_RECORDS_KEY: [{"id": "foto-000099", "format": "A", "nummer": 9000}],
+            preset_key: {"values": {"herkunft": "Fotofaszikel Albert Kurzwernhart"}},
+            profile_key: "barrierearm",
+        }
+        reset_local_session_storage(storage)
+        self.assertNotIn(LOCAL_RECORDS_KEY, storage)
+        self.assertIn(preset_key, storage)
+        self.assertIn(profile_key, storage)
 
     def test_next_number_uses_fixture_data(self):
         records = [record.data for record in load_records(ROOT / "data" / "fotos")]

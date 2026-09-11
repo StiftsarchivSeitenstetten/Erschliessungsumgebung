@@ -53,7 +53,11 @@ Ein neuer Vorschlag für `A` wird nur aus vorhandenen `A`-Signaturen berechnet. 
 
 Im Pilot wird die nächste Nummer aus vorhandenen lokalen Test- und Bestandsdaten berechnet. Das ist noch keine transaktionssichere Mehrbenutzer-Reservierung.
 
-Der Browser merkt sich zusätzlich lokal erzeugte, noch nicht nach GitHub geschriebene Datensätze in `localStorage`. Dadurch laufen technische IDs und Nummernvorschläge innerhalb derselben Arbeitssitzung weiter.
+Der Browser merkt sich zusätzlich lokal abgeschlossene, noch nicht nach GitHub geschriebene Datensätze in `localStorage`. Das Erzeugen oder Aktualisieren einer Vorschau verbraucht noch keine technische ID und keine Signaturnummer. Erst `Datensatz abschließen` nimmt den Datensatz in die lokale Sitzungsinventur auf.
+
+Nach einem erfolgreichen Abschluss kann derselbe Datensatz nicht erneut abgeschlossen werden. Mit `Neuer Datensatz` beginnt der nächste lokale Draft; dann werden technische ID und Nummer des gewählten Formats fortgeführt.
+
+Die Funktion `Lokale Sitzungsdaten zurücksetzen` löscht nur diese lokale Sitzungsinventur. Aktive Vorbelegungen und das gewählte UI-Profil bleiben erhalten.
 
 ## Datierungsmodell
 

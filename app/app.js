@@ -7,13 +7,17 @@ const state = {
   format: null,
   generatedMarkdown: "",
   generatedFilename: "foto-000004.md",
-  inventory: []
+  inventory: [],
+  currentDraft: null,
+  finalizedCurrentDraft: false
 };
 
 const form = document.querySelector("#record-form");
 const errors = document.querySelector("#errors");
 const preview = document.querySelector("#preview");
+const generateButton = document.querySelector("#generate");
 const downloadButton = document.querySelector("#download");
+const finalizeButton = document.querySelector("#finalize");
 const numberOutput = document.querySelector("#number-output");
 const signatureOutput = document.querySelector("#signature-output");
 const archivisDateOutput = document.querySelector("#archivis-date");
@@ -83,7 +87,9 @@ function bindEvents() {
   });
 
   document.querySelector("#generate").addEventListener("click", generateRecord);
+  finalizeButton.addEventListener("click", finalizeRecord);
   document.querySelector("#new-record").addEventListener("click", startNewRecord);
+  document.querySelector("#reset-session").addEventListener("click", resetLocalSessionRecords);
   downloadButton.addEventListener("click", downloadMarkdown);
 
   document.querySelector("#edit-preset").addEventListener("click", () => {
@@ -120,6 +126,25 @@ function nextId() {
     .filter((number) => Number.isInteger(number))
     .reduce((max, value) => Math.max(max, value), 0);
   return `foto-${String(maxId + 1).padStart(6, "0")}`;
+}
+
+function currentDraftForFormat(format) {
+  if (
+    state.currentDraft &&
+    !state.finalizedCurrentDraft &&
+    state.currentDraft.format === format
+  ) {
+    return state.currentDraft;
+  }
+  const number = nextNumber(format);
+  state.currentDraft = {
+    id: nextId(),
+    format,
+    nummer: number,
+    signature: buildSignature(format, number)
+  };
+  state.finalizedCurrentDraft = false;
+  return state.currentDraft;
 }
 
 function buildSignature(format, number, status = "vorgeschlagen") {
@@ -175,14 +200,13 @@ function readDatierung() {
 }
 
 function readRecord() {
-  const number = state.format ? nextNumber(state.format) : null;
-  const id = nextId();
+  const draft = state.format ? currentDraftForFormat(state.format) : null;
   return {
-    id,
+    id: draft?.id || null,
     schema_version: 1,
     datensatz_typ: config.datensatz_typ,
     modul: config.module_id,
-    signatur: state.format ? buildSignature(state.format, number) : null,
+    signatur: draft ? draft.signature : null,
     erschliessung: {
       titel: readScalar("titel"),
       beschriftung: readScalar("beschriftung"),
@@ -290,7 +314,24 @@ function generateRecord() {
   state.generatedFilename = `${record.id}.md`;
   preview.value = state.generatedMarkdown;
   downloadButton.disabled = false;
+  finalizeButton.disabled = state.finalizedCurrentDraft;
+}
+
+function finalizeRecord() {
+  if (state.finalizedCurrentDraft) return;
+  const record = readRecord();
+  const messages = validate(record);
+  showErrors(messages);
+  if (messages.length) return;
+  state.generatedMarkdown = toMarkdown(record);
+  state.generatedFilename = `${record.id}.md`;
+  preview.value = state.generatedMarkdown;
+  downloadButton.disabled = false;
   rememberLocalRecord(record);
+  state.finalizedCurrentDraft = true;
+  generateButton.disabled = true;
+  finalizeButton.disabled = true;
+  errors.innerHTML = "<p>Datensatz wurde lokal abgeschlossen. Mit „Neuer Datensatz“ kann weitergearbeitet werden.</p>";
   updateSignatureOutput();
 }
 
@@ -325,12 +366,34 @@ function startNewRecord() {
     state.format = selectedFormat;
   }
   state.generatedMarkdown = "";
+  state.currentDraft = null;
+  state.finalizedCurrentDraft = false;
   preview.value = "";
   downloadButton.disabled = true;
+  generateButton.disabled = false;
+  finalizeButton.disabled = true;
   errors.innerHTML = "";
   applyPreset({ onlyEmpty: false });
   updateSignatureOutput();
   updateArchivisDate();
+}
+
+function resetLocalSessionRecords() {
+  const confirmed = window.confirm(
+    "Lokale Pilot-Datensätze dieser Sitzung wirklich löschen? Aktive Vorbelegung und UI-Profil bleiben erhalten."
+  );
+  if (!confirmed) return;
+  localStorage.removeItem(LOCAL_RECORDS_KEY);
+  state.inventory = [...config.existing_records];
+  state.currentDraft = null;
+  state.finalizedCurrentDraft = false;
+  state.generatedMarkdown = "";
+  preview.value = "";
+  downloadButton.disabled = true;
+  generateButton.disabled = false;
+  finalizeButton.disabled = true;
+  errors.innerHTML = "<p>Lokale Sitzungsdaten wurden zurückgesetzt. Vorbelegung und UI-Profil bleiben erhalten.</p>";
+  updateSignatureOutput();
 }
 
 function downloadMarkdown() {

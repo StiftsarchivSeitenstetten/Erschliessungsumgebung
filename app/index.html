@@ -150,9 +150,11 @@
           <h2 id="actions-heading">Prüfen und erzeugen</h2>
           <div id="errors" class="errors" aria-live="assertive"></div>
           <div class="button-row">
-            <button type="button" id="generate">Datensatz erzeugen</button>
+            <button type="button" id="generate">Vorschau erzeugen</button>
+            <button type="button" id="finalize" disabled>Datensatz abschließen</button>
             <button type="button" id="download" disabled>Markdown herunterladen</button>
             <button type="button" id="new-record">Neuer Datensatz</button>
+            <button type="button" id="reset-session" class="danger-button">Lokale Sitzungsdaten zurücksetzen</button>
           </div>
           <div class="preview-grid">
             <div class="field">

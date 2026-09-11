@@ -25,6 +25,50 @@ class MarkdownRecord:
     body: str
 
 
+@dataclass
+class LocalPilotSession:
+    inventory: list[dict[str, Any]]
+    config: dict[str, Any]
+    current_draft: dict[str, Any] | None = None
+    finalized_current_draft: bool = False
+
+    def preview(self, format_code: str) -> dict[str, Any]:
+        format_code = format_code.upper()
+        if (
+            self.current_draft
+            and not self.finalized_current_draft
+            and self.current_draft["signatur"]["format"] == format_code
+        ):
+            return self.current_draft
+        self.current_draft = {
+            "id": next_id(self.inventory),
+            "signatur": build_signature(
+                format_code,
+                next_number(self.inventory, format_code, self.config),
+                self.config,
+                status="vorgeschlagen",
+            ),
+        }
+        self.finalized_current_draft = False
+        return self.current_draft
+
+    def finalize(self) -> dict[str, Any]:
+        if not self.current_draft:
+            raise ValueError("Kein Datensatz zur Abschlussaktion vorbereitet")
+        if self.finalized_current_draft:
+            raise ValueError("Datensatz wurde bereits abgeschlossen")
+        self.inventory.append(self.current_draft)
+        self.finalized_current_draft = True
+        return self.current_draft
+
+    def new_record(self) -> None:
+        self.current_draft = None
+        self.finalized_current_draft = False
+
+
+LOCAL_RECORDS_KEY = "erschliessung.papierabzuege.localRecords"
+
+
 def load_config(path: Path = CONFIG_PATH) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -128,6 +172,10 @@ def append_local_record(records: list[dict[str, Any]], format_code: str, config:
     }
     records.append(record)
     return record
+
+
+def reset_local_session_storage(storage: dict[str, Any], local_records_key: str = LOCAL_RECORDS_KEY) -> None:
+    storage.pop(local_records_key, None)
 
 
 def extract_frontmatter(text: str) -> tuple[str, str]:
