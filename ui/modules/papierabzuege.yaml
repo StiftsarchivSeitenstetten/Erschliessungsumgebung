@@ -1,0 +1,27 @@
+id: papierabzuege_9_4_2
+label: "Einzelne Papierabzüge - 9.4.2"
+schema: "../../schemas/foto.schema.json"
+signature_rule: "../../signatures/foto.yaml"
+formats:
+  - A
+  - B
+  - C
+  - D
+  - E
+  - F
+default_redaktion_stufe: ehrenamtlich
+default_bearbeitung_status: in_bearbeitung
+default_publikation_status: intern
+form_fields:
+  - beschriftung
+  - beschreibung
+  - datierung
+  - dargestellte_personen
+  - herkunft
+  - sammler
+  - fotograf
+  - rechteinhaber
+  - orte
+  - schlagworte
+  - altsignaturen
+  - interne_bemerkung

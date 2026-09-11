@@ -1,0 +1,9 @@
+id: ehrenamt-standard
+label: "Ehrenamt - Standard"
+can_edit_redaktionell: false
+font_scale: normal
+high_contrast: false
+visible_sections:
+  - signatur
+  - erschliessung
+  - datierung

@@ -1,0 +1,11 @@
+id: ehrenamt-barrierearm
+label: "Ehrenamt - sehbehindert/barrierearm"
+can_edit_redaktionell: false
+font_scale: large
+high_contrast: true
+large_controls: true
+keyboard_first: true
+visible_sections:
+  - signatur
+  - erschliessung
+  - datierung

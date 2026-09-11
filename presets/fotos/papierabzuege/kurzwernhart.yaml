@@ -1,0 +1,10 @@
+id: kurzwernhart
+label: "Fotofaszikel Albert Kurzwernhart"
+module: papierabzuege_9_4_2
+values:
+  herkunft: "Fotofaszikel Albert Kurzwernhart"
+not_presettable:
+  - id
+  - signatur
+  - redaktion
+  - technik
