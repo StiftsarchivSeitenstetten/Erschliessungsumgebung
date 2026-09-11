@@ -22,6 +22,16 @@ from ..github.errors import RepositoryConflictError, RepositoryNotFoundError
 from ..github.repository import DataRepository, RepositoryFile
 from ..models import User
 from ..permissions import can_edit_record
+from .photo_index import (
+    INDEX_PATH,
+    PhotoIndex,
+    append_index_record,
+    dump_photo_index,
+    index_entry_changed,
+    read_photo_index,
+    record_path as indexed_record_path,
+    update_index_record,
+)
 
 
 DATA_DIR = "data/fotos"
@@ -63,15 +73,30 @@ def parse_markdown_file(file: RepositoryFile) -> StoredRecord:
 
 
 def record_path(record_id: str) -> str:
-    return f"{DATA_DIR}/{record_id}.md"
+    return indexed_record_path(record_id)
 
 
-def list_photo_records(repository: DataRepository) -> list[StoredRecord]:
-    return [parse_markdown_file(file) for file in repository.list_directory(DATA_DIR)]
+def list_photo_index(repository: DataRepository) -> PhotoIndex:
+    return read_photo_index(repository)
+
+
+def list_photo_records(repository: DataRepository) -> list[dict[str, Any]]:
+    return list_photo_index(repository).records
 
 
 def read_photo_record(repository: DataRepository, record_id: str) -> StoredRecord:
     return parse_markdown_file(repository.read_file(record_path(record_id)))
+
+
+def find_photo_by_signature(repository: DataRepository, signature: str) -> StoredRecord:
+    entry = read_photo_index(repository).by_signature(signature)
+    if entry is None:
+        raise RepositoryNotFoundError(signature)
+    return read_photo_record(repository, entry["id"])
+
+
+def find_photo_signature_family(repository: DataRepository, base_signature: str) -> list[dict[str, Any]]:
+    return read_photo_index(repository).signature_family(base_signature)
 
 
 def bootstrap_state(repository: DataRepository) -> dict[str, Any]:
@@ -79,7 +104,8 @@ def bootstrap_state(repository: DataRepository) -> dict[str, Any]:
     formats = {format_code: 1 for format_code in config["signature"]["formats"]}
     max_id = 0
     try:
-        records = list_photo_records(repository)
+        index = read_photo_index(repository)
+        records = [read_photo_record(repository, entry["id"]) for entry in index.records]
     except RepositoryNotFoundError:
         records = []
     for stored in records:
@@ -205,12 +231,14 @@ def create_photo_record(repository: DataRepository, payload: dict[str, Any], use
     for _ in range(MAX_RETRIES):
         head = repository.get_branch_head()
         state = read_state(repository)
+        index = read_photo_index(repository)
         record = build_new_record(payload, user, state)
         validate_canonical_record(record)
         state["next_id"] = int(state["next_id"]) + 1
         state["formats"][record["signatur"]["format"]] = int(record["signatur"]["nummer"]) + 1
         files = {
             record_path(record["id"]): render_photo_markdown(record),
+            INDEX_PATH: dump_photo_index(append_index_record(index, record)),
             STATE_PATH: dump_state(state),
         }
         try:
@@ -234,10 +262,13 @@ def update_photo_record(repository: DataRepository, record_id: str, payload: dic
         raise RecordPermissionError("Keine Berechtigung zum Speichern dieses Datensatzes.")
     record = update_record(existing.data, payload, user)
     validate_canonical_record(record)
+    files = {record_path(record_id): render_photo_markdown(record, existing.body)}
+    if index_entry_changed(existing.data, record):
+        files[INDEX_PATH] = dump_photo_index(update_index_record(read_photo_index(repository), record))
     try:
         new_head = repository.commit_files(
             expected_head=head,
-            files={record_path(record_id): render_photo_markdown(record, existing.body)},
+            files=files,
             message=f"Aktualisiere {record_id}",
         )
     except RepositoryConflictError as exc:

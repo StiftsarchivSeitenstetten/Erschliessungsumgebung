@@ -16,6 +16,7 @@ from backend.database import Base, SessionLocal, engine  # noqa: E402
 from backend.github.repository import InMemoryGitRepository  # noqa: E402
 from backend.main import create_app  # noqa: E402
 from backend.permissions import MODULE_FOTO_PAPIERABZUEGE  # noqa: E402
+from backend.records.photo_index import INDEX_PATH, build_photo_index, dump_photo_index  # noqa: E402
 from scripts.foto_core import build_signature, render_photo_markdown  # noqa: E402
 
 
@@ -124,9 +125,23 @@ class RecordsApiTest(unittest.TestCase):
         self.assertIsNone(record["technik"]["geaendert_von"])
         self.assertIn("data/fotos/foto-000001.md", self.repository.files)
         self.assertIn("state/foto-papierabzuege.json", self.repository.files)
+        self.assertIn("indexes/fotos.json", self.repository.files)
         state = json.loads(self.repository.files["state/foto-papierabzuege.json"])
         self.assertEqual(state["next_record_id"], 2)
         self.assertEqual(state["next_signature_number"]["A"], 2)
+        index = json.loads(self.repository.files["indexes/fotos.json"])
+        self.assertEqual(index["records"], [{
+            "id": "foto-000001",
+            "signatur": "9.4.2.A.1",
+            "format": "A",
+            "nummer": 1,
+            "zusatz": None,
+        }])
+        self.assertEqual(self.repository.commits[-1]["files"], [
+            "data/fotos/foto-000001.md",
+            "indexes/fotos.json",
+            "state/foto-papierabzuege.json",
+        ])
 
     def test_create_record_reads_import_style_state(self):
         self.repository.files["state/foto-papierabzuege.json"] = json.dumps({
@@ -173,6 +188,7 @@ class RecordsApiTest(unittest.TestCase):
     def seed_existing(self, record_id="foto-000001", format_code="A", nummer=7, redaktion="ehrenamtlich"):
         record = sample_record(record_id, format_code, nummer, redaktion)
         self.repository.files[f"data/fotos/{record_id}.md"] = render_photo_markdown(record)
+        self.repository.files[INDEX_PATH] = dump_photo_index(build_photo_index([record]))
         return record
 
     def test_read_record_and_list(self):
@@ -181,9 +197,27 @@ class RecordsApiTest(unittest.TestCase):
         listing = self.client.get("/api/records/photos")
         self.assertEqual(listing.status_code, 200)
         self.assertEqual(listing.json()["records"][0]["id"], "foto-000001")
+        self.assertEqual(self.repository.list_directory_calls, [])
         detail = self.client.get("/api/records/photos/foto-000001")
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()["record"]["signatur"]["anzeige"], "9.4.2.A.7")
+
+    def test_read_record_by_signature_uses_index(self):
+        self.seed_existing()
+        self.authed()
+        response = self.client.get("/api/records/photos/signatures/9.4.2.A.7")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["record"]["id"], "foto-000001")
+        self.assertNotIn("data/fotos", self.repository.list_directory_calls)
+
+    def test_ref_conflict_does_not_partially_update_index(self):
+        self.repository._conflict_failures = 5
+        self.authed()
+        response = self.post_photo(payload("A"))
+        self.assertEqual(response.status_code, 409)
+        self.assertNotIn("data/fotos/foto-000001.md", self.repository.files)
+        self.assertNotIn(INDEX_PATH, self.repository.files)
+        self.assertEqual(len(self.repository.commits), 0)
 
     def test_ehrenamt_updates_ehrenamt_record(self):
         self.seed_existing()

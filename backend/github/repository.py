@@ -38,6 +38,8 @@ class InMemoryGitRepository:
         self.files = dict(files or {})
         self.head = "commit-0"
         self.commits: list[dict[str, object]] = []
+        self.read_file_calls: list[str] = []
+        self.list_directory_calls: list[str] = []
         self._counter = itertools.count(1)
         self._conflict_failures = conflict_failures
 
@@ -48,12 +50,14 @@ class InMemoryGitRepository:
         return hashlib.sha1(f"{self.head}:{path}:{content}".encode("utf-8")).hexdigest()
 
     def read_file(self, path: str) -> RepositoryFile:
+        self.read_file_calls.append(path)
         if path not in self.files:
             raise RepositoryNotFoundError(path)
         content = self.files[path]
         return RepositoryFile(path=path, content=content, revision=self._revision(path, content))
 
     def list_directory(self, path: str) -> list[RepositoryFile]:
+        self.list_directory_calls.append(path)
         prefix = path.rstrip("/") + "/"
         files = [
             self.read_file(file_path)

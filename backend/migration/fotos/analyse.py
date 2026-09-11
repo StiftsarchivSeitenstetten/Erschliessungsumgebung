@@ -20,6 +20,7 @@ from openpyxl.utils.datetime import from_excel
 
 from scripts.foto_core import build_signature, render_photo_markdown, validate_record, validate_record_schema
 from scripts.foto_core import extract_frontmatter, load_records, validate_collection
+from backend.records.photo_index import build_photo_index, dump_photo_index, validate_photo_index
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -579,6 +580,15 @@ def validate_generated_tree(tree_dir: Path, records: list[dict[str, Any]], confl
     if state != expected_state:
         errors.append(f"State inkonsistent: {state} != {expected_state}")
 
+    index_path = tree_dir / "indexes" / "fotos.json"
+    if not index_path.exists():
+        errors.append("Fotoindex fehlt: indexes/fotos.json")
+    else:
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        if len(index.get("records", [])) != len(records):
+            errors.append(f"Fotoindex enthaelt {len(index.get('records', []))} statt {len(records)} Eintraege.")
+        errors.extend(validate_photo_index(foto_dir, index))
+
     for path in tree_dir.rglob("*"):
         if path.is_file() and "/Users/" in path.read_text(encoding="utf-8"):
             errors.append(f"Absoluter lokaler Pfad in Zieldaten: {path.relative_to(tree_dir)}")
@@ -595,9 +605,11 @@ def generate_import_tree(source: Path, output_dir: Path = DEFAULT_IMPORT_OUTPUT_
         shutil.rmtree(output_dir)
     tree_dir = output_dir / "tree"
     foto_dir = tree_dir / "data" / "fotos"
+    index_dir = tree_dir / "indexes"
     state_dir = tree_dir / "state"
     migration_dir = tree_dir / "migration" / f"fotoerfassung-{datetime.now().date().isoformat()}"
     foto_dir.mkdir(parents=True)
+    index_dir.mkdir(parents=True)
     state_dir.mkdir(parents=True)
     migration_dir.mkdir(parents=True)
 
@@ -632,6 +644,7 @@ def generate_import_tree(source: Path, output_dir: Path = DEFAULT_IMPORT_OUTPUT_
         if not yaml_text.strip():
             raise ValueError(f"YAML-Frontmatter fehlt: {record['id']}")
 
+    (index_dir / "fotos.json").write_text(dump_photo_index(build_photo_index(records)), encoding="utf-8")
     (state_dir / "foto-papierabzuege.json").write_text(json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (migration_dir / "migration-manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (migration_dir / "conflicts.json").write_text(json.dumps(enriched_conflicts, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")

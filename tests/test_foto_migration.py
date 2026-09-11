@@ -148,6 +148,9 @@ class FotoMigrationTest(unittest.TestCase):
             self.assertTrue((tree / "data/fotos/foto-000001.md").exists())
             self.assertTrue((tree / "data/fotos/foto-000002.md").exists())
             self.assertFalse((tree / "data/fotos/foto-000003.md").exists())
+            index = json.loads((tree / "indexes/fotos.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(index["records"]), 2)
+            self.assertEqual(index["records"][0]["signatur"], "9.4.2.A.1a")
 
             records = load_records(tree / "data" / "fotos")
             self.assertEqual([record.data["signatur"]["anzeige"] for record in records], ["9.4.2.A.1a", "9.4.2.A.1b"])

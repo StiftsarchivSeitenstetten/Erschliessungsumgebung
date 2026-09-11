@@ -15,6 +15,7 @@ from ..records.photos import (
     RecordRevisionConflictError,
     RecordValidationError,
     create_photo_record,
+    find_photo_by_signature,
     list_photo_records,
     read_photo_record,
     update_photo_record,
@@ -55,14 +56,23 @@ def list_photos(repository: DataRepository = Depends(get_data_repository)) -> di
     return {
         "records": [
             {
-                "id": stored.data.get("id"),
-                "signatur": stored.data.get("signatur", {}).get("anzeige"),
-                "redaktion": stored.data.get("redaktion", {}),
-                "base_revision": stored.revision,
+                "id": entry.get("id"),
+                "signatur": entry.get("signatur"),
+                "format": entry.get("format"),
+                "nummer": entry.get("nummer"),
+                "zusatz": entry.get("zusatz"),
             }
-            for stored in list_photo_records(repository)
+            for entry in list_photo_records(repository)
         ]
     }
+
+
+@router.get("/signatures/{signature}", dependencies=[Depends(require_module_access(MODULE_FOTO_PAPIERABZUEGE))])
+def get_photo_by_signature(signature: str, repository: DataRepository = Depends(get_data_repository)) -> dict:
+    try:
+        return record_response(find_photo_by_signature(repository, signature))
+    except RepositoryNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Datensatz nicht gefunden.") from exc
 
 
 @router.get("/{record_id}", dependencies=[Depends(require_module_access(MODULE_FOTO_PAPIERABZUEGE))])

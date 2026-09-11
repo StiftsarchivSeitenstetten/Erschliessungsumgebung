@@ -123,7 +123,7 @@ async function refreshRecords() {
   state.records = data.records || [];
   state.inventory = state.records
     .map((record) => {
-      const match = String(record.signatur || "").match(/^9\.4\.2\.([A-F])\.([0-9]+)$/);
+      const match = String(record.signatur || "").match(/^9\.4\.2\.([A-F])\.([0-9]+)[a-z]*$/);
       return match ? { id: record.id, format: match[1], nummer: Number(match[2]) } : null;
     })
     .filter(Boolean);

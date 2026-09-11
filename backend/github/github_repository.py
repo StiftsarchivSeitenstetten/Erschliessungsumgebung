@@ -43,7 +43,11 @@ class GitHubDataRepository:
         )
         if response.get("type") != "file":
             raise RepositoryNotFoundError(path)
-        content = base64.b64decode(response["content"].encode("ascii")).decode("utf-8")
+        encoded = response.get("content") or ""
+        if not encoded and response.get("git_url"):
+            blob_response = self.client.request("GET", response["git_url"].removeprefix(self.client.api_base))
+            encoded = blob_response["content"]
+        content = base64.b64decode(encoded.encode("ascii")).decode("utf-8")
         return RepositoryFile(path=path, content=content, revision=response["sha"])
 
     def list_directory(self, path: str) -> list[RepositoryFile]:
