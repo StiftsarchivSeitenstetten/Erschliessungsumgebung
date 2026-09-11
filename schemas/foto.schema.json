@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stiftsarchiv-seitenstetten.github.io/erschliessungsumgebung/schemas/foto.schema.json",
+  "title": "Fotoerschliessung",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "datensatz_typ",
+    "modul",
+    "signatur",
+    "erschliessung",
+    "korrespondenzstueck",
+    "datierung",
+    "redaktion",
+    "bearbeitung",
+    "publikation"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "id": { "type": "string", "pattern": "^foto-[0-9]{6}$" },
+    "datensatz_typ": { "const": "foto" },
+    "modul": { "const": "papierabzuege_9_4_2" },
+    "signatur": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bestand", "objektgruppe", "format", "nummer", "anzeige", "status"],
+      "properties": {
+        "bestand": { "const": "9.4" },
+        "objektgruppe": { "const": "2" },
+        "format": { "type": "string", "enum": ["A", "B", "C", "D", "E", "F"] },
+        "nummer": { "type": "integer", "minimum": 1 },
+        "anzeige": { "type": "string", "pattern": "^9\\.4\\.2\\.[A-F]\\.[1-9][0-9]*$" },
+        "status": { "type": "string", "enum": ["vorgeschlagen", "vergeben"] }
+      }
+    },
+    "erschliessung": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "titel",
+        "beschriftung",
+        "beschreibung",
+        "dargestellte_personen",
+        "herkunft",
+        "sammler",
+        "fotograf",
+        "rechteinhaber",
+        "orte",
+        "schlagworte",
+        "altsignaturen",
+        "interne_bemerkung"
+      ],
+      "properties": {
+        "titel": { "type": ["string", "null"] },
+        "beschriftung": { "type": ["string", "null"] },
+        "beschreibung": { "type": ["string", "null"] },
+        "dargestellte_personen": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "hinweis": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "herkunft": { "type": ["string", "null"] },
+        "sammler": { "type": ["string", "null"] },
+        "fotograf": { "type": ["string", "null"] },
+        "rechteinhaber": { "type": ["string", "null"] },
+        "orte": { "type": "array", "items": { "type": "string" } },
+        "schlagworte": { "type": "array", "items": { "type": "string" } },
+        "altsignaturen": { "type": "array", "items": { "type": "string" } },
+        "interne_bemerkung": { "type": ["string", "null"] }
+      }
+    },
+    "korrespondenzstueck": {
+      "type": "boolean",
+      "default": false
+    },
+    "datierung": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jahr", "monat", "tag"],
+      "properties": {
+        "jahr": { "type": ["integer", "null"], "minimum": 1, "maximum": 9999 },
+        "monat": { "type": ["integer", "null"], "minimum": 1, "maximum": 12 },
+        "tag": { "type": ["integer", "null"], "minimum": 1, "maximum": 31 },
+        "anmerkung": { "type": ["string", "null"] },
+        "original": { "type": ["string", "null"] },
+        "original_typ": { "type": ["string", "null"] },
+        "unsicherheit": { "type": ["string", "null"] }
+      }
+    },
+    "redaktion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stufe"],
+      "properties": {
+        "stufe": { "type": "string", "enum": ["ehrenamtlich", "redaktionell"] }
+      }
+    },
+    "bearbeitung": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "type": "string", "enum": ["in_bearbeitung", "pruefen", "abgeschlossen"] }
+      }
+    },
+    "publikation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "type": "string", "enum": ["intern", "oeffentlich"] }
+      }
+    },
+    "technik": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "quelle": { "type": ["string", "null"] },
+        "erstellt_am": { "type": ["string", "null"] },
+        "geaendert_am": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

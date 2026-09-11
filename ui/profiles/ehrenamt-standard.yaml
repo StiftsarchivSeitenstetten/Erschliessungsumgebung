@@ -1,0 +1,22 @@
+id: ehrenamt-standard
+label: "Ehrenamt - Standard"
+can_edit_redaktionell: false
+font_scale: normal
+high_contrast: false
+visible_sections:
+  - signatur
+  - erschliessung
+  - datierung
+editable_fields:
+  - beschriftung
+  - beschreibung
+  - datierung
+  - dargestellte_personen
+  - herkunft
+  - sammler
+  - fotograf
+  - rechteinhaber
+  - orte
+  - schlagworte
+  - altsignaturen
+  - interne_bemerkung

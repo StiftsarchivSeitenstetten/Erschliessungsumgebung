@@ -1,0 +1,317 @@
+from pathlib import Path
+from copy import deepcopy
+import re
+import unittest
+
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from foto_core import (  # noqa: E402
+    LOCAL_RECORDS_KEY,
+    LocalPilotSession,
+    append_local_record,
+    archivis_date_value,
+    build_signature,
+    load_config,
+    load_records,
+    next_number,
+    parse_simple_date,
+    render_photo_markdown,
+    reset_local_session_storage,
+    validate_record_schema,
+    validate_collection,
+)
+
+
+class FotoCoreTest(unittest.TestCase):
+    def setUp(self):
+        self.config = load_config()
+
+    def test_signature_building(self):
+        self.assertEqual(
+            build_signature("C", 505)["anzeige"],
+            "9.4.2.C.505",
+        )
+
+    def test_next_number_per_format(self):
+        records = [
+            {"signatur": {"format": "A", "nummer": 8610}},
+            {"signatur": {"format": "B", "nummer": 1025}},
+            {"signatur": {"format": "C", "nummer": 504}},
+        ]
+        self.assertEqual(next_number(records, "A"), 8611)
+        self.assertEqual(next_number(records, "B"), 1026)
+        self.assertEqual(next_number(records, "C"), 505)
+
+    def test_local_session_advances_same_format(self):
+        records = [
+            {"id": "foto-000001", "signatur": {"format": "A", "nummer": 8610}},
+        ]
+        first = append_local_record(records, "A")
+        second = append_local_record(records, "A")
+        third = append_local_record(records, "A")
+        self.assertEqual(first["id"], "foto-000002")
+        self.assertEqual(second["id"], "foto-000003")
+        self.assertEqual(third["id"], "foto-000004")
+        self.assertEqual(first["signatur"]["anzeige"], "9.4.2.A.8611")
+        self.assertEqual(second["signatur"]["anzeige"], "9.4.2.A.8612")
+        self.assertEqual(third["signatur"]["anzeige"], "9.4.2.A.8613")
+
+    def test_local_session_advances_independent_formats(self):
+        records = [
+            {"id": "foto-000001", "signatur": {"format": "A", "nummer": 8468}},
+            {"id": "foto-000002", "signatur": {"format": "B", "nummer": 1025}},
+            {"id": "foto-000003", "signatur": {"format": "C", "nummer": 500}},
+        ]
+        a = append_local_record(records, "A")
+        b = append_local_record(records, "B")
+        c = append_local_record(records, "C")
+        a_again = append_local_record(records, "A")
+        self.assertEqual(a["signatur"]["anzeige"], "9.4.2.A.8469")
+        self.assertEqual(b["signatur"]["anzeige"], "9.4.2.B.1026")
+        self.assertEqual(c["signatur"]["anzeige"], "9.4.2.C.501")
+        self.assertEqual(a_again["signatur"]["anzeige"], "9.4.2.A.8470")
+
+    def test_repeated_preview_does_not_consume_id_or_signature(self):
+        session = LocalPilotSession(
+            inventory=[{"id": "foto-000001", "signatur": {"format": "A", "nummer": 8468}}],
+            config=self.config,
+        )
+        first = session.preview("A")
+        second = session.preview("A")
+        third = session.preview("A")
+        self.assertEqual(first["id"], "foto-000002")
+        self.assertEqual(second["id"], "foto-000002")
+        self.assertEqual(third["id"], "foto-000002")
+        self.assertEqual(first["signatur"]["anzeige"], "9.4.2.A.8469")
+        self.assertEqual(second["signatur"]["anzeige"], "9.4.2.A.8469")
+        self.assertEqual(third["signatur"]["anzeige"], "9.4.2.A.8469")
+        self.assertEqual(len(session.inventory), 1)
+
+    def test_correction_after_preview_keeps_number(self):
+        session = LocalPilotSession(
+            inventory=[{"id": "foto-000001", "signatur": {"format": "C", "nummer": 500}}],
+            config=self.config,
+        )
+        before_correction = session.preview("C")
+        # Form corrections do not touch the technical draft.
+        after_correction = session.preview("C")
+        self.assertIs(before_correction, after_correction)
+        self.assertEqual(after_correction["id"], "foto-000002")
+        self.assertEqual(after_correction["signatur"]["anzeige"], "9.4.2.C.501")
+
+    def test_finalize_consumes_number_once(self):
+        session = LocalPilotSession(
+            inventory=[{"id": "foto-000001", "signatur": {"format": "B", "nummer": 1025}}],
+            config=self.config,
+        )
+        draft = session.preview("B")
+        self.assertEqual(draft["signatur"]["status"], "vorgeschlagen")
+        finalized = session.finalize()
+        self.assertEqual(finalized, draft)
+        self.assertEqual(finalized["signatur"]["status"], "vergeben")
+        self.assertEqual(session.current_draft["signatur"]["anzeige"], "9.4.2.B.1026")
+        self.assertEqual(len(session.inventory), 2)
+        with self.assertRaises(ValueError):
+            session.finalize()
+        self.assertEqual(len(session.inventory), 2)
+
+    def test_finalize_keeps_current_signature_until_new_record(self):
+        session = LocalPilotSession(
+            inventory=[{"id": "foto-000001", "signatur": {"format": "A", "nummer": 8468}}],
+            config=self.config,
+        )
+        finalized = session.preview("A")
+        session.finalize()
+        self.assertEqual(finalized["signatur"]["anzeige"], "9.4.2.A.8469")
+        self.assertEqual(session.current_draft["signatur"]["anzeige"], "9.4.2.A.8469")
+        session.new_record()
+        next_draft = session.preview("A")
+        self.assertEqual(next_draft["signatur"]["anzeige"], "9.4.2.A.8470")
+
+    def test_new_record_after_finalize_uses_next_number(self):
+        session = LocalPilotSession(
+            inventory=[{"id": "foto-000001", "signatur": {"format": "A", "nummer": 8468}}],
+            config=self.config,
+        )
+        session.preview("A")
+        session.finalize()
+        session.new_record()
+        next_draft = session.preview("A")
+        self.assertEqual(next_draft["id"], "foto-000003")
+        self.assertEqual(next_draft["signatur"]["anzeige"], "9.4.2.A.8470")
+
+    def test_reset_local_session_inventory_keeps_preset(self):
+        preset_key = "erschliessung.papierabzuege.activePreset.v2"
+        profile_key = "erschliessung.papierabzuege.profile"
+        storage = {
+            LOCAL_RECORDS_KEY: [{"id": "foto-000099", "format": "A", "nummer": 9000}],
+            preset_key: {"values": {"herkunft": "Fotofaszikel Albert Kurzwernhart"}},
+            profile_key: "barrierearm",
+        }
+        reset_local_session_storage(storage)
+        self.assertNotIn(LOCAL_RECORDS_KEY, storage)
+        self.assertIn(preset_key, storage)
+        self.assertIn(profile_key, storage)
+
+    def test_next_number_uses_fixture_data(self):
+        records = [record.data for record in load_records(ROOT / "data" / "fotos")]
+        self.assertEqual(next_number(records, "A"), 8469)
+        self.assertEqual(next_number(records, "B"), 1026)
+        self.assertEqual(next_number(records, "C"), 501)
+
+    def test_archivis_date_values(self):
+        self.assertEqual(
+            archivis_date_value({"jahr": 1980, "monat": 12, "tag": None}),
+            "19801299",
+        )
+        self.assertEqual(
+            archivis_date_value({"jahr": 1966, "monat": None, "tag": None}),
+            "19669999",
+        )
+        self.assertEqual(
+            archivis_date_value({"jahr": 1980, "monat": 7, "tag": None}),
+            "19800799",
+        )
+        self.assertEqual(
+            archivis_date_value({"jahr": 1980, "monat": 12, "tag": 25}),
+            "19801225",
+        )
+
+    def test_parse_simple_dates_for_ehrenamt(self):
+        self.assertEqual(parse_simple_date("1966"), {"jahr": 1966, "monat": None, "tag": None})
+        self.assertEqual(parse_simple_date("07.1980"), {"jahr": 1980, "monat": 7, "tag": None})
+        self.assertEqual(parse_simple_date("25.12.1980"), {"jahr": 1980, "monat": 12, "tag": 25})
+
+    def test_parse_simple_date_rejects_invalid_values(self):
+        for value in ("1980.07", "32.12.1980", "13.1980", "Sommer 1980"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    parse_simple_date(value)
+
+    def test_datierung_anmerkung_is_schema_valid(self):
+        record = load_records(ROOT / "data" / "fotos")[0].data
+        record["datierung"]["anmerkung"] = "Datierung auf dem Foto notiert."
+        self.assertEqual(validate_record_schema(record), [])
+
+    def test_persons_with_and_without_hinweis_are_schema_valid(self):
+        record = load_records(ROOT / "data" / "fotos")[0].data
+        record["erschliessung"]["dargestellte_personen"] = [
+            {"name": "Kurzwernhart, Albert", "hinweis": "2. von links"},
+            {"name": "Raus, Otto", "hinweis": None},
+        ]
+        self.assertEqual(validate_record_schema(record), [])
+
+    def test_schema_accepts_date_without_import_original_fields(self):
+        record = deepcopy(load_records(ROOT / "data" / "fotos")[0].data)
+        record["datierung"].pop("original", None)
+        record["datierung"].pop("original_typ", None)
+        self.assertEqual(validate_record_schema(record), [])
+
+    def test_schema_accepts_imported_date_original_fields(self):
+        record = deepcopy(load_records(ROOT / "data" / "fotos")[0].data)
+        record["datierung"]["original"] = "00.00.1966"
+        record["datierung"]["original_typ"] = "importierte_arbeitsdaten"
+        self.assertEqual(validate_record_schema(record), [])
+
+    def test_new_ehrenamt_markdown_omits_empty_import_original_fields(self):
+        record = deepcopy(load_records(ROOT / "data" / "fotos")[0].data)
+        record["datierung"] = {
+            "jahr": 1966,
+            "monat": None,
+            "tag": None,
+            "anmerkung": "vermutet",
+            "original": None,
+            "original_typ": None,
+        }
+        markdown = render_photo_markdown(record)
+        self.assertIn("datierung:\n", markdown)
+        self.assertIn("  anmerkung: vermutet\n", markdown)
+        self.assertNotIn("  original: null", markdown)
+        self.assertNotIn("  original_typ: null", markdown)
+
+    def test_korrespondenzstueck_false_is_schema_valid_and_serialized(self):
+        record = deepcopy(load_records(ROOT / "data" / "fotos")[0].data)
+        record["korrespondenzstueck"] = False
+        markdown = render_photo_markdown(record)
+        self.assertEqual(validate_record_schema(record), [])
+        self.assertIn("korrespondenzstueck: false\n", markdown)
+
+    def test_korrespondenzstueck_true_is_schema_valid_and_serialized(self):
+        record = deepcopy(load_records(ROOT / "data" / "fotos")[0].data)
+        record["korrespondenzstueck"] = True
+        markdown = render_photo_markdown(record)
+        self.assertEqual(validate_record_schema(record), [])
+        self.assertIn("korrespondenzstueck: true\n", markdown)
+
+    def test_fixture_records_validate(self):
+        records = load_records(ROOT / "data" / "fotos")
+        self.assertEqual(validate_collection(records), [])
+
+    def test_schema_validation_is_used(self):
+        errors = validate_record_schema({"id": "foto-000001"})
+        self.assertTrue(any("Schemafehler" in error for error in errors))
+
+    def test_ehrenamt_profiles_do_not_edit_title(self):
+        profiles = self.config["ui_profiles"]
+        self.assertNotIn("titel", profiles["standard"]["editable_fields"])
+        self.assertNotIn("titel", profiles["barrierearm"]["editable_fields"])
+
+    def test_redaktion_profile_keeps_title_editing_available(self):
+        self.assertIn("titel", self.config["ui_profiles"]["redaktion"]["editable_fields"])
+
+    def test_caption_and_description_use_equal_large_controls(self):
+        html = (ROOT / "app" / "index.html").read_text(encoding="utf-8")
+        beschriftung = re.search(r'<textarea id="beschriftung"[^>]*rows="([^"]+)"', html)
+        beschreibung = re.search(r'<textarea id="beschreibung"[^>]*rows="([^"]+)"', html)
+        self.assertIsNotNone(beschriftung)
+        self.assertIsNotNone(beschreibung)
+        self.assertEqual(beschriftung.group(1), beschreibung.group(1))
+
+    def test_user_label_is_datensatz_speichern(self):
+        html = (ROOT / "app" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("Datensatz speichern", html)
+        self.assertNotIn("Datensatz abschließen", html)
+
+    def test_ehrenamt_profiles_have_no_technical_preview(self):
+        profiles = self.config["ui_profiles"]
+        self.assertFalse(profiles["standard"]["technical_preview"])
+        self.assertFalse(profiles["barrierearm"]["technical_preview"])
+
+    def test_ehrenamt_profiles_need_no_preview_step_before_save(self):
+        html = (ROOT / "app" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('class="form-section technical-panel"', html)
+        self.assertIn('id="generate">Vorschau erzeugen', html)
+        self.assertIn('class="form-section technical-panel" aria-labelledby="technical-heading" hidden', html)
+
+    def test_redaktion_profile_allows_technical_preview(self):
+        self.assertTrue(self.config["ui_profiles"]["redaktion"]["technical_preview"])
+
+    def test_ehrenamt_checkbox_for_korrespondenzstueck_exists(self):
+        html = (ROOT / "app" / "index.html").read_text(encoding="utf-8")
+        self.assertRegex(html, r'<input id="korrespondenzstueck"[^>]+type="checkbox"')
+        self.assertIn("<span>Korrespondenzstück</span>", html)
+        self.assertFalse(self.config["ui_profiles"]["standard"]["technical_preview"])
+        self.assertFalse(self.config["ui_profiles"]["barrierearm"]["technical_preview"])
+
+    def test_barrierearm_profile_styles_korrespondenz_checkbox(self):
+        css = (ROOT / "app" / "style.css").read_text(encoding="utf-8")
+        self.assertIn('body.barrierearm input[type="checkbox"]', css)
+        self.assertIn("body.barrierearm .checkbox-field", css)
+
+    def test_new_record_resets_korrespondenz_checkbox_to_false(self):
+        js = (ROOT / "app" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('document.querySelector("#korrespondenzstueck").checked', js)
+        self.assertIn("function startNewRecord()", js)
+        self.assertIn("form.reset();", js)
+        self.assertNotIn("korrespondenzstueck: {", js)
+
+    def test_korrespondenzstueck_is_not_presettable(self):
+        self.assertNotIn("korrespondenzstueck", self.config["presettable_fields"])
+        self.assertIn("korrespondenzstueck", self.config["never_presettable_fields"])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,25 @@
+id: redaktion
+label: Redaktion
+can_edit_redaktionell: true
+font_scale: normal
+high_contrast: false
+visible_sections:
+  - signatur
+  - erschliessung
+  - datierung
+  - redaktion
+  - publikationsstatus
+editable_fields:
+  - titel
+  - beschriftung
+  - beschreibung
+  - datierung
+  - dargestellte_personen
+  - herkunft
+  - sammler
+  - fotograf
+  - rechteinhaber
+  - orte
+  - schlagworte
+  - altsignaturen
+  - interne_bemerkung
