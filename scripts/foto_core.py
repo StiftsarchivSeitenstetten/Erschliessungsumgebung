@@ -1,25 +1,21 @@
-"""Core logic for the 9.4.2 paper print photo pilot.
-
-The module intentionally has no third-party dependencies so it can run in
-GitHub Actions and on plain local Python installations.
-"""
+"""Core logic for the 9.4.2 paper print photo pilot."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+import json
 from pathlib import Path
 import re
 from typing import Any
 
+import jsonschema
+import yaml
 
-VALID_FORMATS = ("A", "B", "C", "D", "E", "F")
-VALID_REDAKTIONSSTUFEN = ("ehrenamtlich", "redaktionell")
-VALID_BEARBEITUNGSSTATUS = ("in_bearbeitung", "pruefen", "abgeschlossen")
-VALID_PUBLIKATIONSSTATUS = ("intern", "oeffentlich")
-MODULE_ID = "papierabzuege_9_4_2"
-BESTAND = "9.4"
-OBJEKTGRUPPE = "2"
+
+ROOT = Path(__file__).resolve().parents[1]
+CONFIG_PATH = ROOT / "config" / "foto-papierabzuege.json"
+SCHEMA_PATH = ROOT / "schemas" / "foto.schema.json"
 
 
 @dataclass(frozen=True)
@@ -29,19 +25,50 @@ class MarkdownRecord:
     body: str
 
 
-def build_signature(format_code: str, number: int) -> dict[str, Any]:
+def load_config(path: Path = CONFIG_PATH) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_schema(path: Path = SCHEMA_PATH) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def signature_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    return (config or load_config())["signature"]
+
+
+def valid_formats(config: dict[str, Any] | None = None) -> tuple[str, ...]:
+    return tuple(signature_config(config)["formats"])
+
+
+def build_signature(
+    format_code: str,
+    number: int,
+    config: dict[str, Any] | None = None,
+    status: str = "vergeben",
+) -> dict[str, Any]:
+    config = config or load_config()
+    signature = signature_config(config)
     format_code = format_code.upper()
-    if format_code not in VALID_FORMATS:
+    if format_code not in signature["formats"]:
         raise ValueError(f"Ungueltiges Format: {format_code}")
     if not isinstance(number, int) or number < 1:
         raise ValueError("Nummer muss eine positive Ganzzahl sein")
+    if status not in signature["status_values"]:
+        raise ValueError(f"Ungueltiger Signaturstatus: {status}")
+    anzeige = signature["pattern"].format(
+        bestand=signature["bestand"],
+        objektgruppe=signature["objektgruppe"],
+        format=format_code,
+        nummer=number,
+    )
     return {
-        "bestand": BESTAND,
-        "objektgruppe": OBJEKTGRUPPE,
+        "bestand": signature["bestand"],
+        "objektgruppe": signature["objektgruppe"],
         "format": format_code,
         "nummer": number,
-        "anzeige": f"{BESTAND}.{OBJEKTGRUPPE}.{format_code}.{number}",
-        "status": "vergeben",
+        "anzeige": anzeige,
+        "status": status,
     }
 
 
@@ -58,9 +85,10 @@ def archivis_date_value(datierung: dict[str, Any]) -> str:
     return f"{int(year):04d}{int(month):02d}{int(day):02d}"
 
 
-def next_number(records: list[dict[str, Any]], format_code: str) -> int:
+def next_number(records: list[dict[str, Any]], format_code: str, config: dict[str, Any] | None = None) -> int:
+    formats = valid_formats(config)
     format_code = format_code.upper()
-    if format_code not in VALID_FORMATS:
+    if format_code not in formats:
         raise ValueError(f"Ungueltiges Format: {format_code}")
     numbers = [
         record.get("signatur", {}).get("nummer")
@@ -69,6 +97,37 @@ def next_number(records: list[dict[str, Any]], format_code: str) -> int:
     ]
     numbers = [number for number in numbers if isinstance(number, int)]
     return max(numbers, default=0) + 1
+
+
+def next_id(records: list[dict[str, Any]]) -> str:
+    numbers = []
+    for record in records:
+        record_id = str(record.get("id", ""))
+        match = re.match(r"^foto-([0-9]{6})$", record_id)
+        if match:
+            numbers.append(int(match.group(1)))
+    return f"foto-{max(numbers, default=0) + 1:06d}"
+
+
+def append_local_record(records: list[dict[str, Any]], format_code: str, config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Create a minimal local draft and add it to the in-session inventory.
+
+    This mirrors the browser behavior: local drafts advance IDs and format
+    numbers, but they are not a multi-user-safe reservation.
+    """
+
+    config = config or load_config()
+    record = {
+        "id": next_id(records),
+        "signatur": build_signature(
+            format_code,
+            next_number(records, format_code, config),
+            config,
+            status="vorgeschlagen",
+        ),
+    }
+    records.append(record)
+    return record
 
 
 def extract_frontmatter(text: str) -> tuple[str, str]:
@@ -84,136 +143,47 @@ def extract_frontmatter(text: str) -> tuple[str, str]:
 
 def load_markdown_record(path: Path) -> MarkdownRecord:
     yaml_text, body = extract_frontmatter(path.read_text(encoding="utf-8"))
-    return MarkdownRecord(path=path, data=parse_simple_yaml(yaml_text), body=body)
+    parsed = yaml.safe_load(yaml_text)
+    if not isinstance(parsed, dict):
+        raise ValueError(f"{path}: YAML-Frontmatter ist kein Mapping")
+    return MarkdownRecord(path=path, data=parsed, body=body)
 
 
 def load_records(data_dir: Path) -> list[MarkdownRecord]:
     return [load_markdown_record(path) for path in sorted(data_dir.glob("foto-*.md"))]
 
 
-def parse_simple_yaml(text: str) -> Any:
-    lines = []
-    for raw in text.splitlines():
-        if not raw.strip() or raw.lstrip().startswith("#"):
-            continue
-        indent = len(raw) - len(raw.lstrip(" "))
-        lines.append((indent, raw.strip()))
-    value, index = _parse_block(lines, 0, 0)
-    if index != len(lines):
-        raise ValueError(f"YAML konnte ab Zeile {index + 1} nicht gelesen werden")
-    return value
+def validate_record_schema(record: dict[str, Any], schema: dict[str, Any] | None = None) -> list[str]:
+    schema = schema or load_schema()
+    validator = jsonschema.Draft202012Validator(schema)
+    errors = []
+    for error in sorted(validator.iter_errors(record), key=lambda item: list(item.path)):
+        location = ".".join(str(part) for part in error.path) or "<root>"
+        errors.append(f"Schemafehler {location}: {error.message}")
+    return errors
 
 
-def _parse_block(lines: list[tuple[int, str]], index: int, indent: int) -> tuple[Any, int]:
-    if index >= len(lines):
-        return {}, index
-    current_indent, stripped = lines[index]
-    if current_indent < indent:
-        return {}, index
-    if stripped.startswith("- "):
-        return _parse_list(lines, index, current_indent)
-    return _parse_dict(lines, index, current_indent)
-
-
-def _parse_list(lines: list[tuple[int, str]], index: int, indent: int) -> tuple[list[Any], int]:
-    result = []
-    while index < len(lines):
-        current_indent, stripped = lines[index]
-        if current_indent != indent or not stripped.startswith("- "):
-            break
-        item = stripped[2:].strip()
-        index += 1
-        if not item:
-            nested, index = _parse_block(lines, index, indent + 2)
-            result.append(nested)
-            continue
-        if _looks_like_key_value(item):
-            key, raw_value = item.split(":", 1)
-            entry: dict[str, Any] = {key.strip(): _parse_scalar(raw_value.strip())}
-            if index < len(lines) and lines[index][0] > indent:
-                nested, index = _parse_block(lines, index, indent + 2)
-                if isinstance(nested, dict):
-                    entry.update(nested)
-            result.append(entry)
-        else:
-            result.append(_parse_scalar(item))
-    return result, index
-
-
-def _parse_dict(lines: list[tuple[int, str]], index: int, indent: int) -> tuple[dict[str, Any], int]:
-    result: dict[str, Any] = {}
-    while index < len(lines):
-        current_indent, stripped = lines[index]
-        if current_indent != indent or stripped.startswith("- "):
-            break
-        if ":" not in stripped:
-            raise ValueError(f"Ungueltige YAML-Zeile: {stripped}")
-        key, raw_value = stripped.split(":", 1)
-        key = key.strip()
-        raw_value = raw_value.strip()
-        index += 1
-        if raw_value == "":
-            nested, index = _parse_block(lines, index, indent + 2)
-            result[key] = nested
-        else:
-            result[key] = _parse_scalar(raw_value)
-    return result, index
-
-
-def _looks_like_key_value(value: str) -> bool:
-    return bool(re.match(r"^[A-Za-z0-9_]+:", value))
-
-
-def _parse_scalar(value: str) -> Any:
-    if value == "[]":
-        return []
-    if value == "{}":
-        return {}
-    if value in ("null", "~"):
-        return None
-    if value == "true":
-        return True
-    if value == "false":
-        return False
-    if (value.startswith('"') and value.endswith('"')) or (
-        value.startswith("'") and value.endswith("'")
-    ):
-        return value[1:-1]
-    if re.match(r"^-?[0-9]+$", value):
-        return int(value)
-    return value
-
-
-def validate_record(record: dict[str, Any]) -> list[str]:
+def validate_record(record: dict[str, Any], config: dict[str, Any] | None = None) -> list[str]:
+    config = config or load_config()
     errors: list[str] = []
-    _require(record, "id", errors)
-    _require(record, "signatur", errors)
-    _require(record, "erschliessung", errors)
-    _require(record, "datierung", errors)
-    _require(record, "redaktion", errors)
-    _require(record, "bearbeitung", errors)
-    _require(record, "publikation", errors)
 
-    record_id = record.get("id")
-    if record_id and not re.match(r"^foto-[0-9]{6}$", str(record_id)):
-        errors.append("id muss dem Muster foto-000001 entsprechen")
+    if record.get("modul") != config["module_id"]:
+        errors.append(f"modul muss {config['module_id']} sein")
 
-    if record.get("modul") != MODULE_ID:
-        errors.append(f"modul muss {MODULE_ID} sein")
-
-    errors.extend(validate_signature(record.get("signatur", {})))
+    errors.extend(validate_signature(record.get("signatur", {}), config))
     errors.extend(validate_datierung(record.get("datierung", {})))
 
+    vocabularies = config["vocabularies"]
     redaktion = record.get("redaktion", {})
-    if redaktion.get("stufe") not in VALID_REDAKTIONSSTUFEN:
+    if redaktion.get("stufe") not in vocabularies["redaktionsstufen"]:
         errors.append("redaktion.stufe ist unzulaessig")
 
     bearbeitung = record.get("bearbeitung", {})
-    if bearbeitung.get("status") not in VALID_BEARBEITUNGSSTATUS:
+    if bearbeitung.get("status") not in vocabularies["bearbeitungsstatus"]:
         errors.append("bearbeitung.status ist unzulaessig")
 
     publikation = record.get("publikation", {})
-    if publikation.get("status") not in VALID_PUBLIKATIONSSTATUS:
+    if publikation.get("status") not in vocabularies["publikationsstatus"]:
         errors.append("publikation.status ist unzulaessig")
 
     erschliessung = record.get("erschliessung", {})
@@ -224,23 +194,26 @@ def validate_record(record: dict[str, Any]) -> list[str]:
     return errors
 
 
-def validate_signature(signatur: dict[str, Any]) -> list[str]:
+def validate_signature(signatur: dict[str, Any], config: dict[str, Any] | None = None) -> list[str]:
+    config = config or load_config()
+    signature = signature_config(config)
     errors: list[str] = []
-    if signatur.get("bestand") != BESTAND:
-        errors.append("signatur.bestand muss 9.4 sein")
-    if signatur.get("objektgruppe") != OBJEKTGRUPPE:
-        errors.append("signatur.objektgruppe muss 2 sein")
+    if signatur.get("bestand") != signature["bestand"]:
+        errors.append(f"signatur.bestand muss {signature['bestand']} sein")
+    if signatur.get("objektgruppe") != signature["objektgruppe"]:
+        errors.append(f"signatur.objektgruppe muss {signature['objektgruppe']} sein")
     format_code = signatur.get("format")
-    if format_code not in VALID_FORMATS:
-        errors.append("signatur.format muss A-F sein")
+    if format_code not in signature["formats"]:
+        errors.append("signatur.format ist unzulaessig")
     number = signatur.get("nummer")
     if not isinstance(number, int) or number < 1:
         errors.append("signatur.nummer muss eine positive Ganzzahl sein")
-    if format_code in VALID_FORMATS and isinstance(number, int):
-        expected = f"{BESTAND}.{OBJEKTGRUPPE}.{format_code}.{number}"
+    if format_code in signature["formats"] and isinstance(number, int):
+        status = signatur.get("status", "vergeben")
+        expected = build_signature(format_code, number, config, status)["anzeige"]
         if signatur.get("anzeige") != expected:
             errors.append("signatur.anzeige entspricht nicht den Einzelkomponenten")
-    if signatur.get("status") not in ("vorgeschlagen", "vergeben"):
+    if signatur.get("status") not in signature["status_values"]:
         errors.append("signatur.status ist unzulaessig")
     return errors
 
@@ -270,12 +243,16 @@ def validate_datierung(datierung: dict[str, Any]) -> list[str]:
 
 
 def validate_collection(records: list[MarkdownRecord]) -> list[str]:
+    config = load_config()
+    schema = load_schema()
     errors: list[str] = []
     seen_ids: dict[str, Path] = {}
     seen_signatures: dict[str, Path] = {}
     for markdown_record in records:
         prefix = str(markdown_record.path)
-        for error in validate_record(markdown_record.data):
+        for error in validate_record_schema(markdown_record.data, schema):
+            errors.append(f"{prefix}: {error}")
+        for error in validate_record(markdown_record.data, config):
             errors.append(f"{prefix}: {error}")
         record_id = markdown_record.data.get("id")
         if record_id in seen_ids:
@@ -288,8 +265,3 @@ def validate_collection(records: list[MarkdownRecord]) -> list[str]:
         elif signature:
             seen_signatures[signature] = markdown_record.path
     return errors
-
-
-def _require(record: dict[str, Any], key: str, errors: list[str]) -> None:
-    if key not in record:
-        errors.append(f"{key} fehlt")

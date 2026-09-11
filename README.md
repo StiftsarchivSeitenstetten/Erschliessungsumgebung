@@ -81,6 +81,8 @@ Einmal vergebene Signaturen sollen stabil bleiben. Änderungen an Signaturen sin
 
 Der aktuelle Pilot berechnet Signaturvorschläge aus vorhandenen Test- und Bestandsdaten. Das ist noch keine transaktionssichere Mehrbenutzer-Reservierung.
 
+Die zentrale Fachkonfiguration fuer das Papierabzug-Modul liegt in `config/foto-papierabzuege.json`. Python-Validierung und Browser-Pilot verwenden diese Datei gemeinsam fuer Modulkennung, Bestand, Objektgruppe, Formate, Signaturmuster, Vokabulare und vorbelegbare Felder.
+
 ## Digitalisate
 
 Hochauflösende Masterdateien, insbesondere TIFFs, sollen voraussichtlich nicht dauerhaft in diesem Git-Repository liegen.
@@ -141,6 +143,8 @@ Die Struktur ist bewusst vorläufig. Sie darf angepasst werden, wenn sich beim A
 
 Der statische Pilot im Verzeichnis `app/` darf keine GitHub-Tokens speichern oder verlangen. Er erzeugt lokal YAML/Markdown, zeigt eine Vorschau und kann Datensätze herunterladen. Produktives Schreiben nach GitHub, Benutzerrollen und kollisionssichere Signaturvergabe bleiben spätere Arbeitsschritte.
 
+Innerhalb einer lokalen Arbeitssitzung merkt sich der Browser bereits erzeugte, noch nicht nach GitHub geschriebene Datensätze in `localStorage`. Dadurch werden technische IDs und formatbezogene Nummernvorschläge lokal fortgeführt. Diese lokale Fortschreibung ist weiterhin keine produktive Mehrbenutzer-Reservierung.
+
 Lokal starten:
 
 ```bash
@@ -156,6 +160,7 @@ http://127.0.0.1:8765/app/
 Tests und Validierung:
 
 ```bash
+python3 -m pip install -r requirements.txt
 python3 -m unittest discover -s tests
 python3 scripts/validate.py
 python3 exports/archivis/export.py

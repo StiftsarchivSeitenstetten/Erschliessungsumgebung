@@ -1,0 +1,51 @@
+{
+  "module_id": "papierabzuege_9_4_2",
+  "module_label": "Einzelne Papierabzuege - 9.4.2",
+  "datensatz_typ": "foto",
+  "signature": {
+    "bestand": "9.4",
+    "objektgruppe": "2",
+    "formats": ["A", "B", "C", "D", "E", "F"],
+    "pattern": "{bestand}.{objektgruppe}.{format}.{nummer}",
+    "status_values": ["vorgeschlagen", "vergeben"]
+  },
+  "defaults": {
+    "redaktion_stufe": "ehrenamtlich",
+    "bearbeitung_status": "in_bearbeitung",
+    "publikation_status": "intern"
+  },
+  "vocabularies": {
+    "redaktionsstufen": ["ehrenamtlich", "redaktionell"],
+    "bearbeitungsstatus": ["in_bearbeitung", "pruefen", "abgeschlossen"],
+    "publikationsstatus": ["intern", "oeffentlich"]
+  },
+  "presettable_fields": [
+    "titel",
+    "beschriftung",
+    "beschreibung",
+    "datierung",
+    "dargestellte_personen",
+    "herkunft",
+    "sammler",
+    "fotograf",
+    "rechteinhaber",
+    "orte",
+    "schlagworte",
+    "altsignaturen",
+    "interne_bemerkung"
+  ],
+  "never_presettable_fields": [
+    "id",
+    "format",
+    "nummer",
+    "signatur",
+    "redaktion",
+    "technik"
+  ],
+  "existing_records": [
+    { "id": "foto-000001", "format": "A", "nummer": 8468 },
+    { "id": "foto-000002", "format": "C", "nummer": 500 },
+    { "id": "foto-000003", "format": "B", "nummer": 1025 }
+  ],
+  "note": "Pilot: lokale Nummernvorschlaege sind keine transaktionssichere Mehrbenutzer-Reservierung."
+}

@@ -1,7 +1,7 @@
 id: papierabzuege_9_4_2
 label: "Einzelne Papierabzüge - 9.4.2"
 schema: "../../schemas/foto.schema.json"
-signature_rule: "../../signatures/foto.yaml"
+fachkonfiguration: "../../config/foto-papierabzuege.json"
 formats:
   - A
   - B

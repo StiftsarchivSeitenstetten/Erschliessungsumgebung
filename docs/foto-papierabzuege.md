@@ -43,6 +43,8 @@ signatur:
 
 Nach der ersten verbindlichen Speicherung gelten Format, Nummer und Signatur als stabil. Eine spätere Umsignierung ist ein eigener redaktioneller Vorgang.
 
+Die Fachwerte fuer Modulkennung, Bestand, Objektgruppe, Formate, Signaturmuster und Vokabulare sind zentral in `config/foto-papierabzuege.json` definiert. Python-Validierung und Browser-Pilot verwenden diese gemeinsame Konfiguration.
+
 ## Nummernkreise A-F
 
 Die Formate `A`, `B`, `C`, `D`, `E` und `F` besitzen getrennte fortlaufende Nummernkreise.
@@ -50,6 +52,8 @@ Die Formate `A`, `B`, `C`, `D`, `E` und `F` besitzen getrennte fortlaufende Numm
 Ein neuer Vorschlag für `A` wird nur aus vorhandenen `A`-Signaturen berechnet. Werte aus `B` bis `F` beeinflussen diesen Vorschlag nicht.
 
 Im Pilot wird die nächste Nummer aus vorhandenen lokalen Test- und Bestandsdaten berechnet. Das ist noch keine transaktionssichere Mehrbenutzer-Reservierung.
+
+Der Browser merkt sich zusätzlich lokal erzeugte, noch nicht nach GitHub geschriebene Datensätze in `localStorage`. Dadurch laufen technische IDs und Nummernvorschläge innerhalb derselben Arbeitssitzung weiter.
 
 ## Datierungsmodell
 
@@ -117,6 +121,20 @@ Nicht vorbelegbar sind insbesondere:
 - technische Bearbeitungsprovenienz
 
 Im Webpilot kann die aktive Vorbelegung in `localStorage` gespeichert werden.
+
+Vorbelegbar sind nur fachliche Erschließungsfelder, darunter Herkunft, Titel, Beschriftung, Beschreibung, Datierung, dargestellte Personen, Sammler, Fotograf, Rechteinhaber, Orte, Schlagworte, Altsignaturen und interne Bemerkung.
+
+Technische ID, Format, Nummer, Signatur, Redaktionsstufe und technische Provenienz sind nicht vorbelegbar.
+
+## Validierung
+
+Die Markdown-Dateien werden mit `PyYAML` gelesen. Das YAML-Frontmatter wird gegen `schemas/foto.schema.json` validiert. Fachprüfungen, die ueber JSON Schema hinausgehen, bleiben in Python:
+
+- Signaturkonsistenz
+- eindeutige technische IDs
+- eindeutige Signaturen
+- reale Kalenderdaten
+- getrennte Nummernkreise
 
 ## UI-Profile
 

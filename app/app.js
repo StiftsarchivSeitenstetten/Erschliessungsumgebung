@@ -1,18 +1,13 @@
-const FORMATS = ["A", "B", "C", "D", "E", "F"];
-const MODULE_ID = "papierabzuege_9_4_2";
-const PRESET_KEY = "erschliessung.papierabzuege.activePreset";
+const PRESET_KEY = "erschliessung.papierabzuege.activePreset.v2";
 const PROFILE_KEY = "erschliessung.papierabzuege.profile";
+const LOCAL_RECORDS_KEY = "erschliessung.papierabzuege.localRecords";
 
-const existingRecords = [
-  { id: "foto-000001", format: "A", nummer: 8468 },
-  { id: "foto-000002", format: "C", nummer: 500 },
-  { id: "foto-000003", format: "B", nummer: 1025 }
-];
-
+let config = null;
 const state = {
   format: null,
   generatedMarkdown: "",
-  generatedFilename: "foto-000004.md"
+  generatedFilename: "foto-000004.md",
+  inventory: []
 };
 
 const form = document.querySelector("#record-form");
@@ -24,24 +19,124 @@ const signatureOutput = document.querySelector("#signature-output");
 const archivisDateOutput = document.querySelector("#archivis-date");
 const presetStatus = document.querySelector("#preset-status");
 const presetEditor = document.querySelector("#preset-editor");
-const presetHerkunft = document.querySelector("#preset-herkunft");
+const presetFieldList = document.querySelector("#preset-field-list");
+
+const fieldMap = {
+  titel: { label: "Titel", kind: "scalar", selector: "#titel" },
+  beschriftung: { label: "Beschriftung", kind: "scalar", selector: "#beschriftung" },
+  beschreibung: { label: "Beschreibung", kind: "scalar", selector: "#beschreibung" },
+  dargestellte_personen: { label: "Dargestellte Personen", kind: "list", selector: "#personen" },
+  herkunft: { label: "Herkunft", kind: "scalar", selector: "#herkunft" },
+  sammler: { label: "Sammler", kind: "scalar", selector: "#sammler" },
+  fotograf: { label: "Fotograf", kind: "scalar", selector: "#fotograf" },
+  rechteinhaber: { label: "Rechteinhaber", kind: "scalar", selector: "#rechteinhaber" },
+  orte: { label: "Orte", kind: "list", selector: "#orte" },
+  schlagworte: { label: "Schlagworte", kind: "list", selector: "#schlagworte" },
+  altsignaturen: { label: "Altsignaturen", kind: "list", selector: "#altsignaturen" },
+  interne_bemerkung: { label: "Interne Bemerkung", kind: "scalar", selector: "#interne-bemerkung" },
+  datierung: { label: "Datierung", kind: "date" }
+};
+
+async function init() {
+  config = await loadConfig();
+  state.inventory = [...config.existing_records, ...loadLocalRecords()];
+  buildFormatOptions();
+  buildPresetEditor();
+  bindEvents();
+  setProfile(localStorage.getItem(PROFILE_KEY) || "standard");
+  applyPreset({ onlyEmpty: true });
+  updateSignatureOutput();
+  updateArchivisDate();
+}
+
+async function loadConfig() {
+  const response = await fetch("../config/foto-papierabzuege.json", { cache: "no-store" });
+  if (!response.ok) throw new Error("Fachkonfiguration konnte nicht geladen werden.");
+  return response.json();
+}
+
+function buildFormatOptions() {
+  const container = document.querySelector("#format-options");
+  container.innerHTML = "";
+  config.signature.formats.forEach((format) => {
+    const label = document.createElement("label");
+    label.className = "format-option";
+    label.innerHTML = `<input type="radio" name="format" value="${format}"><span>${format}</span>`;
+    container.append(label);
+  });
+}
+
+function bindEvents() {
+  document.querySelectorAll("input[name='format']").forEach((input) => {
+    input.addEventListener("change", () => {
+      state.format = input.value;
+      updateSignatureOutput();
+    });
+  });
+
+  document.querySelectorAll(".profile-button").forEach((button) => {
+    button.addEventListener("click", () => setProfile(button.dataset.profile));
+  });
+
+  ["jahr", "monat", "tag"].forEach((id) => {
+    document.querySelector(`#${id}`).addEventListener("input", updateArchivisDate);
+  });
+
+  document.querySelector("#generate").addEventListener("click", generateRecord);
+  document.querySelector("#new-record").addEventListener("click", startNewRecord);
+  downloadButton.addEventListener("click", downloadMarkdown);
+
+  document.querySelector("#edit-preset").addEventListener("click", () => {
+    syncPresetEditor();
+    presetEditor.hidden = !presetEditor.hidden;
+  });
+
+  document.querySelector("#save-preset").addEventListener("click", () => {
+    savePreset(readPresetEditor());
+    presetEditor.hidden = true;
+  });
+
+  document.querySelector("#disable-preset").addEventListener("click", () => {
+    localStorage.removeItem(PRESET_KEY);
+    presetStatus.textContent = "Keine aktive Vorbelegung.";
+  });
+
+  document.querySelector("#adopt-preset").addEventListener("click", () => {
+    savePreset(readCurrentValuesAsPreset({ includeEmpty: false }));
+    syncPresetEditor();
+  });
+}
 
 function nextNumber(format) {
-  const numbers = existingRecords
+  const numbers = state.inventory
     .filter((record) => record.format === format)
     .map((record) => record.nummer);
   return Math.max(0, ...numbers) + 1;
 }
 
 function nextId() {
-  const maxId = existingRecords
-    .map((record) => Number(record.id.replace("foto-", "")))
+  const maxId = state.inventory
+    .map((record) => Number(String(record.id).replace("foto-", "")))
+    .filter((number) => Number.isInteger(number))
     .reduce((max, value) => Math.max(max, value), 0);
   return `foto-${String(maxId + 1).padStart(6, "0")}`;
 }
 
-function buildSignature(format, number) {
-  return `9.4.2.${format}.${number}`;
+function buildSignature(format, number, status = "vorgeschlagen") {
+  const signature = config.signature;
+  const anzeige = signature.pattern
+    .replace("{bestand}", signature.bestand)
+    .replace("{objektgruppe}", signature.objektgruppe)
+    .replace("{format}", format)
+    .replace("{nummer}", String(number));
+  return {
+    bestand: signature.bestand,
+    objektgruppe: signature.objektgruppe,
+    format,
+    nummer: number,
+    anzeige,
+    status
+  };
 }
 
 function parseIntegerField(id) {
@@ -65,73 +160,60 @@ function splitList(value) {
     .filter(Boolean);
 }
 
-function scalar(value) {
-  if (value === null || value === undefined || value === "") return "null";
-  return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+function joinList(values) {
+  return Array.isArray(values) ? values.join("; ") : "";
 }
 
-function list(values, indent = "  ") {
-  if (!values.length) return "[]";
-  return `\n${values.map((value) => `${indent}- ${scalar(value)}`).join("\n")}`;
-}
-
-function personList(values) {
-  if (!values.length) return "[]";
-  return `\n${values.map((value) => `    - name: ${scalar(value)}\n      hinweis: null`).join("\n")}`;
+function readDatierung() {
+  return {
+    jahr: parseIntegerField("jahr"),
+    monat: parseIntegerField("monat"),
+    tag: parseIntegerField("tag"),
+    original: document.querySelector("#original-datum").value.trim() || null,
+    original_typ: document.querySelector("#original-datum").value.trim() ? "importierte_arbeitsdaten" : null
+  };
 }
 
 function readRecord() {
   const number = state.format ? nextNumber(state.format) : null;
   const id = nextId();
-  const datierung = {
-    jahr: parseIntegerField("jahr"),
-    monat: parseIntegerField("monat"),
-    tag: parseIntegerField("tag")
-  };
   return {
     id,
     schema_version: 1,
-    datensatz_typ: "foto",
-    modul: MODULE_ID,
-    signatur: state.format
-      ? {
-          bestand: "9.4",
-          objektgruppe: "2",
-          format: state.format,
-          nummer: number,
-          anzeige: buildSignature(state.format, number),
-          status: "vorgeschlagen"
-        }
-      : null,
+    datensatz_typ: config.datensatz_typ,
+    modul: config.module_id,
+    signatur: state.format ? buildSignature(state.format, number) : null,
     erschliessung: {
-      titel: document.querySelector("#titel").value.trim() || null,
-      beschriftung: document.querySelector("#beschriftung").value.trim() || null,
-      beschreibung: document.querySelector("#beschreibung").value.trim() || null,
-      dargestellte_personen: splitList(document.querySelector("#personen").value),
-      herkunft: document.querySelector("#herkunft").value.trim() || null,
-      sammler: document.querySelector("#sammler").value.trim() || null,
-      fotograf: document.querySelector("#fotograf").value.trim() || null,
-      rechteinhaber: document.querySelector("#rechteinhaber").value.trim() || null,
+      titel: readScalar("titel"),
+      beschriftung: readScalar("beschriftung"),
+      beschreibung: readScalar("beschreibung"),
+      dargestellte_personen: splitList(document.querySelector("#personen").value).map((name) => ({ name, hinweis: null })),
+      herkunft: readScalar("herkunft"),
+      sammler: readScalar("sammler"),
+      fotograf: readScalar("fotograf"),
+      rechteinhaber: readScalar("rechteinhaber"),
       orte: splitList(document.querySelector("#orte").value),
       schlagworte: splitList(document.querySelector("#schlagworte").value),
       altsignaturen: splitList(document.querySelector("#altsignaturen").value),
-      interne_bemerkung: document.querySelector("#interne-bemerkung").value.trim() || null
+      interne_bemerkung: readScalar("interne_bemerkung")
     },
-    datierung: {
-      ...datierung,
-      original: document.querySelector("#original-datum").value.trim() || null,
-      original_typ: document.querySelector("#original-datum").value.trim() ? "importierte_arbeitsdaten" : null
-    },
-    redaktion: { stufe: "ehrenamtlich" },
-    bearbeitung: { status: "in_bearbeitung" },
-    publikation: { status: "intern" },
+    datierung: readDatierung(),
+    redaktion: { stufe: config.defaults.redaktion_stufe },
+    bearbeitung: { status: config.defaults.bearbeitung_status },
+    publikation: { status: config.defaults.publikation_status },
     technik: { quelle: "lokaler_webpilot", erstellt_am: null, geaendert_am: null }
   };
 }
 
+function readScalar(field) {
+  const definition = fieldMap[field];
+  const value = document.querySelector(definition.selector).value.trim();
+  return value || null;
+}
+
 function validate(record) {
   const messages = [];
-  if (!record.signatur) messages.push("Bitte ein Format A-F wählen.");
+  if (!record.signatur) messages.push("Bitte ein Format wählen.");
   if (record.datierung.jahr !== null && (Number.isNaN(record.datierung.jahr) || record.datierung.jahr < 1 || record.datierung.jahr > 9999)) {
     messages.push("Das Jahr muss eine Zahl zwischen 1 und 9999 sein.");
   }
@@ -153,11 +235,26 @@ function validate(record) {
   return messages;
 }
 
+function yamlScalar(value) {
+  if (value === null || value === undefined || value === "") return "null";
+  return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
+function yamlList(values, indent = "  ") {
+  if (!values.length) return "[]";
+  return `\n${values.map((value) => `${indent}- ${yamlScalar(value)}`).join("\n")}`;
+}
+
+function yamlPersonList(values) {
+  if (!values.length) return "[]";
+  return `\n${values.map((person) => `    - name: ${yamlScalar(person.name)}\n      hinweis: ${yamlScalar(person.hinweis)}`).join("\n")}`;
+}
+
 function toMarkdown(record) {
   const e = record.erschliessung;
   const d = record.datierung;
   const s = record.signatur;
-  return `---\nschema_version: 1\nid: ${record.id}\ndatensatz_typ: foto\nmodul: ${MODULE_ID}\nsignatur:\n  bestand: "9.4"\n  objektgruppe: "2"\n  format: "${s.format}"\n  nummer: ${s.nummer}\n  anzeige: "${s.anzeige}"\n  status: ${s.status}\nerschliessung:\n  titel: ${scalar(e.titel)}\n  beschriftung: ${scalar(e.beschriftung)}\n  beschreibung: ${scalar(e.beschreibung)}\n  dargestellte_personen: ${personList(e.dargestellte_personen)}\n  herkunft: ${scalar(e.herkunft)}\n  sammler: ${scalar(e.sammler)}\n  fotograf: ${scalar(e.fotograf)}\n  rechteinhaber: ${scalar(e.rechteinhaber)}\n  orte: ${list(e.orte, "    ")}\n  schlagworte: ${list(e.schlagworte, "    ")}\n  altsignaturen: ${list(e.altsignaturen, "    ")}\n  interne_bemerkung: ${scalar(e.interne_bemerkung)}\ndatierung:\n  jahr: ${d.jahr ?? "null"}\n  monat: ${d.monat ?? "null"}\n  tag: ${d.tag ?? "null"}\n  original: ${scalar(d.original)}\n  original_typ: ${scalar(d.original_typ)}\nredaktion:\n  stufe: ehrenamtlich\nbearbeitung:\n  status: in_bearbeitung\npublikation:\n  status: intern\ntechnik:\n  quelle: "lokaler_webpilot"\n  erstellt_am: null\n  geaendert_am: null\n---\n\n## Beschreibung\n\n${e.beschreibung || ""}\n\n## Beschriftung\n\n${e.beschriftung || ""}\n\n## Anmerkungen\n\n${e.interne_bemerkung || ""}\n`;
+  return `---\nschema_version: 1\nid: ${record.id}\ndatensatz_typ: ${record.datensatz_typ}\nmodul: ${record.modul}\nsignatur:\n  bestand: ${yamlScalar(s.bestand)}\n  objektgruppe: ${yamlScalar(s.objektgruppe)}\n  format: ${yamlScalar(s.format)}\n  nummer: ${s.nummer}\n  anzeige: ${yamlScalar(s.anzeige)}\n  status: ${s.status}\nerschliessung:\n  titel: ${yamlScalar(e.titel)}\n  beschriftung: ${yamlScalar(e.beschriftung)}\n  beschreibung: ${yamlScalar(e.beschreibung)}\n  dargestellte_personen: ${yamlPersonList(e.dargestellte_personen)}\n  herkunft: ${yamlScalar(e.herkunft)}\n  sammler: ${yamlScalar(e.sammler)}\n  fotograf: ${yamlScalar(e.fotograf)}\n  rechteinhaber: ${yamlScalar(e.rechteinhaber)}\n  orte: ${yamlList(e.orte, "    ")}\n  schlagworte: ${yamlList(e.schlagworte, "    ")}\n  altsignaturen: ${yamlList(e.altsignaturen, "    ")}\n  interne_bemerkung: ${yamlScalar(e.interne_bemerkung)}\ndatierung:\n  jahr: ${d.jahr ?? "null"}\n  monat: ${d.monat ?? "null"}\n  tag: ${d.tag ?? "null"}\n  original: ${yamlScalar(d.original)}\n  original_typ: ${yamlScalar(d.original_typ)}\nredaktion:\n  stufe: ${record.redaktion.stufe}\nbearbeitung:\n  status: ${record.bearbeitung.status}\npublikation:\n  status: ${record.publikation.status}\ntechnik:\n  quelle: ${yamlScalar(record.technik.quelle)}\n  erstellt_am: null\n  geaendert_am: null\n---\n`;
 }
 
 function showErrors(messages) {
@@ -176,21 +273,93 @@ function updateSignatureOutput() {
   }
   const number = nextNumber(state.format);
   numberOutput.textContent = String(number);
-  signatureOutput.textContent = buildSignature(state.format, number);
+  signatureOutput.textContent = buildSignature(state.format, number).anzeige;
 }
 
 function updateArchivisDate() {
-  const value = archivisDateValue({
-    jahr: parseIntegerField("jahr"),
-    monat: parseIntegerField("monat"),
-    tag: parseIntegerField("tag")
-  });
+  const value = archivisDateValue(readDatierung());
   archivisDateOutput.textContent = value || "-";
+}
+
+function generateRecord() {
+  const record = readRecord();
+  const messages = validate(record);
+  showErrors(messages);
+  if (messages.length) return;
+  state.generatedMarkdown = toMarkdown(record);
+  state.generatedFilename = `${record.id}.md`;
+  preview.value = state.generatedMarkdown;
+  downloadButton.disabled = false;
+  rememberLocalRecord(record);
+  updateSignatureOutput();
+}
+
+function rememberLocalRecord(record) {
+  const minimal = {
+    id: record.id,
+    format: record.signatur.format,
+    nummer: record.signatur.nummer
+  };
+  if (state.inventory.some((item) => item.id === minimal.id)) return;
+  state.inventory.push(minimal);
+  const localRecords = loadLocalRecords();
+  localRecords.push(minimal);
+  localStorage.setItem(LOCAL_RECORDS_KEY, JSON.stringify(localRecords));
+}
+
+function loadLocalRecords() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LOCAL_RECORDS_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function startNewRecord() {
+  const selectedFormat = state.format;
+  form.reset();
+  if (selectedFormat) {
+    const input = document.querySelector(`input[name='format'][value='${selectedFormat}']`);
+    input.checked = true;
+    state.format = selectedFormat;
+  }
+  state.generatedMarkdown = "";
+  preview.value = "";
+  downloadButton.disabled = true;
+  errors.innerHTML = "";
+  applyPreset({ onlyEmpty: false });
+  updateSignatureOutput();
+  updateArchivisDate();
+}
+
+function downloadMarkdown() {
+  const blob = new Blob([state.generatedMarkdown], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = state.generatedFilename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function buildPresetEditor() {
+  presetFieldList.innerHTML = "";
+  config.presettable_fields.forEach((field) => {
+    const definition = fieldMap[field];
+    if (!definition) return;
+    const id = `preset-${field}`;
+    const wrapper = document.createElement("label");
+    wrapper.className = "preset-choice";
+    wrapper.innerHTML = `<input type="checkbox" id="${id}" value="${field}"><span>${definition.label}</span>`;
+    presetFieldList.append(wrapper);
+  });
 }
 
 function loadPreset() {
   try {
-    return JSON.parse(localStorage.getItem(PRESET_KEY) || "null");
+    const parsed = JSON.parse(localStorage.getItem(PRESET_KEY) || "null");
+    return parsed && typeof parsed === "object" ? parsed : null;
   } catch {
     return null;
   }
@@ -198,18 +367,80 @@ function loadPreset() {
 
 function savePreset(preset) {
   localStorage.setItem(PRESET_KEY, JSON.stringify(preset));
-  applyPreset();
+  applyPreset({ onlyEmpty: true });
 }
 
-function applyPreset() {
+function syncPresetEditor() {
+  const preset = loadPreset() || { values: {} };
+  presetFieldList.querySelectorAll("input[type='checkbox']").forEach((checkbox) => {
+    checkbox.checked = Object.prototype.hasOwnProperty.call(preset.values, checkbox.value);
+  });
+}
+
+function readPresetEditor() {
+  const current = readCurrentValuesAsPreset({ includeEmpty: true });
+  const values = {};
+  presetFieldList.querySelectorAll("input[type='checkbox']:checked").forEach((checkbox) => {
+    if (Object.prototype.hasOwnProperty.call(current.values, checkbox.value)) {
+      values[checkbox.value] = current.values[checkbox.value];
+    }
+  });
+  return { values };
+}
+
+function readCurrentValuesAsPreset({ includeEmpty }) {
+  const values = {};
+  config.presettable_fields.forEach((field) => {
+    const definition = fieldMap[field];
+    if (!definition) return;
+    if (definition.kind === "date") {
+      const value = readDatierung();
+      if (includeEmpty || value.jahr || value.monat || value.tag || value.original) values[field] = value;
+    } else if (definition.kind === "list") {
+      const value = splitList(document.querySelector(definition.selector).value);
+      if (includeEmpty || value.length) values[field] = value;
+    } else {
+      const value = document.querySelector(definition.selector).value.trim() || null;
+      if (includeEmpty || value) values[field] = value;
+    }
+  });
+  return { values };
+}
+
+function applyPreset({ onlyEmpty }) {
   const preset = loadPreset();
-  if (!preset || !preset.herkunft) {
+  if (!preset || !preset.values || !Object.keys(preset.values).length) {
     presetStatus.textContent = "Keine aktive Vorbelegung.";
     return;
   }
-  presetStatus.textContent = `Aktive Vorbelegung: Herkunft = ${preset.herkunft}`;
-  const herkunft = document.querySelector("#herkunft");
-  if (!herkunft.value.trim()) herkunft.value = preset.herkunft;
+  Object.entries(preset.values).forEach(([field, value]) => {
+    const definition = fieldMap[field];
+    if (!definition) return;
+    if (definition.kind === "date") {
+      applyDatePreset(value, onlyEmpty);
+    } else if (definition.kind === "list") {
+      const element = document.querySelector(definition.selector);
+      if (!onlyEmpty || !element.value.trim()) element.value = joinList(value);
+    } else {
+      const element = document.querySelector(definition.selector);
+      if (!onlyEmpty || !element.value.trim()) element.value = value || "";
+    }
+  });
+  presetStatus.textContent = `Aktive Vorbelegung: ${Object.keys(preset.values).map((field) => fieldMap[field]?.label || field).join(", ")}`;
+}
+
+function applyDatePreset(value, onlyEmpty) {
+  const fields = [
+    ["jahr", value?.jahr],
+    ["monat", value?.monat],
+    ["tag", value?.tag],
+    ["original-datum", value?.original]
+  ];
+  fields.forEach(([id, fieldValue]) => {
+    const element = document.querySelector(`#${id}`);
+    if (!onlyEmpty || !element.value.trim()) element.value = fieldValue ?? "";
+  });
+  updateArchivisDate();
 }
 
 function setProfile(profile) {
@@ -220,78 +451,6 @@ function setProfile(profile) {
   localStorage.setItem(PROFILE_KEY, profile);
 }
 
-document.querySelectorAll(".format-button").forEach((button) => {
-  button.addEventListener("click", () => {
-    state.format = button.dataset.format;
-    document.querySelectorAll(".format-button").forEach((candidate) => {
-      candidate.setAttribute("aria-pressed", String(candidate === button));
-    });
-    updateSignatureOutput();
-  });
+init().catch((error) => {
+  errors.textContent = error.message;
 });
-
-document.querySelectorAll(".profile-button").forEach((button) => {
-  button.addEventListener("click", () => setProfile(button.dataset.profile));
-});
-
-["jahr", "monat", "tag"].forEach((id) => {
-  document.querySelector(`#${id}`).addEventListener("input", updateArchivisDate);
-});
-
-document.querySelector("#generate").addEventListener("click", () => {
-  const record = readRecord();
-  const messages = validate(record);
-  showErrors(messages);
-  if (messages.length) return;
-  state.generatedMarkdown = toMarkdown(record);
-  state.generatedFilename = `${record.id}.md`;
-  preview.value = state.generatedMarkdown;
-  downloadButton.disabled = false;
-});
-
-downloadButton.addEventListener("click", () => {
-  const blob = new Blob([state.generatedMarkdown], { type: "text/markdown;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = state.generatedFilename;
-  link.click();
-  URL.revokeObjectURL(url);
-});
-
-form.addEventListener("reset", () => {
-  setTimeout(() => {
-    state.generatedMarkdown = "";
-    preview.value = "";
-    downloadButton.disabled = true;
-    errors.innerHTML = "";
-    applyPreset();
-    updateArchivisDate();
-  });
-});
-
-document.querySelector("#edit-preset").addEventListener("click", () => {
-  const preset = loadPreset();
-  presetHerkunft.value = preset?.herkunft || document.querySelector("#herkunft").value.trim();
-  presetEditor.hidden = !presetEditor.hidden;
-});
-
-document.querySelector("#save-preset").addEventListener("click", () => {
-  savePreset({ herkunft: presetHerkunft.value.trim() });
-  presetEditor.hidden = true;
-});
-
-document.querySelector("#disable-preset").addEventListener("click", () => {
-  localStorage.removeItem(PRESET_KEY);
-  presetStatus.textContent = "Keine aktive Vorbelegung.";
-});
-
-document.querySelector("#adopt-preset").addEventListener("click", () => {
-  const herkunft = document.querySelector("#herkunft").value.trim();
-  if (herkunft) savePreset({ herkunft });
-});
-
-setProfile(localStorage.getItem(PROFILE_KEY) || "standard");
-applyPreset();
-updateSignatureOutput();
-updateArchivisDate();

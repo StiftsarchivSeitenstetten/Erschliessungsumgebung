@@ -34,14 +34,7 @@
           <h2 id="signature-heading">Format und Signatur</h2>
           <fieldset>
             <legend>Format wählen</legend>
-            <div class="format-grid" role="radiogroup" aria-label="Format">
-              <button type="button" class="format-button" data-format="A" aria-pressed="false">A</button>
-              <button type="button" class="format-button" data-format="B" aria-pressed="false">B</button>
-              <button type="button" class="format-button" data-format="C" aria-pressed="false">C</button>
-              <button type="button" class="format-button" data-format="D" aria-pressed="false">D</button>
-              <button type="button" class="format-button" data-format="E" aria-pressed="false">E</button>
-              <button type="button" class="format-button" data-format="F" aria-pressed="false">F</button>
-            </div>
+            <div id="format-options" class="format-grid" role="radiogroup" aria-label="Format"></div>
           </fieldset>
           <div class="signature-output" aria-live="polite">
             <div>
@@ -66,10 +59,8 @@
           </div>
           <p id="preset-status" class="help-text" aria-live="polite"></p>
           <div id="preset-editor" class="preset-editor" hidden>
-            <div class="field">
-              <label for="preset-herkunft">Herkunft als aktive Vorbelegung</label>
-              <input id="preset-herkunft" type="text" autocomplete="off">
-            </div>
+            <p class="help-text">Wähle aus, welche aktuellen fachlichen Felder künftig automatisch vorbelegt werden.</p>
+            <div id="preset-field-list" class="preset-field-list"></div>
             <button type="button" id="save-preset">Vorbelegung speichern</button>
           </div>
         </section>
@@ -161,7 +152,7 @@
           <div class="button-row">
             <button type="button" id="generate">Datensatz erzeugen</button>
             <button type="button" id="download" disabled>Markdown herunterladen</button>
-            <button type="reset">Neuer Datensatz</button>
+            <button type="button" id="new-record">Neuer Datensatz</button>
           </div>
           <div class="preview-grid">
             <div class="field">
