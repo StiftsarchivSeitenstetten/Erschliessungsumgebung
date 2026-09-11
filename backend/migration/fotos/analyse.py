@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import datetime, time
+from datetime import date, datetime, time, timezone
 from hashlib import sha256
 import argparse
 import json
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -18,10 +19,12 @@ from openpyxl.utils.cell import range_boundaries
 from openpyxl.utils.datetime import from_excel
 
 from scripts.foto_core import build_signature, render_photo_markdown, validate_record, validate_record_schema
+from scripts.foto_core import extract_frontmatter, load_records, validate_collection
 
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUTPUT_DIR = ROOT / "migration-work" / "foto-dry-run"
+DEFAULT_IMPORT_OUTPUT_DIR = ROOT / "migration-work" / "foto-import"
 TABLE_NAME = "tbl_Fotos"
 FORMATS = ("A", "B", "C", "D", "E", "F")
 FIELD_NAMES = [
@@ -47,6 +50,8 @@ FIELD_NAMES = [
     "ExportiertAm",
     "ExportHinweis",
 ]
+
+EXPECTED_SOURCE_SHA256 = "1d085a2cb96d79b2e12431af3257e09abd2a8d5102156b5f3d13b3c2cc2393da"
 
 
 @dataclass(frozen=True)
@@ -480,18 +485,219 @@ def write_markdown_report(path: Path, report: dict[str, Any]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def json_safe(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.replace(microsecond=0).isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, time):
+        return value.isoformat()
+    return value
+
+
+def source_fields(row: SourceRow) -> dict[str, Any]:
+    fields = {}
+    for key, value in row.values.items():
+        if scalar(value) is not None:
+            fields[key] = json_safe(value)
+    return fields
+
+
+def migration_timestamp() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def calculate_state(records: list[dict[str, Any]], total_source_rows: int) -> dict[str, Any]:
+    highest = {format_code: 0 for format_code in FORMATS}
+    for record in records:
+        signatur = record["signatur"]
+        highest[signatur["format"]] = max(highest[signatur["format"]], int(signatur["nummer"]))
+    return {
+        "next_record_id": total_source_rows + 1,
+        "next_signature_number": {
+            format_code: highest[format_code] + 1 if highest[format_code] else 1
+            for format_code in FORMATS
+        },
+    }
+
+
+def summarize_records(records: list[dict[str, Any]], conflicts: list[dict[str, Any]], report: dict[str, Any]) -> dict[str, Any]:
+    format_counts = Counter(record["signatur"]["format"] for record in records)
+    suffixed_records = [record for record in records if record["signatur"].get("zusatz")]
+    return {
+        "regular_record_count": len(records),
+        "conflict_count": len(conflicts),
+        "format_counts": {format_code: format_counts.get(format_code, 0) for format_code in FORMATS},
+        "suffixed_duplicate_record_count": len(suffixed_records),
+        "date_problems_count": report["date_problems_count"],
+        "person_stats": report["person_stats"],
+        "workflow_coverage": report["workflow_coverage"],
+    }
+
+
+def validate_generated_tree(tree_dir: Path, records: list[dict[str, Any]], conflicts: list[dict[str, Any]], state: dict[str, Any]) -> list[str]:
+    errors = []
+    foto_dir = tree_dir / "data" / "fotos"
+    markdown_records = load_records(foto_dir)
+    if len(markdown_records) != len(records):
+        errors.append(f"Erwartet {len(records)} Foto-YAMLs, gefunden {len(markdown_records)}.")
+    errors.extend(validate_collection(markdown_records))
+
+    ids = [record["id"] for record in records]
+    duplicate_ids = [record_id for record_id, count in Counter(ids).items() if count > 1]
+    if duplicate_ids:
+        errors.append(f"Doppelte target_id: {duplicate_ids[:10]}")
+
+    signatures = [record["signatur"]["anzeige"] for record in records]
+    duplicate_signatures = [signature for signature, count in Counter(signatures).items() if count > 1]
+    if duplicate_signatures:
+        errors.append(f"Doppelte Zielsignatur: {duplicate_signatures[:10]}")
+
+    conflict_ids = {conflict["target_id"] for conflict in conflicts}
+    for conflict_id in conflict_ids:
+        if (foto_dir / f"{conflict_id}.md").exists():
+            errors.append(f"Konfliktdatensatz liegt regulaer unter data/fotos: {conflict_id}")
+
+    suffixed = [record for record in records if record["signatur"].get("zusatz")]
+    missing_originals = [
+        record["id"]
+        for record in suffixed
+        if display_signature(record["signatur"]["format"], record["signatur"]["nummer"]) not in record["erschliessung"]["altsignaturen"]
+    ]
+    if missing_originals:
+        errors.append(f"Originalsignatur fehlt bei Dubletten: {missing_originals[:10]}")
+
+    for record in records:
+        if record.get("korrespondenzstueck") is not None:
+            errors.append(f"Legacy-korrespondenzstueck ist nicht null: {record['id']}")
+            break
+        if any(key in record for key in ("ZuKlaeren", "ExportBereit", "Exportiert", "ExportiertAm", "ExportHinweis")):
+            errors.append(f"Workflow-Feld im kanonischen Record: {record['id']}")
+            break
+
+    expected_state = calculate_state(records, max(int(record_id.removeprefix("foto-")) for record_id in ids + list(conflict_ids)))
+    if state != expected_state:
+        errors.append(f"State inkonsistent: {state} != {expected_state}")
+
+    for path in tree_dir.rglob("*"):
+        if path.is_file() and "/Users/" in path.read_text(encoding="utf-8"):
+            errors.append(f"Absoluter lokaler Pfad in Zieldaten: {path.relative_to(tree_dir)}")
+            break
+    return errors
+
+
+def generate_import_tree(source: Path, output_dir: Path = DEFAULT_IMPORT_OUTPUT_DIR, expected_sha256: str = EXPECTED_SOURCE_SHA256) -> dict[str, Any]:
+    digest = file_sha256(source)
+    if digest != expected_sha256:
+        raise ValueError(f"Source-Fingerprint weicht ab: {digest}")
+
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    tree_dir = output_dir / "tree"
+    foto_dir = tree_dir / "data" / "fotos"
+    state_dir = tree_dir / "state"
+    migration_dir = tree_dir / "migration" / f"fotoerfassung-{datetime.now().date().isoformat()}"
+    foto_dir.mkdir(parents=True)
+    state_dir.mkdir(parents=True)
+    migration_dir.mkdir(parents=True)
+
+    rows = read_table(source)
+    sig = signature_analysis(rows)
+    manifest, records, conflicts = build_manifest_and_records(rows, sig)
+    report = analyze(source, output_dir / "analysis")
+    state = calculate_state(records, len(rows))
+    timestamp = migration_timestamp()
+
+    row_by_id = {f"foto-{row.order:06d}": row for row in rows}
+    enriched_conflicts = []
+    for conflict in conflicts:
+        row = row_by_id[conflict["target_id"]]
+        enriched = {
+            **conflict,
+            "source_fields": source_fields(row),
+            "reason": conflict["reason"],
+        }
+        enriched_conflicts.append(enriched)
+        (migration_dir / "unresolved").mkdir(exist_ok=True)
+        (migration_dir / "unresolved" / f"{conflict['target_id']}.json").write_text(
+            json.dumps(enriched, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    for record in records:
+        (foto_dir / f"{record['id']}.md").write_text(render_photo_markdown(record), encoding="utf-8")
+        yaml_text, body = extract_frontmatter((foto_dir / f"{record['id']}.md").read_text(encoding="utf-8"))
+        if body.strip():
+            raise ValueError(f"Markdown-Body ist nicht leer: {record['id']}")
+        if not yaml_text.strip():
+            raise ValueError(f"YAML-Frontmatter fehlt: {record['id']}")
+
+    (state_dir / "foto-papierabzuege.json").write_text(json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (migration_dir / "migration-manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (migration_dir / "conflicts.json").write_text(json.dumps(enriched_conflicts, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    summary = {
+        "source_filename": source.name,
+        "source_sha256": digest,
+        "migration_timestamp": timestamp,
+        "table": TABLE_NAME,
+        "state": state,
+        **summarize_records(records, conflicts, report),
+    }
+    (migration_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (migration_dir / "README.md").write_text(
+        "\n".join([
+            "# Fotoerfassung Erstimport",
+            "",
+            f"- Quelle: `{source.name}`",
+            f"- SHA-256: `{digest}`",
+            f"- Migrationszeitpunkt: `{timestamp}`",
+            f"- Reguläre Foto-Datensätze: {summary['regular_record_count']}",
+            f"- Zurückgestellte Konflikte: {summary['conflict_count']}",
+            f"- Suffigierte Dublettendatensätze: {summary['suffixed_duplicate_record_count']}",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+
+    validation_errors = validate_generated_tree(tree_dir, records, enriched_conflicts, state)
+    validation = {
+        "ok": not validation_errors,
+        "errors": validation_errors,
+        "tree_dir": str(tree_dir),
+        **summary,
+    }
+    (output_dir / "validation-report.json").write_text(json.dumps(validation, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if validation_errors:
+        raise ValueError("Importbaum ist nicht valide: " + "; ".join(validation_errors[:5]))
+    return validation
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["analyse"])
+    parser.add_argument("command", choices=["analyse", "generate-import"])
     parser.add_argument("--source", required=True)
-    parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
+    parser.add_argument("--output-dir")
+    parser.add_argument("--expected-sha256", default=EXPECTED_SOURCE_SHA256)
     args = parser.parse_args(argv)
-    report = analyze(Path(args.source), Path(args.output_dir))
+    if args.command == "analyse":
+        output_dir = Path(args.output_dir) if args.output_dir else DEFAULT_OUTPUT_DIR
+        report = analyze(Path(args.source), output_dir)
+        print(json.dumps({
+            "source_sha256": report["source_sha256"],
+            "record_count": report["record_count"],
+            "format_counts": report["format_counts"],
+            "output_dir": str(output_dir),
+        }, ensure_ascii=False, indent=2))
+        return 0
+    output_dir = Path(args.output_dir) if args.output_dir else DEFAULT_IMPORT_OUTPUT_DIR
+    validation = generate_import_tree(Path(args.source), output_dir, args.expected_sha256)
     print(json.dumps({
-        "source_sha256": report["source_sha256"],
-        "record_count": report["record_count"],
-        "format_counts": report["format_counts"],
-        "output_dir": args.output_dir,
+        "source_sha256": validation["source_sha256"],
+        "regular_record_count": validation["regular_record_count"],
+        "conflict_count": validation["conflict_count"],
+        "format_counts": validation["format_counts"],
+        "state": validation["state"],
+        "tree_dir": validation["tree_dir"],
     }, ensure_ascii=False, indent=2))
     return 0
 

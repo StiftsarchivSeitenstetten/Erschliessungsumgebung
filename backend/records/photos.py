@@ -98,15 +98,37 @@ def bootstrap_state(repository: DataRepository) -> dict[str, Any]:
     return {"next_id": max_id + 1, "formats": formats}
 
 
+def normalize_state(raw_state: dict[str, Any]) -> dict[str, Any]:
+    if "next_id" in raw_state and "formats" in raw_state:
+        return raw_state
+    if "next_record_id" in raw_state and "next_signature_number" in raw_state:
+        return {
+            "next_id": int(raw_state["next_record_id"]),
+            "formats": {key: int(value) for key, value in raw_state["next_signature_number"].items()},
+        }
+    return raw_state
+
+
+def public_state(state: dict[str, Any]) -> dict[str, Any]:
+    normalized = normalize_state(state)
+    return {
+        "next_record_id": int(normalized["next_id"]),
+        "next_signature_number": {
+            key: int(value)
+            for key, value in sorted(normalized["formats"].items())
+        },
+    }
+
+
 def read_state(repository: DataRepository) -> dict[str, Any]:
     try:
-        return json.loads(repository.read_file(STATE_PATH).content)
+        return normalize_state(json.loads(repository.read_file(STATE_PATH).content))
     except RepositoryNotFoundError:
         return bootstrap_state(repository)
 
 
 def dump_state(state: dict[str, Any]) -> str:
-    return json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    return json.dumps(public_state(state), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
 def canonical_erschliessung(values: dict[str, Any]) -> dict[str, Any]:

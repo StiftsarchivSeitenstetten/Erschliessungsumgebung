@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -123,6 +124,24 @@ class RecordsApiTest(unittest.TestCase):
         self.assertIsNone(record["technik"]["geaendert_von"])
         self.assertIn("data/fotos/foto-000001.md", self.repository.files)
         self.assertIn("state/foto-papierabzuege.json", self.repository.files)
+        state = json.loads(self.repository.files["state/foto-papierabzuege.json"])
+        self.assertEqual(state["next_record_id"], 2)
+        self.assertEqual(state["next_signature_number"]["A"], 2)
+
+    def test_create_record_reads_import_style_state(self):
+        self.repository.files["state/foto-papierabzuege.json"] = json.dumps({
+            "next_record_id": 10332,
+            "next_signature_number": {"A": 8610, "B": 1046, "C": 579, "D": 81, "E": 36, "F": 1},
+        })
+        self.authed()
+        response = self.post_photo(payload("A"))
+        self.assertEqual(response.status_code, 201)
+        record = response.json()["record"]
+        self.assertEqual(record["id"], "foto-010332")
+        self.assertEqual(record["signatur"]["anzeige"], "9.4.2.A.8610")
+        state = json.loads(self.repository.files["state/foto-papierabzuege.json"])
+        self.assertEqual(state["next_record_id"], 10333)
+        self.assertEqual(state["next_signature_number"]["A"], 8611)
 
     def test_separate_number_ranges_for_a_b_c(self):
         self.authed()

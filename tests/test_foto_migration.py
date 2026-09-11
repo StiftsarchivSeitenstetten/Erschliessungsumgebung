@@ -13,10 +13,11 @@ from backend.migration.fotos.analyse import (
     analyze,
     build_manifest_and_records,
     classify_date,
+    generate_import_tree,
     split_semicolon,
 )
 from exports.archivis.export import yes_no_empty
-from scripts.foto_core import validate_record_schema
+from scripts.foto_core import load_records, validate_record_schema
 
 
 def source_row(order, *, format_code="A", number=1, signature="9.4.2.A.1", persons="", altsignatur="", datierung=None):
@@ -126,6 +127,42 @@ class FotoMigrationTest(unittest.TestCase):
             self.assertEqual(report_a["recommended_state"]["next_record_id"], 4)
             self.assertEqual(report_b["recommended_state"]["next_record_id"], 4)
             self.assertFalse((Path(tmp) / "Erschliessungsdaten").exists())
+
+    def test_generate_import_tree_validates_state_conflict_and_duplicates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "Fotoerfassung-test.xlsm"
+            output = Path(tmp) / "import"
+            self._write_workbook(source)
+            import hashlib
+
+            expected_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+            validation = generate_import_tree(source, output, expected_sha)
+            tree = output / "tree"
+
+            self.assertTrue(validation["ok"])
+            self.assertEqual(validation["regular_record_count"], 2)
+            self.assertEqual(validation["conflict_count"], 1)
+            self.assertEqual(validation["state"]["next_record_id"], 4)
+            self.assertEqual(validation["state"]["next_signature_number"]["A"], 2)
+            self.assertEqual(validation["state"]["next_signature_number"]["B"], 1)
+            self.assertTrue((tree / "data/fotos/foto-000001.md").exists())
+            self.assertTrue((tree / "data/fotos/foto-000002.md").exists())
+            self.assertFalse((tree / "data/fotos/foto-000003.md").exists())
+
+            records = load_records(tree / "data" / "fotos")
+            self.assertEqual([record.data["signatur"]["anzeige"] for record in records], ["9.4.2.A.1a", "9.4.2.A.1b"])
+            self.assertIn("9.4.2.A.1", records[0].data["erschliessung"]["altsignaturen"])
+            conflict = json.loads(next((tree / "migration").glob("fotoerfassung-*/unresolved/foto-000003.json")).read_text(encoding="utf-8"))
+            self.assertEqual(conflict["target_id"], "foto-000003")
+            self.assertEqual(conflict["reason"], "conflict_missing_signature_parts")
+            self.assertIn("Beschriftung", conflict["source_fields"])
+
+    def test_import_generation_aborts_on_source_fingerprint_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "Fotoerfassung-test.xlsm"
+            self._write_workbook(source)
+            with self.assertRaises(ValueError):
+                generate_import_tree(source, Path(tmp) / "import", "deadbeef")
 
     def _write_workbook(self, path: Path) -> None:
         wb = Workbook()
