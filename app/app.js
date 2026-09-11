@@ -45,7 +45,6 @@ async function init() {
   config = await loadConfig();
   state.inventory = [...config.existing_records, ...loadLocalRecords()];
   buildFormatOptions();
-  buildPresetEditor();
   bindEvents();
   setProfile(localStorage.getItem(PROFILE_KEY) || "standard");
   applyPreset({ onlyEmpty: true });
@@ -230,9 +229,15 @@ function readRecord() {
 }
 
 function readScalar(field) {
+  if (!isFieldEditable(field)) return null;
   const definition = fieldMap[field];
   const value = document.querySelector(definition.selector).value.trim();
   return value || null;
+}
+
+function isFieldEditable(field) {
+  const profile = localStorage.getItem(PROFILE_KEY) || "standard";
+  return editableFieldsForProfile(profile).includes(field);
 }
 
 function validate(record) {
@@ -338,7 +343,7 @@ function finalizeRecord() {
   state.finalizedCurrentDraft = true;
   generateButton.disabled = true;
   finalizeButton.disabled = true;
-  errors.innerHTML = "<p>Datensatz wurde lokal abgeschlossen. Mit „Neuer Datensatz“ kann weitergearbeitet werden.</p>";
+  errors.innerHTML = "<p>Datensatz wurde lokal gespeichert. Mit „Neuer Datensatz“ kann weitergearbeitet werden.</p>";
   updateSignatureOutput();
 }
 
@@ -415,7 +420,7 @@ function downloadMarkdown() {
 
 function buildPresetEditor() {
   presetFieldList.innerHTML = "";
-  config.presettable_fields.forEach((field) => {
+  editablePresetFields().forEach((field) => {
     const definition = fieldMap[field];
     if (!definition) return;
     const id = `preset-${field}`;
@@ -424,6 +429,16 @@ function buildPresetEditor() {
     wrapper.innerHTML = `<input type="checkbox" id="${id}" value="${field}"><span>${definition.label}</span>`;
     presetFieldList.append(wrapper);
   });
+}
+
+function editableFieldsForProfile(profile) {
+  return config.ui_profiles?.[profile]?.editable_fields || [];
+}
+
+function editablePresetFields() {
+  const profile = localStorage.getItem(PROFILE_KEY) || "standard";
+  const editable = new Set(editableFieldsForProfile(profile));
+  return config.presettable_fields.filter((field) => editable.has(field));
 }
 
 function loadPreset() {
@@ -460,7 +475,7 @@ function readPresetEditor() {
 
 function readCurrentValuesAsPreset({ includeEmpty }) {
   const values = {};
-  config.presettable_fields.forEach((field) => {
+  editablePresetFields().forEach((field) => {
     const definition = fieldMap[field];
     if (!definition) return;
     if (definition.kind === "date") {
@@ -485,6 +500,7 @@ function applyPreset({ onlyEmpty }) {
   }
   Object.entries(preset.values).forEach(([field, value]) => {
     const definition = fieldMap[field];
+    if (!isFieldEditable(field)) return;
     if (!definition) return;
     if (definition.kind === "date") {
       applyDatePreset(value, onlyEmpty);
@@ -514,11 +530,27 @@ function applyDatePreset(value, onlyEmpty) {
 }
 
 function setProfile(profile) {
+  if (!config.ui_profiles?.[profile]) profile = "standard";
   document.body.classList.toggle("barrierearm", profile === "barrierearm");
   document.querySelectorAll(".profile-button").forEach((button) => {
     button.classList.toggle("active", button.dataset.profile === profile);
   });
   localStorage.setItem(PROFILE_KEY, profile);
+  applyFieldPermissions(profile);
+  buildPresetEditor();
+  syncPresetEditor();
+}
+
+function applyFieldPermissions(profile) {
+  const editable = new Set(editableFieldsForProfile(profile));
+  document.querySelectorAll("[data-field-wrapper]").forEach((wrapper) => {
+    const field = wrapper.dataset.fieldWrapper;
+    const visible = editable.has(field);
+    wrapper.hidden = !visible;
+    wrapper.querySelectorAll("input, textarea, select, button").forEach((control) => {
+      control.disabled = !visible;
+    });
+  });
 }
 
 init().catch((error) => {

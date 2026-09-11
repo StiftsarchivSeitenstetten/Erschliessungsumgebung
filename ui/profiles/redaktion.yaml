@@ -9,3 +9,17 @@ visible_sections:
   - datierung
   - redaktion
   - publikationsstatus
+editable_fields:
+  - titel
+  - beschriftung
+  - beschreibung
+  - datierung
+  - dargestellte_personen
+  - herkunft
+  - sammler
+  - fotograf
+  - rechteinhaber
+  - orte
+  - schlagworte
+  - altsignaturen
+  - interne_bemerkung

@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import unittest
 
 import sys
@@ -183,6 +184,27 @@ class FotoCoreTest(unittest.TestCase):
     def test_schema_validation_is_used(self):
         errors = validate_record_schema({"id": "foto-000001"})
         self.assertTrue(any("Schemafehler" in error for error in errors))
+
+    def test_ehrenamt_profiles_do_not_edit_title(self):
+        profiles = self.config["ui_profiles"]
+        self.assertNotIn("titel", profiles["standard"]["editable_fields"])
+        self.assertNotIn("titel", profiles["barrierearm"]["editable_fields"])
+
+    def test_redaktion_profile_keeps_title_editing_available(self):
+        self.assertIn("titel", self.config["ui_profiles"]["redaktion"]["editable_fields"])
+
+    def test_caption_and_description_use_equal_large_controls(self):
+        html = (ROOT / "app" / "index.html").read_text(encoding="utf-8")
+        beschriftung = re.search(r'<textarea id="beschriftung"[^>]*rows="([^"]+)"', html)
+        beschreibung = re.search(r'<textarea id="beschreibung"[^>]*rows="([^"]+)"', html)
+        self.assertIsNotNone(beschriftung)
+        self.assertIsNotNone(beschreibung)
+        self.assertEqual(beschriftung.group(1), beschreibung.group(1))
+
+    def test_user_label_is_datensatz_speichern(self):
+        html = (ROOT / "app" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("Datensatz speichern", html)
+        self.assertNotIn("Datensatz abschließen", html)
 
 
 if __name__ == "__main__":

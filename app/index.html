@@ -15,6 +15,7 @@
       <div class="profile-switch" aria-label="UI-Profil">
         <button type="button" class="profile-button active" data-profile="standard">Standard</button>
         <button type="button" class="profile-button" data-profile="barrierearm">Barrierearm</button>
+        <button type="button" class="profile-button" data-profile="redaktion">Redaktion</button>
       </div>
     </header>
 
@@ -68,15 +69,15 @@
         <section class="form-section" aria-labelledby="metadata-heading">
           <h2 id="metadata-heading">Erschließung</h2>
           <div class="field-grid">
-            <div class="field">
+            <div class="field wide" data-field-wrapper="beschriftung">
               <label for="beschriftung">Beschriftung</label>
-              <input id="beschriftung" name="beschriftung" type="text">
+              <textarea id="beschriftung" name="beschriftung" rows="4"></textarea>
             </div>
-            <div class="field">
+            <div class="field" data-field-wrapper="titel" hidden>
               <label for="titel">Titel</label>
               <input id="titel" name="titel" type="text">
             </div>
-            <div class="field wide">
+            <div class="field wide" data-field-wrapper="beschreibung">
               <label for="beschreibung">Beschreibung</label>
               <textarea id="beschreibung" name="beschreibung" rows="4"></textarea>
             </div>
@@ -151,7 +152,7 @@
           <div id="errors" class="errors" aria-live="assertive"></div>
           <div class="button-row">
             <button type="button" id="generate">Vorschau erzeugen</button>
-            <button type="button" id="finalize" disabled>Datensatz abschließen</button>
+            <button type="button" id="finalize" disabled>Datensatz speichern</button>
             <button type="button" id="download" disabled>Markdown herunterladen</button>
             <button type="button" id="new-record">Neuer Datensatz</button>
             <button type="button" id="reset-session" class="danger-button">Lokale Sitzungsdaten zurücksetzen</button>

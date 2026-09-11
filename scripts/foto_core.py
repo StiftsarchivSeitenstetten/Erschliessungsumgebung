@@ -56,7 +56,7 @@ class LocalPilotSession:
         if not self.current_draft:
             raise ValueError("Kein Datensatz zur Abschlussaktion vorbereitet")
         if self.finalized_current_draft:
-            raise ValueError("Datensatz wurde bereits abgeschlossen")
+            raise ValueError("Datensatz wurde bereits gespeichert")
         signatur = self.current_draft["signatur"]
         self.current_draft["signatur"] = build_signature(
             signatur["format"],

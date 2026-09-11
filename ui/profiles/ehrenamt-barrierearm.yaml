@@ -9,3 +9,16 @@ visible_sections:
   - signatur
   - erschliessung
   - datierung
+editable_fields:
+  - beschriftung
+  - beschreibung
+  - datierung
+  - dargestellte_personen
+  - herkunft
+  - sammler
+  - fotograf
+  - rechteinhaber
+  - orte
+  - schlagworte
+  - altsignaturen
+  - interne_bemerkung

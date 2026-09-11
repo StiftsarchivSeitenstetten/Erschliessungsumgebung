@@ -42,6 +42,63 @@
     "redaktion",
     "technik"
   ],
+  "ui_profiles": {
+    "standard": {
+      "role": "ehrenamt",
+      "label": "Ehrenamt - Standard",
+      "editable_fields": [
+        "beschriftung",
+        "beschreibung",
+        "datierung",
+        "dargestellte_personen",
+        "herkunft",
+        "sammler",
+        "fotograf",
+        "rechteinhaber",
+        "orte",
+        "schlagworte",
+        "altsignaturen",
+        "interne_bemerkung"
+      ]
+    },
+    "barrierearm": {
+      "role": "ehrenamt",
+      "label": "Ehrenamt - sehbehindert/barrierearm",
+      "editable_fields": [
+        "beschriftung",
+        "beschreibung",
+        "datierung",
+        "dargestellte_personen",
+        "herkunft",
+        "sammler",
+        "fotograf",
+        "rechteinhaber",
+        "orte",
+        "schlagworte",
+        "altsignaturen",
+        "interne_bemerkung"
+      ]
+    },
+    "redaktion": {
+      "role": "redaktion",
+      "label": "Redaktion",
+      "editable_fields": [
+        "titel",
+        "beschriftung",
+        "beschreibung",
+        "datierung",
+        "dargestellte_personen",
+        "herkunft",
+        "sammler",
+        "fotograf",
+        "rechteinhaber",
+        "orte",
+        "schlagworte",
+        "altsignaturen",
+        "interne_bemerkung"
+      ]
+    }
+  },
   "existing_records": [
     { "id": "foto-000001", "format": "A", "nummer": 8468 },
     { "id": "foto-000002", "format": "C", "nummer": 500 },
