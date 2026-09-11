@@ -43,7 +43,9 @@ signatur:
 
 Nach der ersten verbindlichen Speicherung gelten Format, Nummer und Signatur als stabil. Eine spätere Umsignierung ist ein eigener redaktioneller Vorgang.
 
-Die Fachwerte fuer Modulkennung, Bestand, Objektgruppe, Formate, Signaturmuster und Vokabulare sind zentral in `config/foto-papierabzuege.json` definiert. Python-Validierung und Browser-Pilot verwenden diese gemeinsame Konfiguration.
+Die Fachwerte für Modulkennung, Bestand, Objektgruppe, Formate, Signaturmuster und Vokabulare sind zentral in `config/foto-papierabzuege.json` definiert. Python-Validierung und Browser-Pilot verwenden diese gemeinsame Konfiguration.
+
+Die etablierten Erschließungsfelder werden kanonisch im YAML-Frontmatter gespeichert. Der Markdown-Body bleibt für zusätzliche Freitexte reserviert, die nicht bereits strukturiert erfasst sind.
 
 ## Nummernkreise A-F
 
@@ -132,7 +134,7 @@ Technische ID, Format, Nummer, Signatur, Redaktionsstufe und technische Provenie
 
 ## Validierung
 
-Die Markdown-Dateien werden mit `PyYAML` gelesen. Das YAML-Frontmatter wird gegen `schemas/foto.schema.json` validiert. Fachprüfungen, die ueber JSON Schema hinausgehen, bleiben in Python:
+Die Markdown-Dateien werden mit `PyYAML` gelesen. Das YAML-Frontmatter wird gegen `schemas/foto.schema.json` validiert. Fachprüfungen, die über JSON Schema hinausgehen, bleiben in Python:
 
 - Signaturkonsistenz
 - eindeutige technische IDs
