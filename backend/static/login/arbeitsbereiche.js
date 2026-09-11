@@ -2,11 +2,14 @@ const moduleLabels = {
   foto_papierabzuege: "Einzelne Papierabzüge"
 };
 
+let currentUser = null;
+
 function csrfToken() {
+  const cookieName = currentUser.csrf_cookie_name;
   return document.cookie
     .split(";")
     .map((part) => part.trim())
-    .find((part) => part.startsWith("erschliessung_csrf="))
+    .find((part) => part.startsWith(`${cookieName}=`))
     ?.split("=")[1];
 }
 
@@ -46,7 +49,10 @@ document.querySelector("#logout").addEventListener("click", async () => {
 
 loadMe()
   .then((user) => {
-    if (user) renderWorkspaces(user);
+    if (user) {
+      currentUser = user;
+      renderWorkspaces(user);
+    }
   })
   .catch(() => {
     document.querySelector("#workspace-error").textContent = "Arbeitsbereiche konnten nicht geladen werden.";

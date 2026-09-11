@@ -30,11 +30,26 @@
           <p>Die Objektgruppe ist fest auf <strong>9.4.2</strong> gesetzt. Album, Negativ und Dia werden in diesem Modul nicht ausgewählt.</p>
         </div>
         <div class="warning-note">
-          Nummernvorschläge sind lokal berechnet und noch keine kollisionssichere Mehrbenutzer-Reservierung.
+          Im Produktivmodus vergibt das Backend ID und Signatur verbindlich beim Speichern.
         </div>
       </section>
 
       <form id="record-form" novalidate>
+        <section class="form-section" aria-labelledby="mode-heading">
+          <h2 id="mode-heading">Arbeitsmodus</h2>
+          <div class="button-row mode-row">
+            <button type="button" id="mode-new" class="active">Neuer Datensatz</button>
+            <button type="button" id="mode-edit">Bestehenden Datensatz bearbeiten</button>
+          </div>
+          <div id="record-browser" class="record-browser" hidden>
+            <div class="field">
+              <label for="record-search">Suche nach Signatur oder technischer ID</label>
+              <input id="record-search" type="search">
+            </div>
+            <div id="record-list" class="record-list" aria-live="polite"></div>
+          </div>
+        </section>
+
         <section class="form-section" aria-labelledby="signature-heading">
           <h2 id="signature-heading">Format und Signatur</h2>
           <fieldset>

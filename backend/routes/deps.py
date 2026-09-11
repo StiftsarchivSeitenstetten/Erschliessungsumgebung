@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 
-from fastapi import Cookie, Depends, Header, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from ..auth.sessions import get_session_by_token
@@ -44,11 +44,12 @@ def require_authenticated_user(session: SessionToken = Depends(current_session))
 def require_csrf(
     request: Request,
     x_csrf_token: str | None = Header(default=None, alias="X-CSRF-Token"),
-    csrf_cookie: str | None = Cookie(default=None, alias="erschliessung_csrf"),
     session: SessionToken = Depends(current_session),
+    settings: Settings = Depends(get_app_settings),
 ) -> None:
     if request.method in {"GET", "HEAD", "OPTIONS"}:
         return
+    csrf_cookie = request.cookies.get(settings.csrf_cookie_name)
     if not x_csrf_token or not csrf_cookie or x_csrf_token != csrf_cookie or x_csrf_token != session.csrf_token:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CSRF-Prüfung fehlgeschlagen.")
 

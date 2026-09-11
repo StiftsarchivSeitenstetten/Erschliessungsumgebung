@@ -61,6 +61,28 @@ body.barrierearm {
   padding: 10px 16px;
 }
 
+.mode-row .active {
+  box-shadow: 0 0 0 4px rgba(11, 107, 88, 0.22);
+}
+
+.record-browser {
+  margin-top: 18px;
+}
+
+.record-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.record-list button {
+  justify-content: flex-start;
+  text-align: left;
+  background: #ffffff;
+  color: var(--text);
+  border-color: var(--line);
+}
+
 .eyebrow {
   margin: 0 0 4px;
   color: var(--muted);

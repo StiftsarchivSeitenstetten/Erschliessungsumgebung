@@ -158,6 +158,10 @@ Innerhalb einer lokalen Arbeitssitzung merkt sich der Browser gespeicherte, noch
 
 Der Branch `feature/echtbetrieb-auth-speicherung` ergänzt ein kleines FastAPI-Backend mit eigener Anmeldung, SQLite-Entwicklungsdatenbank, SQLAlchemy/Alembic, Argon2id-Passwort-Hashes, serverseitigen Sessions, Rollen und Arbeitsbereichen. Details stehen in [docs/authentifizierung.md](docs/authentifizierung.md).
 
+## Phase 2B: Datenspeicherung
+
+Produktive Erschließungsdaten werden über das Backend in das private Repository `StiftsarchivSeitenstetten/Erschliessungsdaten` geschrieben. Browser erhalten keine GitHub-Secrets und vergeben keine endgültigen IDs oder Signaturen. Details stehen in [docs/github-datenspeicherung.md](docs/github-datenspeicherung.md).
+
 Die Funktion `Lokale Sitzungsdaten zurücksetzen` entfernt nur lokal gespeicherte Pilot-Datensätze. Aktive Vorbelegungen und das gewählte UI-Profil bleiben erhalten.
 
 Lokal starten:

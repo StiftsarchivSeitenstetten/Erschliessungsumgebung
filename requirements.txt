@@ -6,3 +6,5 @@ SQLAlchemy>=2.0
 alembic>=1.19
 argon2-cffi>=25.1
 httpx>=0.28
+PyJWT>=2.10
+cryptography>=45.0

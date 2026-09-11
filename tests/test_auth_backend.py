@@ -8,7 +8,6 @@ import unittest
 TEMP_DIR = tempfile.TemporaryDirectory()
 os.environ["DATABASE_URL"] = f"sqlite:///{Path(TEMP_DIR.name) / 'auth-test.sqlite3'}"
 os.environ["COOKIE_SECURE"] = "false"
-os.environ["SESSION_SECRET"] = "test-secret-not-for-production"
 
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import select  # noqa: E402
@@ -23,7 +22,9 @@ from backend.permissions import MODULE_FOTO_PAPIERABZUEGE, can_edit_record, has_
 
 
 def csrf_from_client(client: TestClient) -> str:
-    return client.cookies.get("erschliessung_csrf") or ""
+    me = client.get("/api/auth/me")
+    cookie_name = me.json()["csrf_cookie_name"]
+    return client.cookies.get(cookie_name) or ""
 
 
 class AuthBackendTest(unittest.TestCase):

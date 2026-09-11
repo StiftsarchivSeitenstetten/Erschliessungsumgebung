@@ -14,9 +14,14 @@ const state = {
   generatedMarkdown: "",
   generatedFilename: "foto-000004.md",
   inventory: [],
+  records: [],
   currentDraft: null,
   finalizedCurrentDraft: false,
-  user: null
+  user: null,
+  backendMode: true,
+  mode: "new",
+  editingRecord: null,
+  baseRevision: null
 };
 
 const form = document.querySelector("#record-form");
@@ -32,6 +37,9 @@ const presetStatus = document.querySelector("#preset-status");
 const presetEditor = document.querySelector("#preset-editor");
 const presetFieldList = document.querySelector("#preset-field-list");
 const currentUserOutput = document.querySelector("#current-user");
+const recordBrowser = document.querySelector("#record-browser");
+const recordSearch = document.querySelector("#record-search");
+const recordList = document.querySelector("#record-list");
 
 const fieldMap = {
   titel: { label: "Titel", kind: "scalar", selector: "#titel" },
@@ -52,7 +60,7 @@ const fieldMap = {
 async function init() {
   state.user = await loadCurrentUser();
   config = await loadConfig();
-  state.inventory = [...config.existing_records, ...loadLocalRecords()];
+  await refreshRecords();
   buildFormatOptions();
   addPersonRow();
   bindEvents();
@@ -85,11 +93,41 @@ async function loadCurrentUser() {
 }
 
 function csrfToken() {
+  const cookieName = state.user.csrf_cookie_name;
   return document.cookie
     .split(";")
     .map((part) => part.trim())
-    .find((part) => part.startsWith("erschliessung_csrf="))
+    .find((part) => part.startsWith(`${cookieName}=`))
     ?.split("=")[1];
+}
+
+async function apiFetch(url, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  if (options.method && options.method !== "GET") headers["X-CSRF-Token"] = csrfToken() || "";
+  const response = await fetch(url, {
+    credentials: "same-origin",
+    ...options,
+    headers
+  });
+  if (response.status === 401) {
+    window.location.href = "/login/";
+    throw new Error("Nicht angemeldet");
+  }
+  return response;
+}
+
+async function refreshRecords() {
+  const response = await apiFetch("/api/records/photos");
+  if (!response.ok) throw new Error("Datensatzliste konnte nicht geladen werden.");
+  const data = await response.json();
+  state.records = data.records || [];
+  state.inventory = state.records
+    .map((record) => {
+      const match = String(record.signatur || "").match(/^9\.4\.2\.([A-F])\.([0-9]+)$/);
+      return match ? { id: record.id, format: match[1], nummer: Number(match[2]) } : null;
+    })
+    .filter(Boolean);
+  renderRecordList();
 }
 
 async function loadConfig() {
@@ -129,6 +167,9 @@ function bindEvents() {
   document.querySelector("#reset-session").addEventListener("click", resetLocalSessionRecords);
   document.querySelector("#add-person").addEventListener("click", () => addPersonRow());
   document.querySelector("#logout").addEventListener("click", logout);
+  document.querySelector("#mode-new").addEventListener("click", () => setMode("new"));
+  document.querySelector("#mode-edit").addEventListener("click", () => setMode("edit"));
+  recordSearch.addEventListener("input", renderRecordList);
   downloadButton.addEventListener("click", downloadMarkdown);
 
   document.querySelector("#edit-preset").addEventListener("click", () => {
@@ -159,6 +200,94 @@ async function logout() {
     headers: { "X-CSRF-Token": csrfToken() || "" }
   });
   window.location.href = "/login/";
+}
+
+function setMode(mode) {
+  state.mode = mode;
+  document.querySelector("#mode-new").classList.toggle("active", mode === "new");
+  document.querySelector("#mode-edit").classList.toggle("active", mode === "edit");
+  recordBrowser.hidden = mode !== "edit";
+  if (mode === "new") startNewRecord();
+  renderRecordList();
+}
+
+function renderRecordList() {
+  if (!recordList) return;
+  const query = recordSearch.value.trim().toLowerCase();
+  const records = state.records.filter((record) => {
+    return !query || String(record.id).toLowerCase().includes(query) || String(record.signatur).toLowerCase().includes(query);
+  });
+  recordList.innerHTML = "";
+  if (!records.length) {
+    recordList.innerHTML = "<p class=\"help-text\">Keine passenden Datensätze gefunden.</p>";
+    return;
+  }
+  records.forEach((record) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `${record.signatur || "-"} · ${record.id}`;
+    button.addEventListener("click", () => openExistingRecord(record.id));
+    recordList.append(button);
+  });
+}
+
+async function openExistingRecord(recordId) {
+  const response = await apiFetch(`/api/records/photos/${recordId}`);
+  if (!response.ok) {
+    errors.innerHTML = "<p>Datensatz konnte nicht geladen werden.</p>";
+    return;
+  }
+  const data = await response.json();
+  applyLoadedRecord(data.record, data.base_revision);
+}
+
+function applyLoadedRecord(record, baseRevision) {
+  state.mode = "edit";
+  state.editingRecord = record;
+  state.baseRevision = baseRevision;
+  state.currentDraft = {
+    id: record.id,
+    format: record.signatur.format,
+    nummer: record.signatur.nummer,
+    signature: record.signatur
+  };
+  state.format = record.signatur.format;
+  state.finalizedCurrentDraft = false;
+  form.reset();
+  document.querySelector("#personen-list").innerHTML = "";
+  fillFormFromRecord(record);
+  updateSignatureOutput();
+  updateArchivisDate();
+  const maySave = !(state.user.role === "ehrenamtlich" && record.redaktion?.stufe === "redaktionell");
+  finalizeButton.disabled = !maySave;
+  errors.innerHTML = maySave
+    ? "<p>Datensatz geladen.</p>"
+    : "<p>Dieser redaktionelle Datensatz kann mit deiner Rolle gelesen, aber nicht gespeichert werden.</p>";
+}
+
+function fillFormFromRecord(record) {
+  const e = record.erschliessung || {};
+  document.querySelector("#beschriftung").value = e.beschriftung || "";
+  document.querySelector("#titel").value = e.titel || "";
+  document.querySelector("#beschreibung").value = e.beschreibung || "";
+  document.querySelector("#herkunft").value = e.herkunft || "";
+  document.querySelector("#sammler").value = e.sammler || "";
+  document.querySelector("#fotograf").value = e.fotograf || "";
+  document.querySelector("#rechteinhaber").value = e.rechteinhaber || "";
+  document.querySelector("#orte").value = joinList(e.orte || []);
+  document.querySelector("#schlagworte").value = joinList(e.schlagworte || []);
+  document.querySelector("#altsignaturen").value = joinList(e.altsignaturen || []);
+  document.querySelector("#interne-bemerkung").value = e.interne_bemerkung || "";
+  const list = document.querySelector("#personen-list");
+  list.innerHTML = "";
+  const persons = e.dargestellte_personen?.length ? e.dargestellte_personen : [{ name: "", hinweis: "" }];
+  persons.forEach((person) => addPersonRow(person));
+  document.querySelector("#korrespondenzstueck").checked = Boolean(record.korrespondenzstueck);
+  document.querySelector("#datierung-einfach").value = formatSimpleDate(record.datierung || {});
+  document.querySelector("#datierung-anmerkung").value = record.datierung?.anmerkung || "";
+  document.querySelector("#original-datum").value = record.datierung?.original || "";
+  const input = document.querySelector(`input[name='format'][value='${record.signatur.format}']`);
+  if (input) input.checked = true;
 }
 
 function nextNumber(format) {
@@ -412,6 +541,11 @@ function showErrors(messages) {
 }
 
 function updateSignatureOutput() {
+  if (state.mode === "edit" && state.editingRecord) {
+    numberOutput.textContent = String(state.editingRecord.signatur.nummer);
+    signatureOutput.textContent = state.editingRecord.signatur.anzeige;
+    return;
+  }
   if (state.finalizedCurrentDraft && state.currentDraft) {
     numberOutput.textContent = String(state.currentDraft.nummer);
     signatureOutput.textContent = state.currentDraft.signature.anzeige;
@@ -446,12 +580,57 @@ function generateRecord() {
   finalizeButton.disabled = state.finalizedCurrentDraft;
 }
 
-function finalizeRecord() {
+function readProductivePayload() {
+  const record = readRecord();
+  return {
+    format: state.format,
+    erschliessung: record.erschliessung,
+    korrespondenzstueck: record.korrespondenzstueck,
+    datierung: record.datierung,
+    base_revision: state.baseRevision
+  };
+}
+
+async function finalizeRecord() {
   if (state.finalizedCurrentDraft) return;
   const record = readRecord();
   const messages = validate(record);
   showErrors(messages);
   if (messages.length) return;
+  if (state.backendMode) {
+    const url = state.mode === "edit" && state.editingRecord
+      ? `/api/records/photos/${state.editingRecord.id}`
+      : "/api/records/photos";
+    const method = state.mode === "edit" && state.editingRecord ? "PUT" : "POST";
+    const response = await apiFetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(readProductivePayload())
+    });
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      const message = Array.isArray(detail.detail) ? detail.detail.join("; ") : detail.detail || "Datensatz konnte nicht gespeichert werden.";
+      showErrors([message]);
+      return;
+    }
+    const saved = await response.json();
+    state.editingRecord = saved.record;
+    state.baseRevision = saved.base_revision;
+    state.currentDraft = {
+      id: saved.record.id,
+      format: saved.record.signatur.format,
+      nummer: saved.record.signatur.nummer,
+      signature: saved.record.signatur
+    };
+    state.format = saved.record.signatur.format;
+    state.finalizedCurrentDraft = true;
+    finalizeButton.disabled = true;
+    downloadButton.disabled = true;
+    await refreshRecords();
+    errors.innerHTML = `<p>Datensatz ${saved.record.signatur.anzeige} wurde gespeichert.</p>`;
+    updateSignatureOutput();
+    return;
+  }
   record.signatur = buildSignature(record.signatur.format, record.signatur.nummer, "vergeben");
   state.currentDraft.signature = record.signatur;
   state.generatedMarkdown = toMarkdown(record);
@@ -467,6 +646,7 @@ function finalizeRecord() {
 }
 
 function rememberLocalRecord(record) {
+  if (state.backendMode) return;
   const minimal = {
     id: record.id,
     format: record.signatur.format,
@@ -500,6 +680,12 @@ function startNewRecord() {
   }
   state.generatedMarkdown = "";
   state.currentDraft = null;
+  state.editingRecord = null;
+  state.baseRevision = null;
+  state.mode = "new";
+  document.querySelector("#mode-new").classList.add("active");
+  document.querySelector("#mode-edit").classList.remove("active");
+  recordBrowser.hidden = true;
   state.finalizedCurrentDraft = false;
   preview.value = "";
   downloadButton.disabled = true;
@@ -517,7 +703,7 @@ function resetLocalSessionRecords() {
   );
   if (!confirmed) return;
   localStorage.removeItem(LOCAL_RECORDS_KEY);
-  state.inventory = [...config.existing_records];
+  state.inventory = state.backendMode ? state.inventory : [...config.existing_records];
   state.currentDraft = null;
   state.finalizedCurrentDraft = false;
   state.generatedMarkdown = "";

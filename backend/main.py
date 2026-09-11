@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import ROOT, get_settings
 from .database import init_db
-from .routes import auth, modules
+from .routes import auth, modules, records
 
 
 def create_app() -> FastAPI:
@@ -21,6 +21,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth.router)
     app.include_router(modules.router)
+    app.include_router(records.router)
 
     app.mount("/app", StaticFiles(directory=settings.app_dir, html=True), name="app")
     app.mount("/config", StaticFiles(directory=settings.config_dir), name="config")

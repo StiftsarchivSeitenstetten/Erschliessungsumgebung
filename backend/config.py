@@ -31,20 +31,31 @@ def _bool_from_env(name: str, default: bool) -> bool:
 @dataclass(frozen=True)
 class Settings:
     database_url: str
-    session_secret: str
     cookie_secure: bool
     cookie_name: str = "erschliessung_session"
     csrf_cookie_name: str = "erschliessung_csrf"
     session_lifetime_seconds: int = 60 * 60 * 8
     app_dir: Path = ROOT / "app"
     config_dir: Path = ROOT / "config"
+    github_app_id: str | None = None
+    github_installation_id: str | None = None
+    github_private_key_path: Path | None = None
+    github_data_owner: str = "StiftsarchivSeitenstetten"
+    github_data_repo: str = "Erschliessungsdaten"
+    github_data_branch: str = "main"
 
 
 def get_settings() -> Settings:
     load_env_file()
     database_url = os.getenv("DATABASE_URL", f"sqlite:///{ROOT / 'var' / 'auth.sqlite3'}")
+    private_key_path = os.getenv("GITHUB_PRIVATE_KEY_PATH")
     return Settings(
         database_url=database_url,
-        session_secret=os.getenv("SESSION_SECRET", "dev-only-change-me"),
         cookie_secure=_bool_from_env("COOKIE_SECURE", True),
+        github_app_id=os.getenv("GITHUB_APP_ID") or None,
+        github_installation_id=os.getenv("GITHUB_INSTALLATION_ID") or None,
+        github_private_key_path=Path(private_key_path) if private_key_path else None,
+        github_data_owner=os.getenv("GITHUB_DATA_OWNER", "StiftsarchivSeitenstetten"),
+        github_data_repo=os.getenv("GITHUB_DATA_REPO", "Erschliessungsdaten"),
+        github_data_branch=os.getenv("GITHUB_DATA_BRANCH", "main"),
     )

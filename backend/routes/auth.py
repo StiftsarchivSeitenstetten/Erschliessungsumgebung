@@ -30,9 +30,10 @@ class UserResponse(BaseModel):
     role: str
     ui_profile: str
     modules: list[str]
+    csrf_cookie_name: str
 
 
-def user_response(user: User) -> UserResponse:
+def user_response(user: User, settings: Settings) -> UserResponse:
     return UserResponse(
         id=user.id,
         username=user.username,
@@ -41,6 +42,7 @@ def user_response(user: User) -> UserResponse:
         role=user.role,
         ui_profile=user.ui_profile,
         modules=user.modules,
+        csrf_cookie_name=settings.csrf_cookie_name,
     )
 
 
@@ -72,7 +74,7 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(db_se
         secure=settings.cookie_secure,
         max_age=settings.session_lifetime_seconds,
     )
-    return user_response(user)
+    return user_response(user, settings)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_csrf)])
@@ -91,5 +93,5 @@ def logout(
 
 
 @router.get("/me", response_model=UserResponse)
-def me(user: User = Depends(require_authenticated_user)) -> UserResponse:
-    return user_response(user)
+def me(user: User = Depends(require_authenticated_user), settings: Settings = Depends(get_app_settings)) -> UserResponse:
+    return user_response(user, settings)

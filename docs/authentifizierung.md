@@ -127,6 +127,7 @@ Das Passwort wird interaktiv über `getpass` abgefragt und nicht sichtbar eingeg
 ## Sicherheitsentscheidungen
 
 - Passwörter werden mit Argon2id über `argon2-cffi` gehasht.
+- Die opake Session-ID benötigt keinen separaten Signatur-Secret-Key; sie wird nur gehasht in der Datenbank gespeichert und serverseitig invalidiert.
 - Login-Fehler melden nicht, ob Benutzername oder Passwort falsch war.
 - Deaktivierte Benutzer können sich nicht anmelden.
 - Sessions sind opak und serverseitig invalidierbar.

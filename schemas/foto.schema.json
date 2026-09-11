@@ -126,7 +126,9 @@
       "properties": {
         "quelle": { "type": ["string", "null"] },
         "erstellt_am": { "type": ["string", "null"] },
-        "geaendert_am": { "type": ["string", "null"] }
+        "erstellt_von": { "type": ["string", "null"] },
+        "geaendert_am": { "type": ["string", "null"] },
+        "geaendert_von": { "type": ["string", "null"] }
       }
     }
   }
