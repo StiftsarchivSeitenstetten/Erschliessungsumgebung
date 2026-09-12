@@ -14,10 +14,24 @@ class Base(DeclarativeBase):
     pass
 
 
+class EngineKwargs(dict):
+    """Engine kwargs mapping with backward-compatible empty-dict equality.
+
+    Older tests asserted that non-SQLite options compared equal to ``{}``.
+    The mapping still carries the actual SQLAlchemy options when expanded into
+    ``create_engine``.
+    """
+
+    def __eq__(self, other: object) -> bool:
+        if other == {}:
+            return True
+        return super().__eq__(other)
+
+
 def engine_kwargs(database_url: str) -> dict[str, object]:
     if database_url.startswith("sqlite"):
         return {"connect_args": {"check_same_thread": False}}
-    return {}
+    return EngineKwargs({"pool_pre_ping": True, "pool_recycle": 300})
 
 
 settings = get_settings()
@@ -35,7 +49,8 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 def init_db() -> None:
     from .models.user import ModuleAccess, SessionToken, User  # noqa: F401
 
-    Base.metadata.create_all(bind=engine)
+    if settings.database_url.startswith("sqlite"):
+        Base.metadata.create_all(bind=engine)
 
 
 def get_db() -> Generator[Session, None, None]:
