@@ -70,6 +70,20 @@ class PhotoIndexTest(unittest.TestCase):
             ["foto-000001", "foto-000002"],
         )
 
+    def test_adjacent_ids_use_existing_index_entries_not_numeric_counting(self):
+        index = PhotoIndex(build_photo_index([
+            record("foto-000001", "A", 1),
+            record("foto-008116", "A", 8116),
+            record("foto-008118", "A", 8118),
+            record("foto-010330", "A", 10330, "a"),
+            record("foto-010331", "A", 10330, "b"),
+        ])["records"])
+        self.assertEqual(index.adjacent_ids("foto-000001"), {"previous": None, "next": "foto-008116"})
+        self.assertEqual(index.adjacent_ids("foto-008116"), {"previous": "foto-000001", "next": "foto-008118"})
+        self.assertEqual(index.adjacent_ids("foto-008118"), {"previous": "foto-008116", "next": "foto-010330"})
+        self.assertEqual(index.adjacent_ids("foto-010331"), {"previous": "foto-010330", "next": None})
+        self.assertEqual(index.adjacent_ids("foto-008117"), {"previous": None, "next": None})
+
     def test_build_from_directory_validates_files_and_excludes_deferred_conflict(self):
         with tempfile.TemporaryDirectory() as tmp:
             data_dir = Path(tmp) / "data" / "fotos"

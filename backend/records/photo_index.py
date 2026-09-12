@@ -42,6 +42,17 @@ class PhotoIndex:
             or str(entry.get("signatur", "")).startswith(base_signature)
         ]
 
+    def adjacent_ids(self, record_id: str) -> dict[str, str | None]:
+        ordered = sorted(str(entry.get("id")) for entry in self.records if entry.get("id"))
+        try:
+            position = ordered.index(record_id)
+        except ValueError:
+            return {"previous": None, "next": None}
+        return {
+            "previous": ordered[position - 1] if position > 0 else None,
+            "next": ordered[position + 1] if position < len(ordered) - 1 else None,
+        }
+
 
 def record_path(record_id: str) -> str:
     return f"data/fotos/{record_id}.md"

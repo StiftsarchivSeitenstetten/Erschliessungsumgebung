@@ -75,12 +75,35 @@ body.barrierearm {
   margin-top: 14px;
 }
 
-.record-list button {
+.record-list-item {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #ffffff;
+}
+
+.record-list button,
+.button-like {
   justify-content: flex-start;
   text-align: left;
   background: #ffffff;
   color: var(--text);
   border-color: var(--line);
+}
+
+.button-like {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  border: 2px solid var(--accent-strong);
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-weight: 700;
+  text-decoration: none;
 }
 
 .eyebrow {
@@ -133,11 +156,28 @@ main {
 
 .section-title-row,
 .profile-switch,
-.button-row {
+.button-row,
+.record-navigation {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
   align-items: center;
+}
+
+.record-navigation {
+  margin: 16px 0;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .section-title-row {

@@ -122,7 +122,9 @@ class RecordsApiTest(unittest.TestCase):
         self.assertEqual(record["signatur"]["status"], "vergeben")
         self.assertEqual(record["technik"]["quelle"], "webapp")
         self.assertEqual(record["technik"]["erstellt_von"], "anna")
-        self.assertIsNone(record["technik"]["geaendert_von"])
+        self.assertEqual(record["technik"]["geaendert_von"], "anna")
+        self.assertIsNotNone(record["technik"]["erstellt_am"])
+        self.assertEqual(record["technik"]["geaendert_am"], record["technik"]["erstellt_am"])
         self.assertIn("data/fotos/foto-000001.md", self.repository.files)
         self.assertIn("state/foto-papierabzuege.json", self.repository.files)
         self.assertIn("indexes/fotos.json", self.repository.files)
@@ -234,7 +236,30 @@ class RecordsApiTest(unittest.TestCase):
         record = response.json()["record"]
         self.assertEqual(record["erschliessung"]["beschriftung"], "Geändert")
         self.assertEqual(record["technik"]["erstellt_von"], "seed")
+        self.assertEqual(record["technik"]["erstellt_am"], "2026-09-11T00:00:00Z")
         self.assertEqual(record["technik"]["geaendert_von"], "anna")
+        self.assertIsNotNone(record["technik"]["geaendert_am"])
+
+    def test_update_legacy_record_without_created_provenance_does_not_invent_it(self):
+        record = self.seed_existing()
+        record["technik"] = {"quelle": "migration_excel", "erstellt_am": None, "erstellt_von": None}
+        self.repository.files["data/fotos/foto-000001.md"] = render_photo_markdown(record)
+        self.authed()
+        loaded = self.client.get("/api/records/photos/foto-000001").json()
+        data = payload("A", "Legacy geändert")
+        data["base_revision"] = loaded["base_revision"]
+        response = self.client.put(
+            "/api/records/photos/foto-000001",
+            json=data,
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(response.status_code, 200)
+        technik = response.json()["record"]["technik"]
+        self.assertEqual(technik["quelle"], "migration_excel")
+        self.assertIsNone(technik["erstellt_am"])
+        self.assertIsNone(technik["erstellt_von"])
+        self.assertEqual(technik["geaendert_von"], "anna")
+        self.assertIsNotNone(technik["geaendert_am"])
 
     def test_ehrenamt_reads_but_does_not_update_redaktionell_record(self):
         self.seed_existing(redaktion="redaktionell")

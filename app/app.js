@@ -21,7 +21,8 @@ const state = {
   backendMode: true,
   mode: "new",
   editingRecord: null,
-  baseRevision: null
+  baseRevision: null,
+  loadedSnapshot: null
 };
 
 const form = document.querySelector("#record-form");
@@ -40,6 +41,8 @@ const currentUserOutput = document.querySelector("#current-user");
 const recordBrowser = document.querySelector("#record-browser");
 const recordSearch = document.querySelector("#record-search");
 const recordList = document.querySelector("#record-list");
+const recordNavTop = document.querySelector("#record-nav-top");
+const recordNavBottom = document.querySelector("#record-nav-bottom");
 
 const fieldMap = {
   titel: { label: "Titel", kind: "scalar", selector: "#titel" },
@@ -70,6 +73,10 @@ async function init() {
   applyPreset({ onlyEmpty: true });
   updateSignatureOutput();
   updateArchivisDate();
+  const initialRecordId = new URLSearchParams(window.location.search).get("record");
+  if (initialRecordId) {
+    await openExistingRecord(initialRecordId, { preserveDirty: false });
+  }
 }
 
 async function loadCurrentUser() {
@@ -128,6 +135,7 @@ async function refreshRecords() {
     })
     .filter(Boolean);
   renderRecordList();
+  updateRecordNavigation();
 }
 
 async function loadConfig() {
@@ -171,6 +179,16 @@ function bindEvents() {
   document.querySelector("#mode-edit").addEventListener("click", () => setMode("edit"));
   recordSearch.addEventListener("input", renderRecordList);
   downloadButton.addEventListener("click", downloadMarkdown);
+  document.querySelectorAll(".record-nav-button").forEach((button) => {
+    button.addEventListener("click", () => navigateAdjacentRecord(button.dataset.direction));
+  });
+  form.addEventListener("input", updateDirtyState);
+  form.addEventListener("change", updateDirtyState);
+  window.addEventListener("beforeunload", (event) => {
+    if (!hasUnsavedChanges()) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
 
   document.querySelector("#edit-preset").addEventListener("click", () => {
     syncPresetEditor();
@@ -203,6 +221,7 @@ async function logout() {
 }
 
 function setMode(mode) {
+  if (mode !== state.mode && !confirmDiscardUnsavedChanges()) return;
   state.mode = mode;
   document.querySelector("#mode-new").classList.toggle("active", mode === "new");
   document.querySelector("#mode-edit").classList.toggle("active", mode === "edit");
@@ -223,15 +242,32 @@ function renderRecordList() {
     return;
   }
   records.forEach((record) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = `${record.signatur || "-"} · ${record.id}`;
-    button.addEventListener("click", () => openExistingRecord(record.id));
-    recordList.append(button);
+    const item = document.createElement("div");
+    item.className = "record-list-item";
+    const label = document.createElement("span");
+    label.textContent = `${record.signatur || "-"} · ${record.id}`;
+    const link = document.createElement("a");
+    link.href = recordUrl(record.id);
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.className = "button-like";
+    link.textContent = "Datensatz öffnen";
+    link.setAttribute("aria-label", `Datensatz ${record.id} in neuem Tab öffnen`);
+    const hint = document.createElement("span");
+    hint.className = "visually-hidden";
+    hint.textContent = "öffnet in neuem Tab";
+    link.append(hint);
+    item.append(label, link);
+    recordList.append(item);
   });
 }
 
-async function openExistingRecord(recordId) {
+function recordUrl(recordId) {
+  return `${window.location.pathname}?record=${encodeURIComponent(recordId)}`;
+}
+
+async function openExistingRecord(recordId, { preserveDirty = true } = {}) {
+  if (preserveDirty && !confirmDiscardUnsavedChanges()) return;
   const response = await apiFetch(`/api/records/photos/${recordId}`);
   if (!response.ok) {
     errors.innerHTML = "<p>Datensatz konnte nicht geladen werden.</p>";
@@ -239,6 +275,9 @@ async function openExistingRecord(recordId) {
   }
   const data = await response.json();
   applyLoadedRecord(data.record, data.base_revision);
+  const url = new URL(window.location.href);
+  url.searchParams.set("record", recordId);
+  window.history.replaceState({}, "", url);
 }
 
 function applyLoadedRecord(record, baseRevision) {
@@ -256,13 +295,45 @@ function applyLoadedRecord(record, baseRevision) {
   form.reset();
   document.querySelector("#personen-list").innerHTML = "";
   fillFormFromRecord(record);
+  state.loadedSnapshot = formSnapshot();
   updateSignatureOutput();
   updateArchivisDate();
+  updateRecordNavigation();
   const maySave = !(state.user.role === "ehrenamtlich" && record.redaktion?.stufe === "redaktionell");
   finalizeButton.disabled = !maySave;
   errors.innerHTML = maySave
     ? "<p>Datensatz geladen.</p>"
     : "<p>Dieser redaktionelle Datensatz kann mit deiner Rolle gelesen, aber nicht gespeichert werden.</p>";
+}
+
+function currentRecordIndex() {
+  if (!state.editingRecord) return -1;
+  return state.records.findIndex((record) => record.id === state.editingRecord.id);
+}
+
+function adjacentRecordId(direction) {
+  const index = currentRecordIndex();
+  if (index < 0) return null;
+  const nextIndex = direction === "previous" ? index - 1 : index + 1;
+  return state.records[nextIndex]?.id || null;
+}
+
+function updateRecordNavigation() {
+  const isEditing = state.mode === "edit" && state.editingRecord;
+  [recordNavTop, recordNavBottom].forEach((nav) => {
+    nav.hidden = !isEditing;
+  });
+  document.querySelectorAll(".record-nav-button").forEach((button) => {
+    const target = isEditing ? adjacentRecordId(button.dataset.direction) : null;
+    button.disabled = !target;
+    button.dataset.targetRecordId = target || "";
+  });
+}
+
+async function navigateAdjacentRecord(direction) {
+  const target = adjacentRecordId(direction);
+  if (!target) return;
+  await openExistingRecord(target);
 }
 
 function fillFormFromRecord(record) {
@@ -288,6 +359,25 @@ function fillFormFromRecord(record) {
   document.querySelector("#original-datum").value = record.datierung?.original || "";
   const input = document.querySelector(`input[name='format'][value='${record.signatur.format}']`);
   if (input) input.checked = true;
+}
+
+function formSnapshot() {
+  if (!(state.mode === "edit" && state.editingRecord)) return null;
+  return JSON.stringify(readProductivePayload());
+}
+
+function hasUnsavedChanges() {
+  if (!(state.mode === "edit" && state.editingRecord) || state.loadedSnapshot === null) return false;
+  return formSnapshot() !== state.loadedSnapshot;
+}
+
+function updateDirtyState() {
+  form.dataset.dirty = hasUnsavedChanges() ? "true" : "false";
+}
+
+function confirmDiscardUnsavedChanges() {
+  if (!hasUnsavedChanges()) return true;
+  return window.confirm("Ungespeicherte Änderungen verwerfen und den Datensatz wechseln?");
 }
 
 function nextNumber(format) {
@@ -627,6 +717,9 @@ async function finalizeRecord() {
     finalizeButton.disabled = true;
     downloadButton.disabled = true;
     await refreshRecords();
+    state.loadedSnapshot = formSnapshot();
+    updateDirtyState();
+    updateRecordNavigation();
     errors.innerHTML = `<p>Datensatz ${saved.record.signatur.anzeige} wurde gespeichert.</p>`;
     updateSignatureOutput();
     return;
@@ -669,6 +762,7 @@ function loadLocalRecords() {
 }
 
 function startNewRecord() {
+  if (!confirmDiscardUnsavedChanges()) return;
   const selectedFormat = state.format;
   form.reset();
   document.querySelector("#personen-list").innerHTML = "";
@@ -682,16 +776,24 @@ function startNewRecord() {
   state.currentDraft = null;
   state.editingRecord = null;
   state.baseRevision = null;
+  state.loadedSnapshot = null;
   state.mode = "new";
   document.querySelector("#mode-new").classList.add("active");
   document.querySelector("#mode-edit").classList.remove("active");
   recordBrowser.hidden = true;
+  [recordNavTop, recordNavBottom].forEach((nav) => {
+    nav.hidden = true;
+  });
   state.finalizedCurrentDraft = false;
   preview.value = "";
   downloadButton.disabled = true;
   generateButton.disabled = false;
   finalizeButton.disabled = true;
   errors.innerHTML = "";
+  form.dataset.dirty = "false";
+  const url = new URL(window.location.href);
+  url.searchParams.delete("record");
+  window.history.replaceState({}, "", url);
   applyPreset({ onlyEmpty: false });
   updateSignatureOutput();
   updateArchivisDate();

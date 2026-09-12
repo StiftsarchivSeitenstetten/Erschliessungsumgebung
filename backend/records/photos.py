@@ -198,8 +198,8 @@ def build_new_record(payload: dict[str, Any], user: User, state: dict[str, Any])
             "quelle": "webapp",
             "erstellt_am": now,
             "erstellt_von": user.username,
-            "geaendert_am": None,
-            "geaendert_von": None,
+            "geaendert_am": now,
+            "geaendert_von": user.username,
         },
     }
 
@@ -209,10 +209,7 @@ def update_record(existing: dict[str, Any], payload: dict[str, Any], user: User)
     updated["erschliessung"] = canonical_erschliessung(payload.get("erschliessung") or existing.get("erschliessung", {}))
     updated["korrespondenzstueck"] = bool(payload.get("korrespondenzstueck", existing.get("korrespondenzstueck", False)))
     updated["datierung"] = payload.get("datierung") or existing.get("datierung") or {"jahr": None, "monat": None, "tag": None}
-    technik = dict(existing.get("technik", {}))
-    technik.setdefault("quelle", "webapp")
-    technik.setdefault("erstellt_am", None)
-    technik.setdefault("erstellt_von", None)
+    technik = dict(existing.get("technik") or {})
     technik["geaendert_am"] = utc_iso()
     technik["geaendert_von"] = user.username
     updated["technik"] = technik
