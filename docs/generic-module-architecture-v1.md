@@ -486,6 +486,47 @@ Die erfolgreiche Commitfolge im Datenrepository:
 
 Die erste Dateirevision `0b481fa6849396aca15ab7528d44c2b4aa0c4971` wurde durch das Update zu `9283b4c63c1e0378666d75a2a28af8bd7dd66f71`. Der anschließende PUT mit der alten Revision blieb ohne Commit. Im gesamten Lauf wurden nur die beiden Testdatensätze und `state/integration-test.json` verändert. `data/fotos`, `state/foto-papierabzuege.json`, bestehende Indizes und alle sonstigen Dateien blieben identisch.
 
+### Erstes reales Foto über die generische Schreibarchitektur
+
+`integration_tests/photo_github.py` prüft die echte Moduldefinition `foto_papierabzuege` mit dem vorhandenen GitHub-Adapter. Der Live-Modus erfordert zusätzlich zur allgemeinen Testfreigabe ausdrücklich `GENERIC_PHOTO_INTEGRATION=1`:
+
+```bash
+GENERIC_GITHUB_INTEGRATION=1 GENERIC_PHOTO_INTEGRATION=1 \
+  .venv/bin/python -m integration_tests.photo_github --write \
+  --report /private/tmp/photo-generic-live.json
+```
+
+Der Runner prüft vor jedem Schreiben den wirksamen Datenbranch, den Anwendungsbranch und den unveränderten Daten-main-Head. Aus dem gelesenen Foto-State bestimmt er die erwartete neue ID; Index und direkter Dateizugriff müssen bestätigen, dass sie noch frei ist. Seine Pfadfreigabe erlaubt ausschließlich diese eine neue Datei sowie deren gemeinsamen Create-Commit mit dem Foto-State. Weder bestehende Fotos noch der Index dürfen geschrieben werden. Zähler werden nicht manuell verändert; die generischen Strategien führen die Vergabe durch.
+
+Der Test verwendet echte Login-/CSRF-Prüfung, die unveränderten generischen POST-/GET-/PUT-Routen und beide Rollen. `photo_fixture.py` liefert vollständige fachliche Testwerte und über den vorhandenen optionalen Serverwertegeber nur Schema-/Modulkennung, Workflow-Standardwerte und `technik.quelle: webapp`. Er liefert keine ID oder Signaturnummer. Diese Standardwerte sind weiterhin eine testlokale Konfiguration, keine allgemeine produktive Default-Engine.
+
+Der erste Live-Lauf auf Code-Stand `1c05d99e9b2b27247c2dd9524d3cf45173454775` war erfolgreich:
+
+| Merkmal | Ergebnis |
+| --- | --- |
+| Daten-main vorher/nachher | `bcde7c81187fd54466f4b2ecd80e10260bda40f0` |
+| integration-test vorher | `e54a27ff3c36afb1f220b0705a1eebd4fa6f052c` |
+| integration-test nachher | `5ee513fb2221bf2ceaa0d4f8739f507769b84fb4` |
+| Neue Datei | `data/fotos/foto-010332.md` |
+| ID / Signatur / Partition | `foto-010332` / `9.4.2.A.8610` / A |
+| Create-Commit | `d655b9ad5e4358b19dd9d387e56cccedd306dbce`: neue Datei und Foto-State gemeinsam |
+| Update-Commit | `5ee513fb2221bf2ceaa0d4f8739f507769b84fb4`: ausschließlich neue Foto-Datei |
+| State nach Create und Update | ID 10333; A 8611, B 1046, C 579, D 81, E 36, F 1 |
+| Konflikt | Veraltete `base_revision` ergibt 409 ohne weiteren Commit oder State-Fortschritt |
+| Nachkontrolle | Exakt zwei beabsichtigte Commits; ausschließlich neue Datei und Foto-State verändert |
+
+Der Datensatz enthält ausschließlich Felder des bestehenden Foto-Schemas: Beschriftung, Beschreibung, Fotograf, Orte, Schlagworte, Altsignatur, Korrespondenzstück, strukturierte Datierung und mehrere dargestellte Personen. Das Update änderte Fotograf und Beschreibung, ergänzte eine dritte Person, änderte einen Personenhinweis und setzte die Datierung auf 13.06.1967. ID, Signatur und Erstellungsmetadaten blieben erhalten; `geaendert_*` und die neue Blob-Revision wurden gesetzt. Revision A war `74fdb17bceeb81acbd05e0e12e6ba93a05269405`, Revision B `06e3efa3dccdd315cbc7d9e0cec7dae1faaf26e9`.
+
+Die geschriebene YAML-Frontmatter wurde direkt gelesen, gegen Foto-Schema und Legacy-Fachprüfungen validiert und mit `build_new_record` für denselben fachlichen Payload, Ausgangs-State und Erstellungszeitpunkt verglichen. Alle kanonischen Werte stimmen überein, mit einer bewussten Ausnahme: Legacy füllt bereits beim Create `geaendert_am/von`, die generische Runtime setzt beide zunächst auf null. Die YAML-Schlüsselreihenfolge ist anders, ohne semantische Auswirkung. Erneutes Serialisieren mit `render_photo_markdown` erhält die geprüften kanonischen Werte. Die Wurzelstruktur entspricht dem unverändert gelesenen Importfoto `foto-000002`; Importprovenienz und unvollständige Altdaten bleiben davon unberührt.
+
+`read_photo_record` und die bestehende Foto-GET-API lesen die neue Datei nach Create und Update korrekt. Der generische Read-back ist für Redaktion und Ehrenamt vollständig entsprechend dem Feldkatalog geprüft: Titel nur redaktionell; `technik` bleibt in der generischen Ansicht verborgen und wurde in der gespeicherten Datei sowie im Legacy-Read-back geprüft. Das ist die vorhandene Rollenfilterung, kein Verlust gespeicherter Metadaten.
+
+Das alte Formular wurde im Browser unter `/app/?record=foto-010332` praktisch geprüft. Es zeigte Signatur, aktualisierte Texte, drei Personen, Orte, Korrespondenzstück und das aktualisierte Datum korrekt an. Ein separater Testserver mit `--serve-readonly --port 8768` verwendete eine temporäre Benutzer-Datenbank und blockierte sämtliche Record-Schreibanfragen sowohl im HTTP-Zugang als auch im Repository. Es wurde im Formular nichts gespeichert; der Server wurde danach beendet. Das reguläre Formular und sein Speicherweg wurden nicht geändert.
+
+Der Fotoindex blieb bytegleich bei 10.330 Einträgen. Der neue Datensatz fehlt darin: Legacy-Liste und Suche zeigen ihn nicht, Signatur-Lookup liefert 404, Vorher-/Nachher-Navigation im Formular ist deaktiviert. Direkte ID-Lesung und direkte Formular-URL funktionieren. Generische Indexierung ist deshalb vor einer produktiven Umschaltung zwingend; eine Foto-Sonderlösung wurde nicht ergänzt.
+
+Weitere noch bestehende Unterschiede: Die generische Runtime validiert JSON Schema, während Legacy zusätzlich fachliche Kalender- und Konsistenzprüfungen ausführt; der Test überprüft den konkret gespeicherten Datensatz zusätzlich mit diesen Legacy-Prüfungen. Legacy-Create wiederholt Ref-Konflikte begrenzt automatisch, generisches Create meldet 409 zur erneuten Vergabe. Diese Unterschiede sowie die noch testlokalen Server-Standardwerte müssen vor produktiver Funktionsparität berücksichtigt werden. Normale Unit-Tests führen den gleichen Foto-HTTP-Ablauf nur mit `--offline` aus; zusätzliche Vergleichstests prüfen sämtliche A–F-Partitionen mit unveränderten generischen Strategien.
+
 ## Refactoring-Plan
 
 1. Modul-Registry einführen, die bestehende Modulkonfigurationen laden kann, ohne die Foto-Funktion zu verändern.

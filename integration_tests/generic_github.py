@@ -81,7 +81,7 @@ class GuardedRepository(GitHubDataRepository):
 
     def commit_files(self, *, expected_head, files, message):
         self.guard()
-        check_paths(files)
+        self.check_files(files)
         head = super().commit_files(expected_head=expected_head, files=files, message=message)
         details = self.request("GET", f"{self.repo_path}/commits/{head}")
         check({item["filename"] for item in details["files"]} == set(files), "Unerwartete Dateien im Commit.")
@@ -89,6 +89,9 @@ class GuardedRepository(GitHubDataRepository):
         self.commits.append({"head": head, "files": sorted(files)})
         print(json.dumps({"successful_commit": self.commits[-1]}), flush=True)
         return head
+
+    def check_files(self, files):
+        check_paths(files)
 
 
 def protected_tree(repository, head):
