@@ -181,6 +181,62 @@ Das bestehende Foto-Verhalten bleibt unverändert: Bei Neuanlage setzt das Backe
 
 Der Browser muss dadurch langfristig keine Rollenlisten interpretieren, erhält aber trotzdem keine Sicherheitsautorität. Die serverseitige Prüfung bleibt verbindlich.
 
+## Record Runtime Model
+
+Die Record Runtime setzt zur Laufzeit zwei Ebenen zusammen:
+
+- das fachliche JSON-Schema als Definition der kanonischen Datenstruktur
+- die Modulkonfiguration als Definition, wie und von wem diese Daten bearbeitet werden dürfen
+
+Die kanonische Datenstruktur wird durch das fachliche JSON-Schema definiert. Die Modulkonfiguration bestimmt, wie und von wem diese Daten bearbeitet werden. Die Record Runtime setzt diese beiden Ebenen zur Laufzeit zusammen.
+
+Die Record Runtime kennt keine fachlichen Feldnamen wie `fotograf` oder `absender`. Sie arbeitet ausschließlich über den Feldkatalog des Moduls und die generischen Pfadoperationen. Dadurch kann sie Datensätze beliebiger Module filtern, Schreibpayloads prüfen und gegen das jeweilige Modulschema validieren.
+
+Zentrale Operationen sind:
+
+- `filter_for_view(record, role)`: erzeugt eine rollenabhängige fachliche Datensicht.
+- `filter_for_edit(payload, role)`: prüft eingehende Nutzdaten und gibt nur erlaubte Änderungen zurück.
+- `validate(record)`: validiert gegen das JSON-Schema des Moduls, inklusive referenzierter Core Datatypes.
+- `prepare_create(payload, user, server_values)`: bereitet eine Neuanlage vor, übernimmt erlaubte Nutzdaten und setzt serververwaltete Metadaten.
+- `prepare_update(existing, payload, user)`: wendet erlaubte Änderungen auf einen bestehenden Datensatz an und setzt Änderungsmetadaten.
+
+## Rollenfilterung und Schreibprüfung
+
+Bei der Ausgabe werden fachliche Felder, für die eine Rolle kein `view`-Recht besitzt, nicht in die fachliche Datensatzsicht übernommen. Technisch notwendige Transportinformationen können separat behandelt werden.
+
+Bei Create und Update gilt v1:
+
+- Unbekannte fachliche Felder werden abgelehnt.
+- Nicht editierbare Felder werden abgelehnt.
+- Serververwaltete Felder werden abgelehnt, auch wenn ein Client sie sendet.
+- Danach wird der resultierende vollständige Datensatz gegen das fachliche JSON-Schema validiert.
+
+Diese Runtime entscheidet sich bewusst gegen stillschweigendes Ignorieren manipulierter oder unbekannter Werte. Fehler sollen früh sichtbar sein und keine schleichenden Schemaabweichungen erzeugen.
+
+## Technische und fachliche Metadaten
+
+`id` und `technik.*` sind kanonische technische Metadaten des Datensatzes. `base_revision` und `revision` sind Transport- bzw. Persistenzinformationen und müssen nicht Bestandteil des kanonischen YAML-Frontmatters sein.
+
+Architekturziel für die generische Runtime:
+
+- Neuanlage: `erstellt_am` und `erstellt_von` werden gesetzt; `geaendert_am` und `geaendert_von` bleiben `null`.
+- Spätere Änderung: `geaendert_am` und `geaendert_von` werden gesetzt; Erstellungswerte bleiben erhalten.
+
+Analyse des aktuellen Foto-Piloten: `backend/records/photos.py` setzt bei Neuanlage derzeit `geaendert_am` und `geaendert_von` auf denselben Wert wie `erstellt_am` und `erstellt_von`. Die lokalen Beispieldatensätze unter `data/fotos/` enthalten dagegen `null`. Dieses produktive Foto-Verhalten wird in diesem Branch noch nicht geändert; eine spätere Umstellung muss bewusst als Kompatibilitätsschritt erfolgen.
+
+## Repository-Grenze und API-Zielbild
+
+Die Record Runtime weiß nicht, ob Datensätze aus GitHub, einem In-Memory-Testrepository oder einer späteren Persistenzschicht kommen. Sie verarbeitet Python-Dictionaries, Moduldefinitionen und Benutzerrollen. Laden, Commit, Ref-Konflikte, Index und State bleiben Aufgabe der Repository- bzw. Persistenzschicht.
+
+Das Zielbild für spätere generische Endpunkte ist:
+
+- `GET /api/modules/{module_key}/records`
+- `GET /api/modules/{module_key}/records/{record_id}`
+- `POST /api/modules/{module_key}/records`
+- `PUT /api/modules/{module_key}/records/{record_id}`
+
+Diese Endpunkte ersetzen die produktiven Foto-Endpunkte noch nicht. Der Foto-Pilot bleibt Referenz und Regressionstest.
+
 ## Refactoring-Plan
 
 1. Modul-Registry einführen, die bestehende Modulkonfigurationen laden kann, ohne die Foto-Funktion zu verändern.
