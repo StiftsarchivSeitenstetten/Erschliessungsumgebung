@@ -30,6 +30,18 @@ class PhotoUiStaticTest(unittest.TestCase):
         self.assertIn('new URLSearchParams(window.location.search).get("record")', script)
         self.assertIn("window.history.replaceState", script)
 
+    def test_workspace_selection_uses_module_catalog(self):
+        script = (ROOT / "backend" / "static" / "login" / "arbeitsbereiche.js").read_text(encoding="utf-8")
+        self.assertIn('fetch("/api/modules"', script)
+        self.assertIn("renderWorkspaces(user, Array.isArray(catalog) ? catalog : [])", script)
+        self.assertNotIn("moduleLabels", script)
+        self.assertNotIn('moduleKey === "foto_papierabzuege"', script)
+
+    def test_photo_app_keeps_module_switch_link(self):
+        html = (ROOT / "app" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('href="/arbeitsbereiche"', html)
+        self.assertIn("Modul wechseln", html)
+
 
 if __name__ == "__main__":
     unittest.main()

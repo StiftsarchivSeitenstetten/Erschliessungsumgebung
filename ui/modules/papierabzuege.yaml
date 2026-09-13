@@ -6,6 +6,10 @@ module:
   label: "Einzelne Papierabzüge - 9.4.2"
   description: "Erfassung einzelner Papierabzüge aus Bestand 9.4.2."
   record_type: foto
+  short_label: "Fotoerschließung"
+  category: "Fotobestand"
+  icon: photo
+  order: 10
 
 schema:
   path: "../../schemas/foto.schema.json"

@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 TEMP_DIR = tempfile.TemporaryDirectory()
@@ -17,8 +18,10 @@ from backend.auth.service import create_user  # noqa: E402
 from backend.auth.sessions import utcnow  # noqa: E402
 from backend.database import Base, SessionLocal, engine  # noqa: E402
 from backend.main import create_app  # noqa: E402
-from backend.models import SessionToken, User  # noqa: E402
+from backend.models import ModuleAccess, SessionToken, User  # noqa: E402
 from backend.permissions import MODULE_FOTO_PAPIERABZUEGE, can_edit_record, has_module_access  # noqa: E402
+from backend.modules import get_module, load_module  # noqa: E402
+from tests.test_record_runtime import write_runtime_module, write_runtime_schema  # noqa: E402
 
 
 def csrf_from_client(client: TestClient) -> str:
@@ -149,6 +152,63 @@ class AuthBackendTest(unittest.TestCase):
             self.assertFalse(has_module_access(user, "musikalien"))
         self.assertEqual(self.login().status_code, 200)
         self.assertEqual(self.client.get("/api/modules/foto_papierabzuege").status_code, 200)
+
+    def test_module_catalog_lists_accessible_module_metadata(self):
+        self.create_user()
+        self.assertEqual(self.login().status_code, 200)
+        response = self.client.get("/api/modules")
+        self.assertEqual(response.status_code, 200)
+        modules = response.json()
+        self.assertEqual(len(modules), 1)
+        self.assertEqual(modules[0]["id"], MODULE_FOTO_PAPIERABZUEGE)
+        self.assertEqual(modules[0]["label"], "Fotoerschließung")
+        self.assertEqual(modules[0]["icon"], "photo")
+        self.assertEqual(modules[0]["order"], 10)
+
+    def test_module_catalog_supports_multiple_modules_without_role_logic(self):
+        self.create_user(username="rita", role="redaktion", ui_profile="redaktion")
+        with SessionLocal() as db:
+            user = db.scalar(select(User).where(User.username == "rita"))
+            user.module_access.append(ModuleAccess(module_key="runtime_test"))
+            db.commit()
+        self.assertEqual(self.login("rita").status_code, 200)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime_module = load_module(write_runtime_module(root, write_runtime_schema(root)))
+            photo_module = get_module(MODULE_FOTO_PAPIERABZUEGE)
+            with patch("backend.routes.modules.list_modules", return_value=(runtime_module, photo_module)):
+                response = self.client.get("/api/modules")
+
+        self.assertEqual(response.status_code, 200)
+        modules = response.json()
+        self.assertEqual([module["id"] for module in modules], [MODULE_FOTO_PAPIERABZUEGE, "runtime_test"])
+
+    def test_inaccessible_module_is_not_listed_and_detail_is_forbidden(self):
+        self.create_user()
+        self.assertEqual(self.login().status_code, 200)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime_module = load_module(write_runtime_module(root, write_runtime_schema(root)))
+            photo_module = get_module(MODULE_FOTO_PAPIERABZUEGE)
+            with patch("backend.routes.modules.list_modules", return_value=(photo_module, runtime_module)), \
+                patch("backend.routes.modules.get_module", return_value=runtime_module):
+                catalog = self.client.get("/api/modules")
+                detail = self.client.get("/api/modules/runtime_test")
+
+        self.assertEqual(catalog.status_code, 200)
+        self.assertEqual([module["id"] for module in catalog.json()], [MODULE_FOTO_PAPIERABZUEGE])
+        self.assertEqual(detail.status_code, 403)
+
+    def test_roles_do_not_change_module_catalog_membership(self):
+        for role in ("ehrenamtlich", "redaktion", "admin"):
+            username = f"katalog-{role}"
+            self.create_user(username=username, email=f"{username}@example.test", role=role, ui_profile="redaktion" if role != "ehrenamtlich" else "ehrenamt-standard")
+            self.assertEqual(self.login(username).status_code, 200)
+            response = self.client.get("/api/modules")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual([module["id"] for module in response.json()], [MODULE_FOTO_PAPIERABZUEGE])
+            self.client.post("/api/auth/logout", headers={"X-CSRF-Token": csrf_from_client(self.client)})
 
     def test_module_descriptor_resolves_field_rights_for_current_user(self):
         self.create_user()

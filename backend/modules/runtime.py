@@ -74,6 +74,10 @@ class ModuleDefinition:
     label: str
     description: str | None
     record_type: str | None
+    short_label: str | None
+    category: str | None
+    icon: str | None
+    order: int
     schema_path: Path
     fachkonfiguration_path: Path | None
     storage: dict[str, Any]
@@ -139,6 +143,17 @@ class ModuleDefinition:
             "form_fields": list(self.form_fields),
             "search_fields": list(self.search_fields),
             "list_fields": list(self.list_fields),
+        }
+
+    def catalog_metadata(self) -> dict[str, Any]:
+        return {
+            "id": self.access_key,
+            "module_id": self.id,
+            "label": self.short_label or self.label,
+            "description": self.description,
+            "category": self.category,
+            "icon": self.icon,
+            "order": self.order,
         }
 
     def descriptor_for_role(self, role: str) -> dict[str, Any]:

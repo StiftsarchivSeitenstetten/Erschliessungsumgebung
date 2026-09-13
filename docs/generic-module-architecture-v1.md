@@ -91,6 +91,36 @@ Berechtigungsrollen und Darstellungsprofile sind getrennt:
 
 Rollen stehen ausschließlich in `access.fields.*.view` und `access.fields.*.edit`. Profile stehen in `ui_profiles` und steuern nur Darstellung, etwa technische Vorschau oder barrierearme UI. Ein redaktionelles Feld wird also über Rollenrechte sichtbar und bearbeitbar, nicht durch ein besonderes Profil.
 
+## Benutzer, Rollen, Modulzugriff und aktives Modul
+
+Benutzerrolle, Modulzugriff und aktives Modul sind drei verschiedene Ebenen:
+
+- Die Benutzerrolle bestimmt Rechte innerhalb eines Moduls.
+- `module_access` bestimmt, welche Module der Benutzer öffnen und auswählen darf.
+- Das aktive Modul ist eine Laufzeitentscheidung und keine dauerhafte Benutzereigenschaft.
+
+Alle Rollen verwenden dieselbe generische Modulauswahl. Die Rolle eines Benutzers legt nicht fest, welches Erfassungsmodul geöffnet wird.
+
+Der Modulkatalog steht unter `GET /api/modules`. Er liefert nur Module, für die der angemeldete Benutzer laut `module_access` berechtigt ist. Die Antwort enthält bewusst nur Auswahlmetadaten:
+
+```json
+[
+  {
+    "id": "foto_papierabzuege",
+    "module_id": "papierabzuege_9_4_2",
+    "label": "Fotoerschließung",
+    "description": "Erfassung einzelner Papierabzüge aus Bestand 9.4.2.",
+    "category": "Fotobestand",
+    "icon": "photo",
+    "order": 10
+  }
+]
+```
+
+Die Detailkonfiguration bleibt unter `GET /api/modules/{module_key}`. Die Modulauswahl nach Login wird aus dem Katalog erzeugt und ist nicht statisch im Frontend hinterlegt. Direkte Modul-URLs bleiben Komfort; der Server prüft weiterhin `module_access`.
+
+Der bestehende Foto-Direktzugang bleibt während der Migration erhalten. Bei einem einzigen freigegebenen Modul darf die Auswahlseite vorübergehend direkt dorthin navigieren. Bei mehreren Modulen wird eine generische Auswahl angezeigt. Ein Modulwechsel ist über die Arbeitsbereichsauswahl möglich, ohne dass der Benutzer sich abmelden muss.
+
 ## Module Runtime Model
 
 Die `ModuleRegistry` lädt und validiert deklarative Moduldateien. Das daraus erzeugte Module Runtime Model ist die zentrale Laufzeitschnittstelle für Backend und später Frontend. Andere Anwendungsteile sollen nicht beliebige YAML-Dictionaries durchsuchen, sondern über definierte Attribute und Methoden arbeiten.

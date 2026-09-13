@@ -16,7 +16,11 @@
         "access_key": { "$ref": "#/$defs/key" },
         "label": { "type": "string", "minLength": 1 },
         "description": { "type": ["string", "null"] },
-        "record_type": { "$ref": "#/$defs/key" }
+        "record_type": { "$ref": "#/$defs/key" },
+        "short_label": { "type": ["string", "null"] },
+        "category": { "type": ["string", "null"] },
+        "icon": { "$ref": "#/$defs/key" },
+        "order": { "type": "integer", "minimum": 0 }
       }
     },
     "schema": {

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from ..github.errors import RepositoryNotFoundError
 from ..github.repository import DataRepository
 from ..models import User
-from ..modules import get_module
+from ..modules import get_module, list_modules
 from ..permissions import has_module_access
 from ..records.generic_read import list_generic_records, list_values_for_role, read_generic_record
 from ..records.runtime import RecordRuntime, RecordValidationError
@@ -26,6 +26,17 @@ def load_authorized_module(module_key: str, user: User):
     if not has_module_access(user, module.access_key):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Arbeitsbereich nicht freigegeben.")
     return module
+
+
+@router.get("")
+def module_catalog(user: User = Depends(require_authenticated_user)) -> list[dict[str, object]]:
+    modules = [
+        module.catalog_metadata()
+        for module in list_modules()
+        if has_module_access(user, module.access_key)
+    ]
+    modules.sort(key=lambda item: (item.get("order") if item.get("order") is not None else 1000, item["label"]))
+    return modules
 
 
 @router.get("/{module_key}/records")

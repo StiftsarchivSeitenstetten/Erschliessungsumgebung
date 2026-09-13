@@ -1,7 +1,3 @@
-const moduleLabels = {
-  foto_papierabzuege: "Einzelne Papierabzüge"
-};
-
 let currentUser = null;
 
 function csrfToken() {
@@ -23,18 +19,40 @@ async function loadMe() {
   return response.json();
 }
 
-function renderWorkspaces(user) {
+async function loadModuleCatalog() {
+  const response = await fetch("/api/modules", { credentials: "same-origin" });
+  if (response.status === 401) {
+    window.location.href = "/login/";
+    return [];
+  }
+  if (!response.ok) throw new Error("modules failed");
+  return response.json();
+}
+
+function moduleUrl(module) {
+  return `/app/?module=${encodeURIComponent(module.id)}`;
+}
+
+function renderWorkspaces(user, modules) {
   document.querySelector("#user-name").textContent = user.display_name;
   const list = document.querySelector("#workspace-list");
   list.innerHTML = "";
-  user.modules.forEach((moduleKey) => {
+  modules.forEach((module) => {
     const link = document.createElement("a");
-    link.href = moduleKey === "foto_papierabzuege" ? "/app/" : "#";
-    link.textContent = moduleLabels[moduleKey] || moduleKey;
+    link.href = moduleUrl(module);
+    link.dataset.module = module.id;
+    const title = document.createElement("strong");
+    title.textContent = module.label || module.id;
+    link.append(title);
+    if (module.description) {
+      const description = document.createElement("span");
+      description.textContent = module.description;
+      link.append(description);
+    }
     list.append(link);
   });
-  if (user.modules.length === 1 && user.modules[0] === "foto_papierabzuege") {
-    window.location.href = "/app/";
+  if (modules.length === 1) {
+    window.location.href = moduleUrl(modules[0]);
   }
 }
 
@@ -47,11 +65,11 @@ document.querySelector("#logout").addEventListener("click", async () => {
   window.location.href = "/login/";
 });
 
-loadMe()
-  .then((user) => {
+Promise.all([loadMe(), loadModuleCatalog()])
+  .then(([user, catalog]) => {
     if (user) {
       currentUser = user;
-      renderWorkspaces(user);
+      renderWorkspaces(user, Array.isArray(catalog) ? catalog : []);
     }
   })
   .catch(() => {
