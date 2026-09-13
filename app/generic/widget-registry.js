@@ -100,7 +100,7 @@ function renderDateInputs(context, prefix, value) {
 }
 
 function readDateInputs(root, prefix, originalValue = {}) {
-  const value = {};
+  const value = { ...originalValue };
   value[dateKey(originalValue, "year", "jahr")] = parseNullableInteger(root.querySelector(`[data-date-part='${prefix}.year']`).value);
   value[dateKey(originalValue, "month", "monat")] = parseNullableInteger(root.querySelector(`[data-date-part='${prefix}.month']`).value);
   value[dateKey(originalValue, "day", "tag")] = parseNullableInteger(root.querySelector(`[data-date-part='${prefix}.day']`).value);
@@ -238,17 +238,27 @@ const vocabularySelectWidget = {
   }
 };
 
-function renderRepeaterItem(context, item, index) {
-  const group = element("fieldset", { className: "generic-repeater-item" });
+function renumberRepeaterItems(list) {
+  list.querySelectorAll(":scope > .generic-repeater-item").forEach((group, index) => {
+    group.querySelector(":scope > legend").textContent = `Eintrag ${index + 1}`;
+  });
+}
+
+function renderRepeaterItem(context, item, index, originalIndex = null, inputIndex = index) {
+  const group = element("fieldset", { className: "generic-repeater-item", "data-original-index": originalIndex });
   group.append(element("legend", { textContent: `Eintrag ${index + 1}` }));
   context.field.item_fields.forEach((itemField) => {
     if (itemField.visible === false) return;
     const value = getPathValue(item, itemField.path);
-    group.append(context.renderField(itemField, item, value, `${context.inputId}-${index}-${itemField.id}`));
+    group.append(context.renderField(itemField, item, value, `${context.inputId}-${inputIndex}-${itemField.id}`));
   });
   if (editable(context)) {
     const removeButton = element("button", { type: "button", className: "secondary danger", textContent: "Eintrag entfernen" });
-    removeButton.addEventListener("click", () => group.remove());
+    removeButton.addEventListener("click", () => {
+      const list = group.parentElement;
+      group.remove();
+      renumberRepeaterItems(list);
+    });
     group.append(removeButton);
   }
   return group;
@@ -258,25 +268,29 @@ const repeaterWidget = {
   render(context) {
     const list = element("div", { className: "generic-repeater", id: context.inputId, "data-widget-control": "repeater" });
     const values = Array.isArray(context.value) ? context.value : [];
-    values.forEach((item, index) => list.append(renderRepeaterItem(context, item, index)));
+    let nextItemId = values.length;
+    values.forEach((item, index) => list.append(renderRepeaterItem(context, item, index, index)));
     if (!values.length) list.append(element("p", { className: "generic-empty", textContent: "Keine Einträge." }));
     if (editable(context)) {
       const addButton = element("button", { type: "button", className: "secondary", textContent: "Eintrag hinzufügen" });
       addButton.addEventListener("click", () => {
         list.querySelector(".generic-empty")?.remove();
-        list.insertBefore(renderRepeaterItem(context, {}, list.querySelectorAll(".generic-repeater-item").length), addButton);
+        list.insertBefore(renderRepeaterItem(context, {}, list.querySelectorAll(".generic-repeater-item").length, null, nextItemId++), addButton);
       });
       list.append(addButton);
     }
     return list;
   },
   readValue(context, root) {
-    return Array.from(root.querySelectorAll(":scope > .generic-repeater-item")).map((group) => {
-      const item = {};
+    const list = root.querySelector("[data-widget-control='repeater']");
+    return Array.from(list.querySelectorAll(":scope > .generic-repeater-item")).map((group) => {
+      const originalIndex = group.getAttribute("data-original-index");
+      const originalItem = originalIndex === null ? {} : context.originalValue?.[Number(originalIndex)] || {};
+      const item = cloneValue(originalItem);
       context.field.item_fields.forEach((itemField) => {
         const fieldRoot = group.querySelector(`[data-field-id='${itemField.id}']`);
         if (!fieldRoot) return;
-        setLocalPathValue(item, itemField.path, context.readField(itemField, fieldRoot));
+        setLocalPathValue(item, itemField.path, context.readField(itemField, fieldRoot, getPathValue(originalItem, itemField.path)));
       });
       return item;
     });

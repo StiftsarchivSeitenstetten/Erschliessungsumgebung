@@ -23,7 +23,7 @@ function visibleFields(moduleDescriptor) {
 }
 
 function isEmptyRequired(value) {
-  return value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0);
+  return value === undefined;
 }
 
 function optionValues(field) {
@@ -81,7 +81,7 @@ export class FormState {
       }
       if ((field.widget === "select" || field.widget === "vocabulary_select") && field.options?.length) {
         const selected = field.widget === "vocabulary_select" && value && typeof value === "object" ? value.id : value;
-        if (!isEmptyRequired(selected) && !optionValues(field).has(String(selected))) {
+        if (selected !== null && selected !== undefined && selected !== "" && !optionValues(field).has(String(selected))) {
           errors.push({ path: field.path, message: "Auswahl ist nicht im Descriptor definiert." });
         }
       }

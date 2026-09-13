@@ -188,6 +188,21 @@ class ModuleRegistryTest(unittest.TestCase):
         self.assertEqual(fields["signatur.format"]["options"][0]["value"], "A")
         self.assertEqual(fields["signatur.format"]["options"][-1]["value"], "F")
 
+    def test_repeater_item_fields_inherit_parent_role_permissions(self):
+        module = get_module("foto_papierabzuege")
+        for role in ("ehrenamtlich", "redaktion"):
+            descriptor = module.descriptor_for_role(role)
+            repeater = next(field for field in descriptor["fields"] if field["id"] == "dargestellte_personen")
+            self.assertTrue(repeater["visible"])
+            self.assertTrue(repeater["editable"])
+            self.assertEqual([field["path"] for field in repeater["item_fields"]], ["name", "hinweis"])
+            self.assertTrue(all(field["visible"] and field["editable"] for field in repeater["item_fields"]))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            module = load_module(write_module_config(Path(tmp), "test.yaml", architecture_test_config()))
+        repeater = next(field for field in module.descriptor_for_role("ehrenamtlich")["fields"] if field["id"] == "beteiligte")
+        self.assertTrue(all(field["visible"] and not field["editable"] for field in repeater["item_fields"]))
+
     def test_descriptor_keeps_declared_select_options_for_test_modules(self):
         with tempfile.TemporaryDirectory() as tmp:
             module = load_module(write_module_config(Path(tmp), "test.yaml", architecture_test_config()))

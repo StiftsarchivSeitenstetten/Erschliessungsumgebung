@@ -77,8 +77,8 @@ export class FormRenderer {
       field,
       originalValue,
       mode: this.mode,
-      readField: (itemField, itemRoot) => this.readField(itemField, itemRoot)
-    }, fieldRoot.lastElementChild || fieldRoot);
+      readField: (itemField, itemRoot, itemOriginal) => this.readField(itemField, itemRoot, itemOriginal)
+    }, fieldRoot);
   }
 
   readIntoState(formRoot, formState) {
@@ -87,14 +87,13 @@ export class FormRenderer {
       .forEach((field) => {
         const fieldRoot = formRoot.querySelector(`[data-field-id='${field.id}']`);
         if (!fieldRoot) return;
-        const controlRoot = fieldRoot.lastElementChild;
         const value = this.widgetRegistry.readValue(field.widget, {
           field,
           originalValue: getPathValue(formState.original, field.path),
           mode: this.mode,
           renderField: (itemField, itemData, itemValue, itemInputId) => this.renderField(itemField, itemData, itemValue, itemInputId),
-          readField: (itemField, itemRoot) => this.readField(itemField, itemRoot)
-        }, controlRoot);
+          readField: (itemField, itemRoot, itemOriginal) => this.readField(itemField, itemRoot, itemOriginal)
+        }, fieldRoot);
         formState.setValue(field.path, value);
       });
     return formState;

@@ -221,7 +221,7 @@ def _module_field(raw_field: dict[str, Any], section_id: str, rights: dict[str, 
     path = raw_field["path"]
     view_roles, edit_roles = _field_access(path, rights)
     item_fields = tuple(
-        _module_field(item, section_id, rights={})
+        replace(_module_field(item, section_id, rights={}), view_roles=view_roles, edit_roles=edit_roles)
         for item in raw_field.get("item_fields", []) or []
     )
     return ModuleField(
