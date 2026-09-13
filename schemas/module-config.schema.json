@@ -238,6 +238,7 @@
       "additionalProperties": false,
       "required": ["path", "widget", "label", "order"],
       "properties": {
+        "id": { "$ref": "#/$defs/key" },
         "path": { "$ref": "#/$defs/field_path" },
         "widget": { "$ref": "#/$defs/widget" },
         "label": { "type": "string", "minLength": 1 },

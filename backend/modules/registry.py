@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from functools import lru_cache
 import json
 from pathlib import Path
@@ -12,6 +11,7 @@ import jsonschema
 import yaml
 
 from ..config import ROOT
+from .runtime import ModuleDefinition, ModuleField, ModuleSection
 
 
 MODULE_DIR = ROOT / "ui" / "modules"
@@ -22,34 +22,6 @@ VOCABULARY_SCHEMA_PATH = ROOT / "schemas" / "vocabulary.schema.json"
 
 class ModuleConfigError(ValueError):
     pass
-
-
-@dataclass(frozen=True)
-class ModuleDefinition:
-    id: str
-    access_key: str
-    label: str
-    schema_path: Path
-    fachkonfiguration_path: Path | None
-    datensatz_typ: str | None
-    form_fields: tuple[str, ...]
-    search_fields: tuple[str, ...]
-    list_fields: tuple[str, ...]
-    presettable_fields: tuple[str, ...]
-    field_rights: dict[str, dict[str, Any]]
-    signature_strategy: dict[str, Any]
-    vocabularies: dict[str, Any]
-
-    def public_metadata(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "module": self.access_key,
-            "label": self.label,
-            "datensatz_typ": self.datensatz_typ,
-            "form_fields": list(self.form_fields),
-            "search_fields": list(self.search_fields),
-            "list_fields": list(self.list_fields),
-        }
 
 
 def _resolve_path(base: Path, value: str | None) -> Path | None:
@@ -197,6 +169,87 @@ def validate_module_config(raw: dict[str, Any], path: Path) -> None:
     schema_path = _resolve_path(path.parent, _schema_ref(raw))
     if schema_path is None or not schema_path.exists():
         raise ModuleConfigError(f"Referenziertes Datenschema fehlt: {path}")
+    for field_path, rights in raw.get("access", {}).get("fields", {}).items():
+        view_roles = set(rights.get("view") or [])
+        edit_roles = set(rights.get("edit") or [])
+        if not edit_roles.issubset(view_roles):
+            raise ModuleConfigError(f"edit setzt view voraus: {field_path}")
+
+
+def _field_id(path: str) -> str:
+    return path.split(".")[-1].replace("[]", "")
+
+
+def _field_access(field_path: str, rights: dict[str, dict[str, Any]]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    configured = rights.get(field_path, {})
+    view = configured.get("view") or configured.get("read") or []
+    edit = configured.get("edit") or configured.get("write") or []
+    return tuple(view), tuple(edit)
+
+
+def _module_field(raw_field: dict[str, Any], section_id: str, rights: dict[str, dict[str, Any]]) -> ModuleField:
+    path = raw_field["path"]
+    view_roles, edit_roles = _field_access(path, rights)
+    item_fields = tuple(
+        _module_field(item, section_id, rights={})
+        for item in raw_field.get("item_fields", []) or []
+    )
+    return ModuleField(
+        id=raw_field.get("id") or _field_id(path),
+        path=path,
+        label=raw_field["label"],
+        widget=raw_field["widget"],
+        section=section_id,
+        order=int(raw_field.get("order", 0)),
+        help=raw_field.get("help"),
+        placeholder=raw_field.get("placeholder"),
+        presettable=bool(raw_field.get("presettable", False)),
+        view_roles=view_roles,
+        edit_roles=edit_roles,
+        vocabulary=raw_field.get("vocabulary"),
+        item_fields=item_fields,
+    )
+
+
+def _sections_and_fields(raw: dict[str, Any], rights: dict[str, dict[str, Any]]) -> tuple[tuple[ModuleSection, ...], tuple[ModuleField, ...]]:
+    sections: list[ModuleSection] = []
+    fields: list[ModuleField] = []
+    for raw_section in raw.get("form", {}).get("sections", []):
+        section_fields: list[str] = []
+        for raw_field in raw_section.get("fields", []):
+            field = _module_field(raw_field, raw_section["id"], rights)
+            fields.append(field)
+            section_fields.append(field.id)
+        for group in raw_section.get("groups", []) or []:
+            for raw_field in group.get("fields", []):
+                field = _module_field(raw_field, raw_section["id"], rights)
+                fields.append(field)
+                section_fields.append(field.id)
+        sections.append(ModuleSection(
+            id=raw_section["id"],
+            label=raw_section["label"],
+            order=int(raw_section["order"]),
+            help=raw_section.get("help"),
+            fields=tuple(section_fields),
+        ))
+    if sections:
+        return tuple(sections), tuple(fields)
+
+    legacy_fields = tuple(
+        ModuleField(
+            id=_field_id(path),
+            path=path,
+            label=path,
+            widget="text",
+            section="main",
+            order=index,
+            view_roles=tuple(rights.get(path, {}).get("view") or rights.get(path, {}).get("read") or ()),
+            edit_roles=tuple(rights.get(path, {}).get("edit") or rights.get(path, {}).get("write") or ()),
+            presettable=path in set(raw.get("presettable_fields") or ()),
+        )
+        for index, path in enumerate(raw.get("form_fields") or ())
+    )
+    return (ModuleSection(id="main", label="Main", order=0, help=None, fields=tuple(field.id for field in legacy_fields)),), legacy_fields
 
 
 def load_module(path: Path) -> ModuleDefinition:
@@ -215,21 +268,28 @@ def load_module(path: Path) -> ModuleDefinition:
     access_key = _access_key(raw)
     signature = raw.get("signature") or raw.get("signature_strategy") or fachkonfiguration.get("signature") or {}
     vocabularies = raw.get("vocabularies") or fachkonfiguration.get("vocabularies") or {}
+    field_rights = _field_rights(raw, fachkonfiguration)
+    sections, fields = _sections_and_fields(raw, field_rights)
 
     return ModuleDefinition(
         id=module_id,
         access_key=access_key,
         label=module_data.get("label") or raw.get("label") or fachkonfiguration.get("module_label") or module_id,
+        description=module_data.get("description") or raw.get("description"),
         schema_path=schema_path,
         fachkonfiguration_path=fachkonfiguration_path,
-        datensatz_typ=module_data.get("record_type") or raw.get("datensatz_typ") or fachkonfiguration.get("datensatz_typ"),
-        form_fields=_form_fields(raw),
-        search_fields=_search_fields(raw),
-        list_fields=_list_fields(raw),
-        presettable_fields=_presettable_fields(raw, fachkonfiguration),
-        field_rights=_field_rights(raw, fachkonfiguration),
+        record_type=module_data.get("record_type") or raw.get("datensatz_typ") or fachkonfiguration.get("datensatz_typ"),
+        storage=raw.get("storage") or {},
+        id_strategy=raw.get("id") or {},
         signature_strategy=signature,
+        sections=sections,
+        fields=fields,
+        search_config=raw.get("search") or {"fulltext": list(_search_fields(raw))},
+        list_config=raw.get("list") or {"columns": [{"label": field, "path": field} for field in _list_fields(raw)]},
+        presettable_fields=_presettable_fields(raw, fachkonfiguration),
+        field_rights=field_rights,
         vocabularies=vocabularies,
+        ui_profiles=raw.get("ui_profiles") or {},
     )
 
 

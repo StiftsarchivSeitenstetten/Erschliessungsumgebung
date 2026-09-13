@@ -150,6 +150,22 @@ class AuthBackendTest(unittest.TestCase):
         self.assertEqual(self.login().status_code, 200)
         self.assertEqual(self.client.get("/api/modules/foto_papierabzuege").status_code, 200)
 
+    def test_module_descriptor_resolves_field_rights_for_current_user(self):
+        self.create_user()
+        self.assertEqual(self.login().status_code, 200)
+        response = self.client.get("/api/modules/foto_papierabzuege")
+        self.assertEqual(response.status_code, 200)
+        descriptor = response.json()
+        self.assertEqual(descriptor["module"], MODULE_FOTO_PAPIERABZUEGE)
+        self.assertIn("sections", descriptor)
+        self.assertIn("fields", descriptor)
+        title = next(field for field in descriptor["fields"] if field["id"] == "titel")
+        beschriftung = next(field for field in descriptor["fields"] if field["id"] == "beschriftung")
+        self.assertFalse(title["visible"])
+        self.assertFalse(title["editable"])
+        self.assertTrue(beschriftung["visible"])
+        self.assertTrue(beschriftung["editable"])
+
     def test_module_api_denies_missing_access(self):
         self.create_user(modules=[])
         self.assertEqual(self.login().status_code, 200)

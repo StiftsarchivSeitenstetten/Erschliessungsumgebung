@@ -21,4 +21,4 @@ def module_access(module_key: str, user: User = Depends(require_authenticated_us
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Arbeitsbereich nicht bekannt.") from exc
     if not has_module_access(user, module.access_key):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Arbeitsbereich nicht freigegeben.")
-    return {**module.public_metadata(), "user": user.username}
+    return {**module.descriptor_for_role(user.role), "user": user.username}

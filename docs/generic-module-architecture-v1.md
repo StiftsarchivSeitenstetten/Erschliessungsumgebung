@@ -91,6 +91,96 @@ Berechtigungsrollen und Darstellungsprofile sind getrennt:
 
 Rollen stehen ausschließlich in `access.fields.*.view` und `access.fields.*.edit`. Profile stehen in `ui_profiles` und steuern nur Darstellung, etwa technische Vorschau oder barrierearme UI. Ein redaktionelles Feld wird also über Rollenrechte sichtbar und bearbeitbar, nicht durch ein besonderes Profil.
 
+## Module Runtime Model
+
+Die `ModuleRegistry` lädt und validiert deklarative Moduldateien. Das daraus erzeugte Module Runtime Model ist die zentrale Laufzeitschnittstelle für Backend und später Frontend. Andere Anwendungsteile sollen nicht beliebige YAML-Dictionaries durchsuchen, sondern über definierte Attribute und Methoden arbeiten.
+
+Ein geladenes Modul stellt unter anderem bereit:
+
+- `id`, `access_key`, `label`, `description`, `record_type`
+- `schema_path`, `storage`, `id_strategy`, `signature_strategy`
+- `sections` und `fields`
+- `get_field(id)` und `get_field_by_path(path)`
+- `can_view_field(field, role)` und `can_edit_field(field, role)`
+- `search_config`, `list_config`, `vocabularies`, `ui_profiles`
+
+## Feldkatalog
+
+Der Feldkatalog normalisiert alle in der Modulkonfiguration beschriebenen Felder. Jedes Feld besitzt eine eigene Feldkennung und einen Datenpfad. Diese Werte müssen nicht identisch sein: Ein Feld kann `beschriftung` heißen und auf `erschliessung.beschriftung` zeigen.
+
+Normalisierte Felder enthalten mindestens:
+
+- Feldkennung
+- Datenpfad
+- Label
+- Widget
+- Abschnitt
+- Reihenfolge
+- Hilfetext und Placeholder
+- Preset-Fähigkeit
+- `view`- und `edit`-Rollen
+- optionale Vokabularreferenz
+- optionale Repeater-Unterfelder
+
+Repeater werden ausschließlich durch ihre Feldmetadaten beschrieben. Es gibt keinen fotospezifischen Sonderfall für `dargestellte_personen`.
+
+## Pfadmodell
+
+Pfade verwenden in v1 eine einfache Punktnotation für verschachtelte Objekte, zum Beispiel:
+
+- `erschliessung.beschriftung`
+- `datierung.von`
+- `technik.erstellt_am`
+
+Die zentralen Pfadfunktionen können Werte lesen, Existenz prüfen und verschachtelte Objekte beim Schreiben erzeugen. Arrays und wiederholbare Strukturen werden noch nicht über eine komplexe Pfadsprache adressiert, sondern über Repeater-Felddefinitionen modelliert.
+
+## Serverseitige Feldrechte
+
+Die Laufzeitschicht löst statische Konfigurationen wie:
+
+```yaml
+access:
+  fields:
+    erschliessung.titel:
+      view: [redaktion, admin]
+      edit: [redaktion, admin]
+```
+
+für einen konkreten Benutzerkontext zu `visible` und `editable` auf. `edit` setzt `view` voraus; Konfigurationen, die diese Regel verletzen, sind ungültig.
+
+Das Frontend ist nicht die Sicherheitsgrenze. Rollen- und Feldrechte werden serverseitig durchgesetzt.
+
+`admin` erhält nicht automatisch Rechte. Maßgeblich ist die Modulkonfiguration.
+
+## Servergeschützte Metadaten
+
+Bestimmte technische Felder sind serververwaltet und dürfen auch dann nicht durch Clients geändert werden, wenn eine manipulierte Anfrage oder fehlerhafte Konfiguration dies nahelegt. Dazu zählen derzeit:
+
+- `id`
+- `base_revision`
+- `revision`
+- `technik.erstellt_am`
+- `technik.erstellt_von`
+- `technik.geaendert_am`
+- `technik.geaendert_von`
+
+Das bestehende Foto-Verhalten bleibt unverändert: Bei Neuanlage setzt das Backend `erstellt_am`, `erstellt_von`, `geaendert_am` und `geaendert_von`. Bei Aktualisierung bleiben Erstellungswerte erhalten, Änderungswerte werden neu gesetzt. Eine spätere generische Schreibschicht soll diese Regel zentral anwenden.
+
+## Modul-Descriptor
+
+`GET /api/modules/{module_key}` liefert keinen rohen YAML-Dump, sondern einen normalisierten Laufzeitdescriptor für den angemeldeten Benutzer. Der Descriptor enthält Modulmetadaten, Abschnitte, Felder, Widgets, Such- und Listenangaben, Vokabularreferenzen, UI-Profile sowie pro Feld bereits aufgelöste Rechte:
+
+```json
+{
+  "id": "interne_bemerkung",
+  "path": "erschliessung.interne_bemerkung",
+  "visible": true,
+  "editable": true
+}
+```
+
+Der Browser muss dadurch langfristig keine Rollenlisten interpretieren, erhält aber trotzdem keine Sicherheitsautorität. Die serverseitige Prüfung bleibt verbindlich.
+
 ## Refactoring-Plan
 
 1. Modul-Registry einführen, die bestehende Modulkonfigurationen laden kann, ohne die Foto-Funktion zu verändern.
