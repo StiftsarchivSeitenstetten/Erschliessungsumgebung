@@ -146,7 +146,7 @@ Die erste `WidgetRegistry` unterstützt für die read-only Vorschau:
 
 Repeater rendern ihre Unterfelder rekursiv über dieselbe Feldmetadaten-Schnittstelle. Pfade werden generisch über einfache Punktnotation gelesen. Unbekannte Widgets schlagen kontrolliert fehl, damit fehlende Renderer nicht stillschweigend falsche Anzeigen erzeugen.
 
-Schreibende generische Endpunkte, Draft-Zustände, clientseitige Validierung und ein produktiver Ersatz der Foto-Maske bleiben spätere Schritte. Der Browser interpretiert auch in der Vorschau keine Rollenlisten; Berechtigungen kommen bereits als `visible` und `editable` vom Backend.
+Die generische Schreib-API ist inzwischen nur für automatisierte Tests freischaltbar; die Preview sendet weiterhin keine Schreibanfragen. Draft-Zustände und ein produktiver Ersatz der Foto-Maske bleiben spätere Schritte. Der Browser interpretiert auch in der Vorschau keine Rollenlisten; Berechtigungen kommen bereits als `visible` und `editable` vom Backend.
 
 ## Generischer Editiermodus ohne Persistenz
 
@@ -345,7 +345,7 @@ Analyse des aktuellen Foto-Piloten: `backend/records/photos.py` setzt bei Neuanl
 
 Die Record Runtime weiß nicht, ob Datensätze aus GitHub, einem In-Memory-Testrepository oder einer späteren Persistenzschicht kommen. Sie verarbeitet Python-Dictionaries, Moduldefinitionen und Benutzerrollen. Laden, Commit, Ref-Konflikte, Index und State bleiben Aufgabe der Repository- bzw. Persistenzschicht.
 
-Die generische Record-API ist zunächst ausdrücklich read-only. Aktiv sind:
+Die generische Read-API ist aktiv:
 
 - `GET /api/modules/{module_key}/records`
 - `GET /api/modules/{module_key}/records/{record_id}`
@@ -391,12 +391,36 @@ Listen verwenden entsprechend:
 }
 ```
 
-`revision` ist die serverseitig bekannte Version eines gespeicherten Datensatzes. `base_revision` ist eine spätere, vom Client zurückgesendete Konfliktinformation für Schreiboperationen und gehört nicht in den kanonischen YAML-/Markdown-Datensatz.
+`revision` ist die serverseitig bekannte Version eines gespeicherten Datensatzes. `base_revision` ist die vom Client bei `PUT` zurückgesendete Konfliktinformation und gehört nicht in den kanonischen YAML-/Markdown-Datensatz.
 
-Noch nicht aktiv sind:
+## Generische Schreib-API im Testbetrieb
 
-- `POST /api/modules/{module_key}/records`
-- `PUT /api/modules/{module_key}/records/{record_id}`
+Die Endpunkte `POST /api/modules/{module_key}/records` und `PUT /api/modules/{module_key}/records/{record_id}` sind implementiert. Beide verlangen Anmeldung, Modulzugriff und CSRF-Token. Sie sind standardmäßig gesperrt (`503`) und werden nur in automatisierten Tests mit `app.state.generic_writes_enabled = True` freigeschaltet. Für `POST` muss außerdem `app.state.generic_server_values_provider` eine Funktion mit den Argumenten `(module, user, payload)` sein, die kontrollierte serverseitige Werte als Pfad-Wert-Mapping liefert, mindestens eine technische `id`. Die Moduldefinition liefert `datensatz_typ`. Der Wertegeber kann auch weitere Modulwerte wie eine Signatur liefern; eine allgemeine ID- oder Signaturengine besteht noch nicht.
+
+Der Client sendet fachliche, bearbeitbare Felder unter `record`:
+
+```json
+{
+  "record": {"daten": {"name": "Beispiel"}}
+}
+```
+
+Bei `PUT` sendet der Client zusätzlich `base_revision` auf Transportebene. Der Payload muss sämtliche im bestehenden Datensatz vorhandenen, für diese Rolle bearbeitbaren Formularfelder enthalten. Geänderte Einzelwerte, verschachtelte Objekte und ganze Repeater-Listen ersetzen jeweils ihren bisherigen Feldwert. Nicht gesendete read-only oder unsichtbare Felder bleiben aus dem bestehenden Datensatz erhalten. Ein unvollständiger bearbeitbarer PUT-Payload wird abgelehnt; ein generisches `PATCH` existiert nicht.
+
+```json
+{
+  "base_revision": "abc123",
+  "record": {"daten": {"name": "Geaendert", "beteiligte": [{"name": "Person A"}]}}
+}
+```
+
+Die Antworten verwenden dasselbe Grundmodell wie die Detail-Read-API: `module`, `record_id`, rollenabhängig mit `filter_for_view(...)` gefiltertes `record` und `meta.revision`. `base_revision` und `revision` werden niemals in die kanonische YAML-Frontmatter geschrieben. `PUT` prüft `base_revision` gegen die aktuelle Dateirevision; ein veralteter Wert oder ein konkurrierender Branch-Commit liefert `409`.
+
+Die Runtime lehnt unbekannte Felder mit `422`, nicht berechtigte, unsichtbare, read-only und serververwaltete Felder mit `403` ab. Schemafehler und ein unvollständiger PUT-Payload liefern `422`; unbekanntes Modul oder unbekannter Datensatz `404`, fehlender Modulzugriff `403`, Persistenzfehler `500`. Erst nach Rechteprüfung, vollständigem Merge, technischen Metadaten, Schema-Validierung und Konfliktprüfung schreibt die Repository-Schicht den Datensatz über `commit_files(expected_head=...)` in einem Commit. Bestehender zusätzlicher Markdown-Body bleibt bei `PUT` erhalten.
+
+Beim Erzeugen setzt der Server `technik.erstellt_am` und `technik.erstellt_von`; `technik.geaendert_am` und `technik.geaendert_von` bleiben `null`. Beim Aktualisieren bleiben die Erstellungswerte erhalten und die Änderungswerte werden serverseitig gesetzt. Der Client kann sie ebenso wenig wie `id` bestimmen.
+
+Die generische Schreib-API ist in dieser Phase funktional implementiert und automatisiert getestet, wird jedoch noch nicht gegen das GitHub-Datenrepository eingesetzt. Die Tests verwenden ausschließlich `InMemoryGitRepository`. Index- und State-Aktualisierung sowie die produktive ID-/Signaturvergabe sind gesonderte Integrationsschritte.
 
 Die bestehenden Foto-Endpunkte bleiben während der Migration Referenz und werden erst ersetzt, wenn die generische API vollständige Funktionsparität nachgewiesen hat.
 
@@ -413,4 +437,4 @@ Die bestehenden Foto-Endpunkte bleiben während der Migration Referenz und werde
 
 Der Foto-Pilot bleibt der verbindliche Regressionstest. Vor jedem größeren Refactoring müssen die bestehenden Tests grün sein. Neue generische Infrastruktur bekommt eigene Tests, bevor bestehende Foto-Logik darauf umgestellt wird.
 
-Der aktuelle Schritt baut noch keine generische Signaturengine und keine generische Schreibschicht. `foto_papierabzuege` bleibt als Zugriffsschlüssel erhalten; die bestehende Foto-API, die bestehende Foto-Erfassungsmaske und die bestehenden YAML-/Markdown-Daten werden nicht migriert.
+Der aktuelle Schritt baut noch keine generische ID-/Signaturengine und schaltet die generische Schreib-API nicht für den Produktivbetrieb frei. `foto_papierabzuege` bleibt als Zugriffsschlüssel erhalten; die bestehende Foto-API, die bestehende Foto-Erfassungsmaske und die bestehenden YAML-/Markdown-Daten werden nicht migriert.

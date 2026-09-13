@@ -27,6 +27,10 @@ class RecordPermissionError(RecordRuntimeError):
     pass
 
 
+class RecordUnknownFieldError(RecordPermissionError):
+    pass
+
+
 class RecordValidationError(RecordRuntimeError):
     def __init__(self, errors: list[str]) -> None:
         super().__init__("; ".join(errors))
@@ -60,12 +64,12 @@ class RecordRuntime:
         editable: dict[str, Any] = {}
         for path in self._payload_paths(payload):
             if path in TRANSPORT_FIELDS:
-                continue
+                raise RecordPermissionError(f"Transportmetadatum gehoert nicht in den Datensatz: {path}")
             if is_server_managed_field(path):
                 raise RecordPermissionError(f"Feld wird serverseitig verwaltet: {path}")
             field = self.fields_by_path.get(path)
             if field is None:
-                raise RecordPermissionError(f"Unbekanntes oder nicht schreibbares Feld: {path}")
+                raise RecordUnknownFieldError(f"Unbekanntes Feld: {path}")
             if not field.can_edit(role):
                 raise RecordPermissionError(f"Keine Schreibberechtigung fuer Feld: {path}")
             set_path_value(editable, path, deepcopy(get_path_value(payload, path)))

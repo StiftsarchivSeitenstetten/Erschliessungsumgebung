@@ -126,10 +126,17 @@ class GenericRecordsApiTest(unittest.TestCase):
         response = self.client.get("/api/modules/foto_papierabzuege/records")
         self.assertEqual(response.status_code, 403)
 
-    def test_generic_read_only_api_does_not_enable_writes(self):
+    def test_generic_writes_remain_disabled_without_test_configuration(self):
         self.authed()
-        response = self.client.post("/api/modules/foto_papierabzuege/records", json={})
-        self.assertEqual(response.status_code, 405)
+        me = self.client.get("/api/auth/me").json()
+        csrf = self.client.cookies.get(me["csrf_cookie_name"])
+        response = self.client.post(
+            "/api/modules/foto_papierabzuege/records",
+            json={"record": {}},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(self.repository.commits, [])
 
     def test_same_generic_route_reads_second_module_without_photo_logic(self):
         with tempfile.TemporaryDirectory() as tmp:
