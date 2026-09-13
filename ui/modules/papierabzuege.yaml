@@ -1,7 +1,10 @@
 id: papierabzuege_9_4_2
+access_key: foto_papierabzuege
 label: "Einzelne Papierabzüge - 9.4.2"
+datensatz_typ: foto
 schema: "../../schemas/foto.schema.json"
 fachkonfiguration: "../../config/foto-papierabzuege.json"
+record_api: photos
 formats:
   - A
   - B
@@ -25,3 +28,9 @@ form_fields:
   - schlagworte
   - altsignaturen
   - interne_bemerkung
+search_fields:
+  - id
+  - signatur
+list_fields:
+  - signatur
+  - id
