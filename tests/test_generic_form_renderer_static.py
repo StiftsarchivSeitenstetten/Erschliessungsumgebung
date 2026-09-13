@@ -13,15 +13,20 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         self.assertIn('src="module.js"', html)
         self.assertIn('href="/arbeitsbereiche"', html)
         self.assertIn("Read-only Preview", html)
-        self.assertIn("new FormRenderer({ readOnly: true })", script)
+        self.assertIn('let mode = "read"', script)
+        self.assertIn("new FormState(moduleDescriptor, data.record)", script)
+        self.assertIn("new FormRenderer({ mode })", script)
         self.assertIn('params.get("module")', script)
         self.assertIn("/api/modules/${encodeURIComponent(moduleKey)}", script)
         self.assertIn("/records", script)
-        self.assertIn("renderer.render(moduleDescriptor, data.record)", script)
+        self.assertIn("renderer.render(currentDescriptor, currentFormState)", script)
         self.assertNotIn('method: "POST"', script)
         self.assertNotIn('method: "PUT"', script)
         self.assertNotIn('method: "PATCH"', script)
         self.assertNotIn('method: "DELETE"', script)
+        self.assertIn("Payload anzeigen", html)
+        self.assertIn("Änderungen verwerfen", html)
+        self.assertIn("Speichern deaktiviert", html)
 
     def test_form_renderer_uses_descriptor_metadata_without_photo_fields(self):
         script = (ROOT / "app" / "generic" / "form-renderer.js").read_text(encoding="utf-8")
@@ -32,6 +37,8 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         self.assertIn("field.visible === false", script)
         self.assertIn("field.editable", script)
         self.assertIn("field.presettable", script)
+        self.assertIn("readIntoState", script)
+        self.assertIn("widgetRegistry.readValue", script)
         self.assertIn(".sort((a, b) => a.order - b.order)", script)
         self.assertIn("this.widgetRegistry.render(field.widget", script)
         for forbidden in (
@@ -60,10 +67,16 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         ):
             self.assertIn(f'registry.register("{widget}"', script)
         self.assertIn("Unbekanntes Widget", script)
-        self.assertIn("renderRepeater", script)
+        self.assertIn("renderRepeaterItem", script)
         self.assertIn("item_fields", script)
         self.assertIn("context.renderField", script)
         self.assertIn("getPathValue(item, itemField.path)", script)
+        self.assertIn("readValue(context, root)", script)
+        self.assertIn("setValue(context, root, value)", script)
+        self.assertIn("Eintrag hinzufügen", script)
+        self.assertIn("Eintrag entfernen", script)
+        self.assertIn("JSON.parse(text)", script)
+        self.assertIn("parseNullableInteger", script)
 
     def test_path_utils_offer_generic_dot_path_access_and_formatting(self):
         script = (ROOT / "app" / "generic" / "path-utils.js").read_text(encoding="utf-8")
@@ -73,6 +86,37 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         self.assertIn("export function formatStructuredValue", script)
         self.assertIn("export function formatDateValue", script)
         self.assertIn("export function formatDateRangeValue", script)
+
+    def test_form_state_builds_payload_from_editable_visible_fields_only(self):
+        script = (ROOT / "app" / "generic" / "form-state.js").read_text(encoding="utf-8")
+
+        self.assertIn("export class FormState", script)
+        self.assertIn("this.original = cloneValue(recordData)", script)
+        self.assertIn("this.current = cloneValue(recordData)", script)
+        self.assertIn("discardChanges()", script)
+        self.assertIn("isDirty()", script)
+        self.assertIn("changedPaths()", script)
+        self.assertIn("buildPayload()", script)
+        self.assertIn("field.visible !== false", script)
+        self.assertIn("field.editable === true", script)
+        self.assertIn("!SERVER_MANAGED_PATHS.has(field.path)", script)
+        self.assertIn('"technik.erstellt_am"', script)
+        self.assertIn('"technik.geaendert_von"', script)
+        self.assertIn("validate()", script)
+        self.assertIn("Pflichtfeld ist leer", script)
+
+    def test_generic_frontend_has_no_write_requests_or_photo_special_cases(self):
+        for path in (
+            ROOT / "app" / "generic" / "form-state.js",
+            ROOT / "app" / "generic" / "form-renderer.js",
+            ROOT / "app" / "generic" / "widget-registry.js",
+            ROOT / "app" / "module" / "module.js",
+        ):
+            script = path.read_text(encoding="utf-8")
+            for forbidden in ('method: "POST"', 'method: "PUT"', 'method: "PATCH"', 'method: "DELETE"'):
+                self.assertNotIn(forbidden, script)
+            for forbidden in ("foto_papierabzuege", "dargestellte_personen", "beschriftung", "fotograf"):
+                self.assertNotIn(forbidden, script)
 
 
 if __name__ == "__main__":

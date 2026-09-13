@@ -252,10 +252,24 @@
         "rows": { "type": "integer", "minimum": 1 },
         "presettable": { "type": "boolean" },
         "vocabulary": { "$ref": "#/$defs/key" },
+        "options": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/option" },
+          "uniqueItems": true
+        },
         "item_fields": {
           "type": "array",
           "items": { "$ref": "#/$defs/field" }
         }
+      }
+    },
+    "option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "label"],
+      "properties": {
+        "value": { "type": ["string", "number", "integer", "boolean"] },
+        "label": { "type": "string", "minLength": 1 }
       }
     },
     "field_access": {

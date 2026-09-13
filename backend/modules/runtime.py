@@ -24,6 +24,8 @@ class ModuleField:
     edit_roles: tuple[str, ...] = ()
     vocabulary: str | None = None
     item_fields: tuple["ModuleField", ...] = ()
+    required: bool = False
+    options: tuple[dict[str, Any], ...] = ()
 
     def can_view(self, role: str) -> bool:
         return role_allowed(role, self.view_roles)
@@ -46,6 +48,8 @@ class ModuleField:
             "editable": self.can_edit(role),
             "vocabulary": self.vocabulary,
             "item_fields": [field.descriptor_for_role(role) for field in self.item_fields],
+            "required": self.required,
+            "options": list(self.options),
         }
 
 

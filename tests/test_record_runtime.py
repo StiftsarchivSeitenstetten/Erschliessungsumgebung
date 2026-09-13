@@ -101,11 +101,17 @@ def write_runtime_module(directory: Path, schema_path: Path) -> Path:
         {"id": "place", "path": "daten.place", "widget": "text", "label": "Ort", "order": 50},
         {"id": "date", "path": "daten.date", "widget": "date", "label": "Datum", "order": 60},
         {"id": "date_range", "path": "daten.date_range", "widget": "date_range", "label": "Zeitraum", "order": 70},
-        {"id": "term", "path": "daten.term", "widget": "vocabulary_select", "label": "Begriff", "order": 80, "vocabulary": "terms"},
+        {"id": "term", "path": "daten.term", "widget": "vocabulary_select", "label": "Begriff", "order": 80, "vocabulary": "terms", "options": [
+            {"value": "brief", "label": "Brief"},
+            {"value": "foto", "label": "Foto"},
+        ]},
         {"id": "identifier", "path": "daten.identifier", "widget": "text", "label": "Kennung", "order": 90},
         {"id": "record", "path": "daten.record", "widget": "text", "label": "Datensatz", "order": 100},
         {"id": "asset", "path": "daten.asset", "widget": "text", "label": "Digitalisat", "order": 110},
-        {"id": "language", "path": "daten.language", "widget": "select", "label": "Sprache", "order": 120},
+        {"id": "language", "path": "daten.language", "widget": "select", "label": "Sprache", "order": 120, "options": [
+            {"value": "de", "label": "Deutsch"},
+            {"value": "la", "label": "Latein"},
+        ]},
         {
             "id": "beteiligte",
             "path": "daten.beteiligte",
@@ -114,7 +120,10 @@ def write_runtime_module(directory: Path, schema_path: Path) -> Path:
             "order": 130,
             "item_fields": [
                 {"id": "name", "path": "name", "widget": "text", "label": "Name", "order": 10},
-                {"id": "rolle", "path": "rolle", "widget": "vocabulary_select", "label": "Rolle", "order": 20, "vocabulary": "terms"},
+                {"id": "rolle", "path": "rolle", "widget": "vocabulary_select", "label": "Rolle", "order": 20, "vocabulary": "terms", "options": [
+                    {"value": "absender", "label": "Absender"},
+                    {"value": "empfaenger", "label": "Empfänger"},
+                ]},
             ],
         },
     ]

@@ -1,4 +1,5 @@
 import { FormRenderer } from "../generic/form-renderer.js";
+import { FormState } from "../generic/form-state.js";
 
 const params = new URLSearchParams(window.location.search);
 const moduleKey = params.get("module");
@@ -7,7 +8,14 @@ const description = document.querySelector("#module-description");
 const recordList = document.querySelector("#record-list");
 const preview = document.querySelector("#record-preview");
 const errorOutput = document.querySelector("#module-error");
-const renderer = new FormRenderer({ readOnly: true });
+const payloadPreview = document.querySelector("#payload-preview");
+const toggleEdit = document.querySelector("#toggle-edit");
+const discardChanges = document.querySelector("#discard-changes");
+const showPayload = document.querySelector("#show-payload");
+let mode = "read";
+let currentDescriptor = null;
+let currentFormState = null;
+let renderer = new FormRenderer({ mode });
 
 async function apiFetch(url) {
   const response = await fetch(url, { credentials: "same-origin" });
@@ -39,8 +47,37 @@ function renderRecords(moduleDescriptor, records) {
 
 async function openRecord(moduleDescriptor, recordId) {
   const data = await apiFetch(`/api/modules/${encodeURIComponent(moduleDescriptor.module)}/records/${encodeURIComponent(recordId)}`);
+  currentDescriptor = moduleDescriptor;
+  currentFormState = new FormState(moduleDescriptor, data.record);
+  mode = "read";
+  renderer = new FormRenderer({ mode });
+  payloadPreview.textContent = "";
+  toggleEdit.textContent = "Edit-Modus aktivieren";
+  discardChanges.disabled = true;
+  renderCurrentRecord();
+}
+
+function renderCurrentRecord() {
   preview.innerHTML = "";
-  preview.append(renderer.render(moduleDescriptor, data.record));
+  preview.append(renderer.render(currentDescriptor, currentFormState));
+}
+
+function syncStateFromForm() {
+  if (mode === "edit" && currentFormState) {
+    renderer.readIntoState(preview, currentFormState);
+  }
+}
+
+function updatePayloadPreview() {
+  syncStateFromForm();
+  if (!currentFormState) return;
+  payloadPreview.textContent = JSON.stringify({
+    dirty: currentFormState.isDirty(),
+    changed_paths: currentFormState.changedPaths(),
+    validation_errors: currentFormState.validate(),
+    payload: currentFormState.buildPayload()
+  }, null, 2);
+  discardChanges.disabled = !currentFormState.isDirty();
 }
 
 async function init() {
@@ -56,3 +93,22 @@ async function init() {
 init().catch((error) => {
   errorOutput.textContent = error.message;
 });
+
+toggleEdit.addEventListener("click", () => {
+  if (!currentFormState) return;
+  syncStateFromForm();
+  mode = mode === "read" ? "edit" : "read";
+  renderer = new FormRenderer({ mode });
+  toggleEdit.textContent = mode === "read" ? "Edit-Modus aktivieren" : "Read-Modus anzeigen";
+  renderCurrentRecord();
+  updatePayloadPreview();
+});
+
+discardChanges.addEventListener("click", () => {
+  if (!currentFormState) return;
+  currentFormState.discardChanges();
+  renderCurrentRecord();
+  updatePayloadPreview();
+});
+
+showPayload.addEventListener("click", updatePayloadPreview);

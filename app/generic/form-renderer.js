@@ -18,15 +18,16 @@ function fieldId(field, suffix = "") {
 }
 
 export class FormRenderer {
-  constructor({ widgetRegistry = createDefaultWidgetRegistry(), readOnly = true } = {}) {
+  constructor({ widgetRegistry = createDefaultWidgetRegistry(), mode = "read", readOnly = undefined } = {}) {
     this.widgetRegistry = widgetRegistry;
-    this.readOnly = readOnly;
+    this.mode = readOnly === true ? "read" : mode;
   }
 
-  render(moduleDescriptor, recordData) {
+  render(moduleDescriptor, formStateOrRecord) {
     if (!moduleDescriptor?.sections || !moduleDescriptor?.fields) {
       throw new Error("Fehlerhafter Modul-Descriptor.");
     }
+    const recordData = formStateOrRecord?.current || formStateOrRecord || {};
     const root = element("div", { className: "generic-form", "data-module": moduleDescriptor.module });
     const fieldsById = new Map(moduleDescriptor.fields.map((field) => [field.id, field]));
     const sections = [...moduleDescriptor.sections].sort((a, b) => a.order - b.order);
@@ -61,12 +62,41 @@ export class FormRenderer {
     const control = this.widgetRegistry.render(field.widget, {
       field,
       value,
+      originalValue: getPathValue(recordData, field.path),
       inputId,
       recordData,
-      readOnly: this.readOnly,
+      mode: this.mode,
       renderField: (itemField, itemData, itemValue, itemInputId) => this.renderField(itemField, itemData, itemValue, itemInputId)
     });
     wrapper.append(control);
     return wrapper;
+  }
+
+  readField(field, fieldRoot, originalValue = undefined) {
+    return this.widgetRegistry.readValue(field.widget, {
+      field,
+      originalValue,
+      mode: this.mode,
+      readField: (itemField, itemRoot) => this.readField(itemField, itemRoot)
+    }, fieldRoot.lastElementChild || fieldRoot);
+  }
+
+  readIntoState(formRoot, formState) {
+    formState.moduleDescriptor.fields
+      .filter((field) => field.visible !== false && field.editable === true)
+      .forEach((field) => {
+        const fieldRoot = formRoot.querySelector(`[data-field-id='${field.id}']`);
+        if (!fieldRoot) return;
+        const controlRoot = fieldRoot.lastElementChild;
+        const value = this.widgetRegistry.readValue(field.widget, {
+          field,
+          originalValue: getPathValue(formState.original, field.path),
+          mode: this.mode,
+          renderField: (itemField, itemData, itemValue, itemInputId) => this.renderField(itemField, itemData, itemValue, itemInputId),
+          readField: (itemField, itemRoot) => this.readField(itemField, itemRoot)
+        }, controlRoot);
+        formState.setValue(field.path, value);
+      });
+    return formState;
   }
 }

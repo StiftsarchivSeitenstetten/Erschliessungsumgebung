@@ -148,6 +148,66 @@ Repeater rendern ihre Unterfelder rekursiv über dieselbe Feldmetadaten-Schnitts
 
 Schreibende generische Endpunkte, Draft-Zustände, clientseitige Validierung und ein produktiver Ersatz der Foto-Maske bleiben spätere Schritte. Der Browser interpretiert auch in der Vorschau keine Rollenlisten; Berechtigungen kommen bereits als `visible` und `editable` vom Backend.
 
+## Generischer Editiermodus ohne Persistenz
+
+Die generische Modulvorschau besitzt zusätzlich zum `read`-Modus einen ersten `edit`-Modus. Dieser Modus ist eine Entwicklungsfunktion zur Beherrschung der generischen Client-Bearbeitung; er speichert nichts und sendet keine schreibenden Requests.
+
+Der generische Editiermodus erzeugt fachliche Payloads, besitzt aber in dieser Phase keinerlei Persistenzfunktion. Server und produktive Daten werden durch Bearbeitungen in der generischen Preview nicht verändert.
+
+Die Modi sind klar getrennt:
+
+- `read`: bisheriges read-only Rendering aus Modul-Descriptor und Datensatz.
+- `edit`: sichtbare und editierbare Felder werden als bearbeitbare Controls gerendert; sichtbare, aber nicht editierbare Felder bleiben gesperrt; unsichtbare Felder werden nicht dargestellt.
+
+Der Client interpretiert dabei keine Rollenlogik. Er verwendet ausschließlich die serverseitig aufgelösten Descriptor-Flags `visible` und `editable`.
+
+### Form State, Original State und Dirty State
+
+Die Preview erzeugt pro geladenem Datensatz einen `FormState` mit zwei getrennten Kopien:
+
+- `original`: der zuletzt geladene fachliche Datensatz.
+- `current`: der aktuelle Bearbeitungsstand.
+
+Widget-Änderungen werden in `current` zurückgelesen. `isDirty()` vergleicht `original` und `current` generisch über die Datenstruktur, nicht feldspezifisch. `changedPaths()` kann zusätzlich die geänderten Descriptor-Feldpfade ausweisen. `Änderungen verwerfen` ersetzt `current` wieder durch `original`.
+
+### Payload Builder
+
+`buildPayload()` erzeugt aus dem Bearbeitungsstand einen fachlichen Payload. Enthalten sind nur Felder, die laut Descriptor sichtbar und editierbar sind. Serververwaltete bzw. technische Pfade werden explizit ausgeschlossen:
+
+- `id`
+- `revision`
+- `base_revision`
+- `technik.erstellt_am`
+- `technik.erstellt_von`
+- `technik.geaendert_am`
+- `technik.geaendert_von`
+
+Unsichtbare Felder werden nicht aus einem geladenen vollständigen Datensatz in den Payload zurückgeschrieben. Damit bleiben redaktionelle oder rollenabhängig ausgeblendete Werte geschützt, sobald später eine Schreib-API angeschlossen wird.
+
+### Widget-Roundtrip und Repeater
+
+Die `WidgetRegistry` besitzt nun pro Widget eine Zwei-Wege-Schnittstelle:
+
+- `render`: Datenwert zu Control.
+- `readValue`: Control zu Datenwert.
+- `setValue`: programmatisches Setzen eines Controls.
+
+Unterstützt sind `text`, `textarea`, `checkbox`, `select`, `date`, `date_range`, `vocabulary_select` und `repeater`. Text-Widgets erhalten Zeilenumbrüche bei `textarea`; strukturierte Werte können als JSON roundtrippen, bis spezifischere Editoren eingeführt werden. `checkbox` liefert Boolean-Werte. `select` speichert den kanonischen Optionswert. `vocabulary_select` speichert die stabile Term-ID bzw. erhält die `term_ref`-Struktur.
+
+Repeater unterstützen generisch vorhandene Einträge, neue Einträge, Entfernen und mehrere Einträge. Unterfelder werden ausschließlich über `item_fields` beschrieben und rekursiv über dieselbe Renderer-/Widget-Schnittstelle verarbeitet. Es gibt keinen Sonderfall für Foto-Felder wie dargestellte Personen; derselbe Mechanismus kann später etwa für Beteiligte eines Autographenmoduls verwendet werden.
+
+### Pflichtfelder und Vorvalidierung
+
+Der Modul-Descriptor enthält erste aus dem fachlichen JSON-Schema abgeleitete Metadaten, insbesondere `required` und Optionen aus `enum` bzw. deklarativen Feldoptionen. Die clientseitige Vorvalidierung bleibt bewusst klein:
+
+- leere Pflichtfelder,
+- ungültige Select- bzw. Vocabulary-Optionen,
+- strukturell ungültige Wiederholfelder.
+
+Die vollständige Sicherheits-, Rechte- und Schema-Validierung bleibt Aufgabe der serverseitigen `RecordRuntime`. Im Browser wird keine zweite vollständige JSON-Schema-Validierungsarchitektur aufgebaut.
+
+Die Entwicklungsfunktion `Payload anzeigen` zeigt Dirty State, geänderte Pfade, Vorvalidierungsfehler und den aktuell erzeugten fachlichen Payload lokal an. Diese Anzeige enthält keine Server-Secrets und löst keine Persistenz aus.
+
 ## Module Runtime Model
 
 Die `ModuleRegistry` lädt und validiert deklarative Moduldateien. Das daraus erzeugte Module Runtime Model ist die zentrale Laufzeitschnittstelle für Backend und später Frontend. Andere Anwendungsteile sollen nicht beliebige YAML-Dictionaries durchsuchen, sondern über definierte Attribute und Methoden arbeiten.

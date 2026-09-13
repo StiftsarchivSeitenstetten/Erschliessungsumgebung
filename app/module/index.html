@@ -22,7 +22,13 @@
       <section class="status-band">
         <div>
           <h2>Read-only Preview</h2>
-          <p>Diese Ansicht rendert Datensätze generisch aus Modul-Descriptor und Record-API. Speichern ist hier noch deaktiviert.</p>
+          <p>Diese Ansicht rendert und bearbeitet Datensätze generisch aus Modul-Descriptor und Record-API. Persistenz ist hier deaktiviert.</p>
+        </div>
+        <div class="preview-actions">
+          <button id="toggle-edit" type="button" class="secondary">Edit-Modus aktivieren</button>
+          <button id="discard-changes" type="button" class="secondary" disabled>Änderungen verwerfen</button>
+          <button id="show-payload" type="button">Payload anzeigen</button>
+          <button type="button" class="secondary" disabled title="In dieser Entwicklungsansicht gibt es keine Schreib-API.">Speichern deaktiviert</button>
         </div>
       </section>
       <section class="form-section">
@@ -30,6 +36,11 @@
         <div id="record-list" class="record-list" aria-live="polite"></div>
       </section>
       <section id="record-preview" class="form-section" aria-live="polite"></section>
+      <section class="form-section">
+        <h2>Entwicklungs-Payload</h2>
+        <p class="generic-help">Dieser Payload wird nur lokal erzeugt und nicht versendet.</p>
+        <pre id="payload-preview" class="payload-preview" aria-live="polite"></pre>
+      </section>
       <p id="module-error" class="errors" aria-live="assertive"></p>
     </main>
     <script type="module" src="module.js"></script>

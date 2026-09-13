@@ -72,7 +72,11 @@ def architecture_test_config() -> dict:
                     ],
                 },
                 {"id": "zeitraum", "path": "daten.zeitraum", "widget": "date_range", "label": "Zeitraum", "order": 50},
-                {"id": "erstellt_am", "path": "technik.erstellt_am", "widget": "text", "label": "Erstellt am", "order": 60},
+                {"id": "language", "path": "daten.language", "widget": "select", "label": "Sprache", "order": 60, "options": [
+                    {"value": "de", "label": "Deutsch"},
+                    {"value": "la", "label": "Latein"},
+                ]},
+                {"id": "erstellt_am", "path": "technik.erstellt_am", "widget": "text", "label": "Erstellt am", "order": 70},
             ],
         }]
     }
@@ -83,6 +87,7 @@ def architecture_test_config() -> dict:
             "daten.secret": {"view": ["redaktion", "admin"], "edit": ["redaktion", "admin"]},
             "daten.beteiligte": {"view": ["ehrenamtlich", "redaktion", "admin"], "edit": ["redaktion", "admin"]},
             "daten.zeitraum": {"view": ["ehrenamtlich", "redaktion", "admin"], "edit": ["redaktion", "admin"]},
+            "daten.language": {"view": ["ehrenamtlich", "redaktion", "admin"], "edit": ["ehrenamtlich", "redaktion", "admin"]},
             "technik.erstellt_am": {"view": ["admin"], "edit": ["admin"]},
         }
     }
@@ -173,6 +178,24 @@ class ModuleRegistryTest(unittest.TestCase):
         repeater = module.get_field("beteiligte")
         self.assertEqual(repeater.widget, "repeater")
         self.assertEqual(repeater.item_fields[1].widget, "vocabulary_select")
+
+    def test_descriptor_marks_required_fields_and_declared_options(self):
+        module = get_module("foto_papierabzuege")
+        descriptor = module.descriptor_for_role("ehrenamtlich")
+        fields = {field["path"]: field for field in descriptor["fields"]}
+
+        self.assertTrue(fields["signatur.format"]["required"])
+        self.assertEqual(fields["signatur.format"]["options"][0]["value"], "A")
+        self.assertEqual(fields["signatur.format"]["options"][-1]["value"], "F")
+
+    def test_descriptor_keeps_declared_select_options_for_test_modules(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            module = load_module(write_module_config(Path(tmp), "test.yaml", architecture_test_config()))
+        descriptor = module.descriptor_for_role("ehrenamtlich")
+        fields = {field["path"]: field for field in descriptor["fields"]}
+
+        self.assertEqual(fields["daten.language"]["options"][0]["value"], "de")
+        self.assertEqual(fields["daten.language"]["options"][0]["label"], "Deutsch")
         self.assertEqual(module.get_field("zeitraum").widget, "date_range")
 
     def test_server_managed_fields_are_not_editable_even_if_configured(self):

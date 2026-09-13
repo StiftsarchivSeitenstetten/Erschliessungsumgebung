@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from functools import lru_cache
 import json
 from pathlib import Path
@@ -54,6 +55,35 @@ def _load_schema(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ModuleConfigError(f"Schema ist kein Mapping: {path}")
     return data
+
+
+def _schema_for_path(schema: dict[str, Any], path: str) -> dict[str, Any]:
+    current = schema
+    for part in path.split("."):
+        properties = current.get("properties") if isinstance(current, dict) else None
+        if not isinstance(properties, dict) or part not in properties:
+            return {}
+        current = properties[part]
+    return current if isinstance(current, dict) else {}
+
+
+def _schema_requires_path(schema: dict[str, Any], path: str) -> bool:
+    current = schema
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in set(current.get("required") or []):
+            return False
+        properties = current.get("properties")
+        if not isinstance(properties, dict) or part not in properties:
+            return False
+        current = properties[part]
+    return True
+
+
+def _schema_options(property_schema: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+    enum_values = property_schema.get("enum")
+    if not isinstance(enum_values, list):
+        return ()
+    return tuple({"value": value, "label": str(value)} for value in enum_values if value is not None)
 
 
 def validate_json_schema(path: Path) -> None:
@@ -208,6 +238,7 @@ def _module_field(raw_field: dict[str, Any], section_id: str, rights: dict[str, 
         edit_roles=edit_roles,
         vocabulary=raw_field.get("vocabulary"),
         item_fields=item_fields,
+        options=tuple(raw_field.get("options") or ()),
     )
 
 
@@ -252,6 +283,19 @@ def _sections_and_fields(raw: dict[str, Any], rights: dict[str, dict[str, Any]])
     return (ModuleSection(id="main", label="Main", order=0, help=None, fields=tuple(field.id for field in legacy_fields)),), legacy_fields
 
 
+def _enrich_fields_from_schema(fields: tuple[ModuleField, ...], schema: dict[str, Any]) -> tuple[ModuleField, ...]:
+    enriched: list[ModuleField] = []
+    for field in fields:
+        property_schema = _schema_for_path(schema, field.path)
+        options = field.options or _schema_options(property_schema)
+        enriched.append(replace(
+            field,
+            required=_schema_requires_path(schema, field.path),
+            options=options,
+        ))
+    return tuple(enriched)
+
+
 def load_module(path: Path) -> ModuleDefinition:
     raw = _load_yaml(path)
     if "config_version" in raw:
@@ -262,6 +306,7 @@ def load_module(path: Path) -> ModuleDefinition:
     schema_path = _resolve_path(base, _schema_ref(raw))
     if schema_path is None:
         raise ValueError(f"Modulkonfiguration ohne schema: {path}")
+    schema = _load_schema(schema_path)
 
     module_data = raw.get("module") if isinstance(raw.get("module"), dict) else {}
     module_id = _module_id(raw)
@@ -270,6 +315,7 @@ def load_module(path: Path) -> ModuleDefinition:
     vocabularies = raw.get("vocabularies") or fachkonfiguration.get("vocabularies") or {}
     field_rights = _field_rights(raw, fachkonfiguration)
     sections, fields = _sections_and_fields(raw, field_rights)
+    fields = _enrich_fields_from_schema(fields, schema)
 
     return ModuleDefinition(
         id=module_id,

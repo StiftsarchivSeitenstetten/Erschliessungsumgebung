@@ -6,6 +6,33 @@ export function getPathValue(data, path) {
   }, data);
 }
 
+export function setPathValue(data, path, value) {
+  const parts = path.split(".");
+  let current = data;
+  parts.slice(0, -1).forEach((part) => {
+    if (!current[part] || typeof current[part] !== "object" || Array.isArray(current[part])) {
+      current[part] = {};
+    }
+    current = current[part];
+  });
+  current[parts[parts.length - 1]] = value;
+}
+
+export function cloneValue(value) {
+  if (value === undefined) return undefined;
+  return JSON.parse(JSON.stringify(value));
+}
+
+export function stableStringify(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
+}
+
+export function valuesEqual(left, right) {
+  return stableStringify(left) === stableStringify(right);
+}
+
 export function isEmptyValue(value) {
   return value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0);
 }

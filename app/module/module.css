@@ -45,3 +45,29 @@
   border-radius: 8px;
   padding: 12px;
 }
+
+.preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.generic-date,
+.generic-date-range {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.payload-preview {
+  overflow-x: auto;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+  min-height: 120px;
+}
