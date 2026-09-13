@@ -6,11 +6,20 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+repo_root = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(repo_root))
+
+from backend.modules import list_modules, validate_core_schemas
 from foto_core import load_records, validate_collection
 
 
 def main() -> int:
-    repo_root = Path(__file__).resolve().parents[1]
+    try:
+        validate_core_schemas()
+        modules = list_modules()
+    except Exception as exc:
+        print(f"Modulkonfiguration ungueltig: {exc}", file=sys.stderr)
+        return 1
     data_dir = repo_root / "data" / "fotos"
     records = load_records(data_dir)
     errors = validate_collection(records)
@@ -18,7 +27,7 @@ def main() -> int:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
         return 1
-    print(f"OK: {len(records)} Foto-Datensaetze validiert")
+    print(f"OK: {len(records)} Foto-Datensaetze validiert; {len(modules)} Modulkonfiguration(en) validiert")
     return 0
 
 

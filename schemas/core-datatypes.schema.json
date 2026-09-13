@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stiftsarchiv-seitenstetten.github.io/erschliessungsumgebung/schemas/core-datatypes.schema.json",
+  "title": "Erschliessungsumgebung Core Datatypes v1",
+  "type": "object",
+  "$defs": {
+    "norm_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheme", "id"],
+      "properties": {
+        "scheme": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1 },
+        "uri": { "type": ["string", "null"], "format": "uri" }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "name"],
+      "properties": {
+        "type": { "type": "string", "enum": ["person", "organization", "family"] },
+        "name": { "type": "string", "minLength": 1 },
+        "norm_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/norm_ref" },
+          "default": []
+        },
+        "hinweis": { "type": ["string", "null"] }
+      }
+    },
+    "place": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "norm_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/norm_ref" },
+          "default": []
+        },
+        "coordinates": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["lat", "lon"],
+          "properties": {
+            "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+            "lon": { "type": "number", "minimum": -180, "maximum": 180 }
+          }
+        },
+        "hinweis": { "type": ["string", "null"] }
+      }
+    },
+    "date": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["year"],
+      "properties": {
+        "year": { "type": "integer", "minimum": 1, "maximum": 9999 },
+        "month": { "type": ["integer", "null"], "minimum": 1, "maximum": 12 },
+        "day": { "type": ["integer", "null"], "minimum": 1, "maximum": 31 },
+        "display": { "type": ["string", "null"] },
+        "certainty": { "type": ["string", "null"], "enum": ["certain", "approximate", "uncertain", null] },
+        "hinweis": { "type": ["string", "null"] }
+      }
+    },
+    "date_range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from"],
+      "properties": {
+        "from": { "$ref": "#/$defs/date" },
+        "to": { "oneOf": [{ "$ref": "#/$defs/date" }, { "type": "null" }] },
+        "display": { "type": ["string", "null"] },
+        "certainty": { "type": ["string", "null"], "enum": ["certain", "approximate", "uncertain", null] },
+        "hinweis": { "type": ["string", "null"] }
+      }
+    },
+    "term_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "vocabulary_id": { "type": ["string", "null"] }
+      }
+    },
+    "identifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": { "type": "string", "minLength": 1 },
+        "type": { "type": ["string", "null"] },
+        "scheme": { "type": ["string", "null"] }
+      }
+    },
+    "record_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_id"],
+      "properties": {
+        "record_id": { "type": "string", "minLength": 1 },
+        "module_id": { "type": ["string", "null"] },
+        "label": { "type": ["string", "null"] }
+      }
+    },
+    "digital_asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [
+        { "required": ["id"] },
+        { "required": ["path"] }
+      ],
+      "properties": {
+        "id": { "type": ["string", "null"] },
+        "path": { "type": ["string", "null"] },
+        "mime_type": { "type": ["string", "null"] },
+        "label": { "type": ["string", "null"] },
+        "filename": { "type": ["string", "null"] }
+      }
+    },
+    "language": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[a-z]{2,3}(-[A-Za-z0-9]+)*$" },
+        "label": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

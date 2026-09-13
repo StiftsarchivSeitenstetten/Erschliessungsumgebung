@@ -1,17 +1,268 @@
-id: papierabzuege_9_4_2
+config_version: 1
+
+module:
+  id: papierabzuege_9_4_2
+  access_key: foto_papierabzuege
+  label: "Einzelne Papierabzüge - 9.4.2"
+  description: "Erfassung einzelner Papierabzüge aus Bestand 9.4.2."
+  record_type: foto
+
+schema:
+  path: "../../schemas/foto.schema.json"
+
+storage:
+  data_dir: data/fotos
+  filename:
+    strategy: record_id_with_extension
+    extension: ".md"
+  state:
+    path: state/foto-papierabzuege.json
+  index:
+    path: indexes/fotos.json
+
+id:
+  strategy: prefixed_sequence
+  prefix: "foto-"
+  width: 6
+
+signature:
+  strategy: partitioned_sequence
+  bestand: "9.4"
+  objektgruppe: "2"
+  partitions: [A, B, C, D, E, F]
+  pattern: "{bestand}.{objektgruppe}.{format}.{nummer}"
+  status_values: [vorgeschlagen, vergeben]
+
+form:
+  sections:
+    - id: identifikation
+      label: "Identifikation"
+      order: 10
+      fields:
+        - path: signatur.format
+          widget: select
+          label: "Format"
+          order: 10
+    - id: erschliessung
+      label: "Erschließung"
+      order: 20
+      fields:
+        - path: erschliessung.titel
+          widget: text
+          label: "Titel"
+          order: 10
+          presettable: true
+        - path: erschliessung.beschriftung
+          widget: textarea
+          label: "Beschriftung"
+          order: 20
+          rows: 5
+          presettable: true
+        - path: erschliessung.beschreibung
+          widget: textarea
+          label: "Beschreibung"
+          order: 30
+          rows: 5
+          presettable: true
+        - path: erschliessung.dargestellte_personen
+          widget: repeater
+          label: "Dargestellte Personen"
+          order: 40
+          presettable: true
+          item_fields:
+            - path: name
+              widget: text
+              label: "Name"
+              order: 10
+            - path: hinweis
+              widget: text
+              label: "Hinweis"
+              order: 20
+        - path: erschliessung.herkunft
+          widget: text
+          label: "Herkunft"
+          order: 50
+          presettable: true
+        - path: erschliessung.sammler
+          widget: text
+          label: "Sammler"
+          order: 60
+          presettable: true
+        - path: erschliessung.fotograf
+          widget: text
+          label: "Fotograf"
+          order: 70
+          presettable: true
+        - path: erschliessung.rechteinhaber
+          widget: text
+          label: "Rechteinhaber"
+          order: 80
+          presettable: true
+        - path: erschliessung.orte
+          widget: textarea
+          label: "Orte"
+          order: 90
+          rows: 3
+          presettable: true
+        - path: erschliessung.schlagworte
+          widget: textarea
+          label: "Schlagworte"
+          order: 100
+          rows: 3
+          presettable: true
+        - path: erschliessung.altsignaturen
+          widget: textarea
+          label: "Altsignaturen"
+          order: 110
+          rows: 3
+          presettable: true
+        - path: erschliessung.interne_bemerkung
+          widget: textarea
+          label: "Interne Bemerkung"
+          order: 120
+          rows: 4
+          presettable: true
+    - id: datierung
+      label: "Datierung"
+      order: 30
+      fields:
+        - path: datierung
+          widget: date
+          label: "Datierung"
+          order: 10
+          presettable: true
+    - id: merkmale
+      label: "Merkmale"
+      order: 40
+      fields:
+        - path: korrespondenzstueck
+          widget: checkbox
+          label: "Korrespondenzstück"
+          order: 10
+
+access:
+  fields:
+    signatur.format:
+      view: [ehrenamtlich, redaktion, admin]
+      edit: [ehrenamtlich, redaktion, admin]
+    erschliessung.titel:
+      view: [redaktion, admin]
+      edit: [redaktion, admin]
+    erschliessung.beschriftung:
+      view: [ehrenamtlich, redaktion, admin]
+      edit: [ehrenamtlich, redaktion, admin]
+    erschliessung.beschreibung:
+      view: [ehrenamtlich, redaktion, admin]
+      edit: [ehrenamtlich, redaktion, admin]
+    erschliessung.dargestellte_personen:
+      view: [ehrenamtlich, redaktion, admin]
+      edit: [ehrenamtlich, redaktion, admin]
+    erschliessung.herkunft:
+      view: [ehrenamtlich, redaktion, admin]
+      edit: [ehrenamtlich, redaktion, admin]
+    erschliessung.sammler:
+      view: [ehrenamtlich, redaktion, admin]
+      edit: [ehrenamtlich, redaktion, admin]
+    erschliessung.fotograf:
+      view: [ehrenamtlich, redaktion, admin]
+      edit: [ehrenamtlich, redaktion, admin]
+    erschliessung.rechteinhaber:
+      view: [ehrenamtlich, redaktion, admin]
+      edit: [ehrenamtlich, redaktion, admin]
+    erschliessung.orte:
+      view: [ehrenamtlich, redaktion, admin]
+      edit: [ehrenamtlich, redaktion, admin]
+    erschliessung.schlagworte:
+      view: [ehrenamtlich, redaktion, admin]
+      edit: [ehrenamtlich, redaktion, admin]
+    erschliessung.altsignaturen:
+      view: [ehrenamtlich, redaktion, admin]
+      edit: [ehrenamtlich, redaktion, admin]
+    erschliessung.interne_bemerkung:
+      view: [ehrenamtlich, redaktion, admin]
+      edit: [ehrenamtlich, redaktion, admin]
+    datierung:
+      view: [ehrenamtlich, redaktion, admin]
+      edit: [ehrenamtlich, redaktion, admin]
+    korrespondenzstueck:
+      view: [ehrenamtlich, redaktion, admin]
+      edit: [ehrenamtlich, redaktion, admin]
+
+search:
+  fulltext:
+    - id
+    - signatur.anzeige
+    - erschliessung.beschriftung
+    - erschliessung.beschreibung
+    - erschliessung.dargestellte_personen
+    - erschliessung.fotograf
+    - erschliessung.herkunft
+    - erschliessung.orte
+    - erschliessung.schlagworte
+    - erschliessung.altsignaturen
+  filters:
+    - path: signatur.format
+      label: "Format"
+      widget: select
+  default_sort:
+    path: signatur.anzeige
+    direction: asc
+
+list:
+  columns:
+    - label: "Signatur"
+      path: signatur.anzeige
+      sortable: true
+      default_sort: asc
+    - label: "ID"
+      path: id
+      sortable: true
+    - label: "Beschriftung"
+      path: erschliessung.beschriftung
+      sortable: false
+  default_sort:
+    path: signatur.anzeige
+    direction: asc
+
+presets:
+  enabled_fields:
+    - erschliessung.titel
+    - erschliessung.beschriftung
+    - erschliessung.beschreibung
+    - datierung
+    - erschliessung.dargestellte_personen
+    - erschliessung.herkunft
+    - erschliessung.sammler
+    - erschliessung.fotograf
+    - erschliessung.rechteinhaber
+    - erschliessung.orte
+    - erschliessung.schlagworte
+    - erschliessung.altsignaturen
+    - erschliessung.interne_bemerkung
+  disabled_fields:
+    - id
+    - signatur
+    - redaktion
+    - technik
+
+ui_profiles:
+  standard:
+    label: "Standard"
+    technical_preview: false
+  barrierearm:
+    label: "Barrierearm"
+    technical_preview: false
+  redaktion:
+    label: "Redaktionelle Darstellung"
+    technical_preview: true
+
+# Legacy compatibility for the current Foto pilot runtime.
 access_key: foto_papierabzuege
-label: "Einzelne Papierabzüge - 9.4.2"
 datensatz_typ: foto
-schema: "../../schemas/foto.schema.json"
+schema_path: "../../schemas/foto.schema.json"
 fachkonfiguration: "../../config/foto-papierabzuege.json"
 record_api: photos
-formats:
-  - A
-  - B
-  - C
-  - D
-  - E
-  - F
+formats: [A, B, C, D, E, F]
 default_redaktion_stufe: ehrenamtlich
 default_bearbeitung_status: in_bearbeitung
 default_publikation_status: intern

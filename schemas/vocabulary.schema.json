@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stiftsarchiv-seitenstetten.github.io/erschliessungsumgebung/schemas/vocabulary.schema.json",
+  "title": "Erschliessungsumgebung Vocabulary v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "label", "terms"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "label": { "type": "string", "minLength": 1 },
+    "description": { "type": ["string", "null"] },
+    "rights": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "use": { "$ref": "#/$defs/roles" },
+        "add": { "$ref": "#/$defs/roles" },
+        "rename": { "$ref": "#/$defs/roles" },
+        "deactivate": { "$ref": "#/$defs/roles" },
+        "purge": { "$ref": "#/$defs/roles" }
+      }
+    },
+    "terms": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/term" },
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "role": { "type": "string", "enum": ["ehrenamtlich", "redaktion", "admin"] },
+    "roles": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/role" },
+      "uniqueItems": true
+    },
+    "term": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "active"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "active": { "type": "boolean" },
+        "description": { "type": ["string", "null"] },
+        "aliases": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "sort_order": { "type": ["integer", "null"] }
+      }
+    }
+  }
+}
