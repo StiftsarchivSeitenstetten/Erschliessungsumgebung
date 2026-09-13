@@ -28,6 +28,13 @@ def write_runtime_schema(directory: Path) -> Path:
         "properties": {
             "id": {"type": "string"},
             "datensatz_typ": {"const": "test"},
+            "signatur": {
+                "type": "object", "additionalProperties": False,
+                "properties": {
+                    "format": {"type": "string"}, "nummer": {"type": "integer"},
+                    "anzeige": {"type": "string"}, "status": {"type": "string"},
+                },
+            },
             "daten": {
                 "type": "object",
                 "additionalProperties": False,
@@ -147,7 +154,7 @@ def write_runtime_module(directory: Path, schema_path: Path) -> Path:
         "config_version": 1,
         "module": {"id": "runtime_test", "access_key": "runtime_test", "label": "Runtime Test", "record_type": "test"},
         "schema": {"path": str(schema_path)},
-        "storage": {"data_dir": "data/test", "filename": {"strategy": "record_id_with_extension", "extension": ".md"}},
+        "storage": {"data_dir": "data/test", "filename": {"strategy": "record_id_with_extension", "extension": ".md"}, "state": {"path": "state/runtime-test.json"}},
         "id": {"strategy": "prefixed_sequence", "prefix": "test-", "width": 4},
         "signature": {"strategy": "partitioned_sequence", "partitions": ["A"], "pattern": "T.{nummer}", "status_values": ["vergeben"]},
         "form": {"sections": [{"id": "main", "label": "Main", "order": 10, "fields": fields}]},

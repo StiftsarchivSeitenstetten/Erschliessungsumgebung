@@ -1,6 +1,7 @@
 """The generic write routes are exercised only with an in-memory repository."""
 
 from copy import deepcopy
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -43,6 +44,8 @@ class GenericWriteApiTest(unittest.TestCase):
         self.module_patch.start()
         self.app = create_app()
         self.repo = InMemoryGitRepository()
+        self.repo.files["state/runtime-test.json"] = json.dumps({"next_record_id": 1, "next_signature_number": {"A": 1}})
+        self.repo.files["state/foto-papierabzuege.json"] = json.dumps({"next_record_id": 4, "next_signature_number": {"A": 7, "B": 1, "C": 1, "D": 1, "E": 1, "F": 1}})
         self.app.state.data_repository = self.repo
         self.app.state.generic_writes_enabled = True
         self.app.state.generic_server_values_provider = self.server_values
@@ -54,16 +57,10 @@ class GenericWriteApiTest(unittest.TestCase):
 
     def server_values(self, module, user, payload):
         if module.access_key == "runtime_test":
-            return {"id": "test-0001"}
+            return {}
         return {
-            "id": "foto-000004",
             "schema_version": 1,
             "modul": module.id,
-            "signatur.bestand": "9.4",
-            "signatur.objektgruppe": "2",
-            "signatur.nummer": 7,
-            "signatur.anzeige": "9.4.2.A.7",
-            "signatur.status": "vergeben",
             "erschliessung.titel": None,
             "redaktion.stufe": "ehrenamtlich",
             "bearbeitung.status": "in_bearbeitung",
@@ -138,7 +135,8 @@ class GenericWriteApiTest(unittest.TestCase):
         self.assertIsNotNone(stored["technik"]["erstellt_am"])
         self.assertIsNone(stored["technik"]["geaendert_am"])
         self.assertIsNone(stored["technik"]["geaendert_von"])
-        self.assertEqual(self.repo.commits[0]["files"], ["data/test/test-0001.md"])
+        self.assertEqual(self.repo.commits[0]["files"], ["data/test/test-0001.md", "state/runtime-test.json"])
+        self.assertEqual(stored["signatur"]["anzeige"], "T.1")
 
     def test_create_rejects_bad_schema_and_unauthorized_fields_without_commit(self):
         self.login()
@@ -158,9 +156,9 @@ class GenericWriteApiTest(unittest.TestCase):
             with self.subTest(payload=payload):
                 self.assertEqual(self.post(payload).status_code, expected)
                 self.assertEqual(self.repo.commits, [])
-                self.assertEqual(self.repo.files, {})
+                self.assertEqual(json.loads(self.repo.files["state/runtime-test.json"])["next_record_id"], 1)
 
-    def test_create_auth_module_access_and_server_provider(self):
+    def test_create_auth_module_access_and_optional_defaults(self):
         unauthenticated = self.client.post("/api/modules/runtime_test/records", json={"record": valid_payload()})
         self.assertEqual(unauthenticated.status_code, 401)
         self.login(modules=[])
@@ -170,23 +168,78 @@ class GenericWriteApiTest(unittest.TestCase):
 
         self.app.state.generic_server_values_provider = None
         self.login(username="rita", role="redaktion")
-        self.assertEqual(self.post().status_code, 503)
-        self.assertEqual(self.repo.commits, [])
-        self.app.state.generic_server_values_provider = lambda module, user, payload: {}
-        self.assertEqual(self.post().status_code, 422)
-        self.assertEqual(self.repo.commits, [])
+        self.assertEqual(self.post().status_code, 201)
+        self.assertEqual(len(self.repo.commits), 1)
 
-    def test_create_ref_conflict_and_duplicate_id_leave_file_unchanged(self):
+    def test_create_ref_conflict_and_consecutive_ids(self):
         self.login()
         self.repo._conflict_failures = 1
         self.assertEqual(self.post().status_code, 409)
-        self.assertEqual(self.repo.files, {})
+        self.assertEqual(json.loads(self.repo.files["state/runtime-test.json"])["next_record_id"], 1)
         self.assertEqual(self.repo.commits, [])
         self.assertEqual(self.post().status_code, 201)
-        before = deepcopy(self.repo.files)
+        self.assertEqual(self.post().json()["record_id"], "test-0002")
+        self.assertEqual(json.loads(self.repo.files["state/runtime-test.json"])["next_record_id"], 3)
+        self.assertEqual(len(self.repo.commits), 2)
+
+    def test_photo_partitions_use_independent_counters_and_server_ids(self):
+        self.login(modules=[MODULE_FOTO_PAPIERABZUEGE])
+        expected = [("A", 7), ("B", 1), ("C", 1), ("A", 8), ("D", 1), ("E", 1), ("F", 1)]
+        for index, (format_code, number) in enumerate(expected, start=4):
+            with self.subTest(format=format_code, number=number):
+                payload = self.full_photo_payload(sample_record("foto-000004", format_code, number))
+                created = self.post(payload, module=MODULE_FOTO_PAPIERABZUEGE)
+                self.assertEqual(created.status_code, 201, created.text)
+                self.assertEqual(created.json()["record_id"], f"foto-{index:06d}")
+                stored = parse_record_content(self.repo.files[f"data/fotos/foto-{index:06d}.md"])
+                self.assertEqual(stored["signatur"]["anzeige"], f"9.4.2.{format_code}.{number}")
+                self.assertEqual(stored["signatur"]["status"], "vergeben")
+        state = json.loads(self.repo.files["state/foto-papierabzuege.json"])
+        self.assertEqual(state["next_record_id"], 11)
+        self.assertEqual(state["next_signature_number"], {"A": 9, "B": 2, "C": 2, "D": 2, "E": 2, "F": 2})
+
+    def test_missing_or_bad_state_does_not_guess_counters(self):
+        self.login()
+        original = self.repo.files.pop("state/runtime-test.json")
+        self.assertEqual(self.post().status_code, 422)
+        self.repo.files["state/runtime-test.json"] = '{"next_record_id": 0}'
+        self.assertEqual(self.post().status_code, 422)
+        self.assertEqual(self.repo.commits, [])
+        self.repo.files["state/runtime-test.json"] = original
+
+    def test_create_collision_and_failed_validation_leave_state_unchanged(self):
+        self.login()
+        state = self.repo.files["state/runtime-test.json"]
+        bad = valid_payload()
+        bad["daten"]["name"] = None
+        self.assertEqual(self.post(bad).status_code, 422)
+        self.assertEqual(self.repo.files["state/runtime-test.json"], state)
+        self.repo.files["data/test/test-0001.md"] = "occupied"
         self.assertEqual(self.post().status_code, 409)
-        self.assertEqual(self.repo.files, before)
-        self.assertEqual(len(self.repo.commits), 1)
+        self.assertEqual(self.repo.files["state/runtime-test.json"], state)
+
+    def test_client_cannot_choose_id_or_signature_and_update_does_not_allocate(self):
+        self.login(modules=[MODULE_FOTO_PAPIERABZUEGE])
+        payload = self.full_photo_payload(sample_record("foto-000004", "B", 1))
+        for forbidden in ({"id": "foto-999999"}, {"signatur": {**payload["signatur"], "nummer": 999}}):
+            attempt = deepcopy(payload)
+            attempt.update(forbidden)
+            self.assertIn(self.post(attempt, module=MODULE_FOTO_PAPIERABZUEGE).status_code, (403, 422))
+        self.assertEqual(json.loads(self.repo.files["state/foto-papierabzuege.json"])["next_record_id"], 4)
+        created = self.post(payload, module=MODULE_FOTO_PAPIERABZUEGE)
+        self.assertEqual(created.status_code, 201, created.text)
+        state = self.repo.files["state/foto-papierabzuege.json"]
+        stored = parse_record_content(self.repo.files["data/fotos/foto-000004.md"])
+        payload["erschliessung"]["beschriftung"] = "Geaendert"
+        updated = self.put("foto-000004", payload, created.json()["meta"]["revision"], module=MODULE_FOTO_PAPIERABZUEGE)
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(self.repo.files["state/foto-papierabzuege.json"], state)
+        after = parse_record_content(self.repo.files["data/fotos/foto-000004.md"])
+        self.assertEqual(after["id"], stored["id"])
+        self.assertEqual(after["signatur"], stored["signatur"])
+        payload["signatur"]["format"] = "C"
+        self.assertEqual(self.put("foto-000004", payload, updated.json()["meta"]["revision"], module=MODULE_FOTO_PAPIERABZUEGE).status_code, 422)
+        self.assertEqual(self.repo.files["state/foto-papierabzuege.json"], state)
 
     def test_update_requires_complete_payload_and_matching_revision(self):
         self.login()
@@ -315,7 +368,7 @@ class GenericWriteApiTest(unittest.TestCase):
         self.assertNotIn("titel", created.json()["record"]["erschliessung"])
         path = "data/fotos/foto-000004.md"
         self.assertIn(path, self.repo.files)
-        self.assertEqual(self.repo.commits[0]["files"], [path])
+        self.assertEqual(self.repo.commits[0]["files"], [path, "state/foto-papierabzuege.json"])
 
         payload["erschliessung"]["beschriftung"] = "Neue Beschriftung"
         payload["erschliessung"]["beschreibung"] = "Neue Beschreibung"

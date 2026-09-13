@@ -143,10 +143,9 @@ def create_module_record(
     if payload.base_revision is not None:
         raise HTTPException(status_code=422, detail="base_revision ist nur fuer PUT vorgesehen.")
     provider = getattr(request.app.state, "generic_server_values_provider", None)
-    if provider is None:
-        raise HTTPException(status_code=503, detail="Serverseitige ID-Vergabe ist noch nicht konfiguriert.")
     try:
-        stored = create_generic_record(get_data_repository(request), module, payload.record, user, provider(module, user, payload.record))
+        defaults = provider(module, user, payload.record) if provider else {}
+        stored = create_generic_record(get_data_repository(request), module, payload.record, user, defaults)
     except (RecordPermissionError, RecordValidationError, RepositoryError) as exc:
         raise_write_error(exc)
     return write_response(stored, module, user)

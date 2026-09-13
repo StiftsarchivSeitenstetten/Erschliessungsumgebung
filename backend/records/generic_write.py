@@ -9,9 +9,11 @@ import yaml
 
 from ..github.errors import RepositoryConflictError, RepositoryNotFoundError
 from ..github.repository import DataRepository
-from ..modules import ModuleDefinition, path_exists
+from ..modules import ModuleDefinition, get_path_value, path_exists
 from .generic_read import GenericStoredRecord, parse_record_file, record_path
+from .module_state import ModuleState
 from .runtime import RecordRuntime, RecordValidationError
+from .strategies import allocate_server_values
 
 
 def render_record_content(record: dict[str, Any], previous_content: str | None = None) -> str:
@@ -39,9 +41,12 @@ def create_generic_record(
     module: ModuleDefinition,
     payload: dict[str, Any],
     user: Any,
-    server_values: Mapping[str, Any],
+    server_values: Mapping[str, Any] | None = None,
 ) -> GenericStoredRecord:
-    values = dict(server_values)
+    head = repository.get_branch_head()
+    state = ModuleState(repository, module)
+    values = dict(server_values or {})
+    values.update(allocate_server_values(module, payload, state))
     if module.record_type:
         values["datensatz_typ"] = module.record_type
     record_id = values.get("id")
@@ -50,7 +55,6 @@ def create_generic_record(
 
     record = RecordRuntime(module).prepare_create(payload, user, server_values=values)
     path = record_path(module, record_id)
-    head = repository.get_branch_head()
     try:
         repository.read_file(path)
     except RepositoryNotFoundError:
@@ -60,7 +64,7 @@ def create_generic_record(
 
     repository.commit_files(
         expected_head=head,
-        files={path: render_record_content(record)},
+        files={path: render_record_content(record), state.path: state.content()},
         message=f"Erzeuge {module.id} {record_id}",
     )
     return parse_record_file(repository.read_file(path))
@@ -88,6 +92,11 @@ def update_generic_record(
     runtime = RecordRuntime(module)
     runtime.filter_for_edit(payload, user.role)
     require_complete_update(module, previous.data, payload, user.role)
+    if module.signature_strategy.get("strategy") == "partitioned_sequence" and not module.signature_strategy.get("allow_update", False):
+        partition_field = module.signature_strategy.get("partition_field", "signatur.format")
+        proposed = get_path_value(payload, partition_field, get_path_value(previous.data, partition_field, None))
+        if proposed != get_path_value(previous.data, partition_field, None):
+            raise RecordValidationError(["Signaturpartition darf bei PUT nicht ohne explizite Modulfreigabe geaendert werden."])
     updated = runtime.prepare_update(previous.data, payload, user)
     repository.commit_files(
         expected_head=head,

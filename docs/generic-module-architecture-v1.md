@@ -395,7 +395,17 @@ Listen verwenden entsprechend:
 
 ## Generische Schreib-API im Testbetrieb
 
-Die Endpunkte `POST /api/modules/{module_key}/records` und `PUT /api/modules/{module_key}/records/{record_id}` sind implementiert. Beide verlangen Anmeldung, Modulzugriff und CSRF-Token. Sie sind standardmäßig gesperrt (`503`) und werden nur in automatisierten Tests mit `app.state.generic_writes_enabled = True` freigeschaltet. Für `POST` muss außerdem `app.state.generic_server_values_provider` eine Funktion mit den Argumenten `(module, user, payload)` sein, die kontrollierte serverseitige Werte als Pfad-Wert-Mapping liefert, mindestens eine technische `id`. Die Moduldefinition liefert `datensatz_typ`. Der Wertegeber kann auch weitere Modulwerte wie eine Signatur liefern; eine allgemeine ID- oder Signaturengine besteht noch nicht.
+Die Endpunkte `POST /api/modules/{module_key}/records` und `PUT /api/modules/{module_key}/records/{record_id}` sind implementiert. Beide verlangen Anmeldung, Modulzugriff und CSRF-Token. Sie sind standardmäßig gesperrt (`503`) und werden nur in automatisierten Tests mit `app.state.generic_writes_enabled = True` freigeschaltet. Die Moduldefinition liefert `datensatz_typ`. Ein optionaler `app.state.generic_server_values_provider(module, user, payload)` kann andere schemabedingte Server-Standardwerte liefern; technische ID und Signatur werden stets durch die zentralen Strategien vergeben und überschreiben solche Vorgaben.
+
+### Strategien und Modul-State
+
+Die Strategy Registry in `backend/records/strategies.py` ordnet deklarierte Namen zentralen Implementierungen zu. `prefixed_sequence` liest `prefix` und `width` aus `id` und formatiert `next_record_id` aus dem Modul-State. `partitioned_sequence` liest die Partition aus `partition_field` (standardmäßig `signatur.format`; bei genau einer Partition ist keine Client-Angabe nötig), prüft sie gegen `partitions`, vergibt `next_signature_number[partition]` und rendert `pattern`. Platzhalter wie `{bestand}`, `{objektgruppe}`, `{format}` und `{nummer}` stammen aus Konfiguration und Vergabe. Das Foto-Modul bildet damit A–F und `9.4.2.A.7` ab; ein zweites Testmodul benutzt dieselben Strategien mit `test-0001` und `T.1`. Der Strategiecode kennt keine Modulnamen.
+
+`ModuleState` in `backend/records/module_state.py` lädt ausschließlich den konfigurierten `storage.state.path`. Das bestehende Foto-Format mit `next_record_id` und `next_signature_number` bleibt lesbar; fehlende oder ungültige Zähler werden nicht geschätzt. Strategien verändern nur eine Arbeitskopie. Erst nach Rechte- und Schema-Prüfung committen Datensatzdatei und State-Datei gemeinsam über `commit_files(expected_head=...)`. Validierungsfehler, Dateikollision und Ref-Konflikt lassen beide Dateien unverändert. Diese gemeinsame Repository-Commit-Grenze ist die optimistische Konkurrenzsicherung; bei konkurrierendem Head muss der Client erneut speichern, damit neu vergeben wird.
+
+Ein im Formular angezeigter Signaturvorschlag ist keine Reservierung. Die verbindliche Nummer entsteht erst beim serverseitigen Create. `PUT` vergibt weder ID noch Nummer neu; eine Änderung der Partition ist ohne ausdrückliche Konfigurationsfreigabe `allow_update` gesperrt und bleibt zusätzlich an die Feldrechte gebunden.
+
+Datensatz und Modul-State sind für die Vergabe kanonisch. Ein Such-/Listenindex ist dagegen aus den Datensätzen abgeleitet. Die generische Schreib-API aktualisiert ihn in diesem Schritt noch nicht; sie bleibt deshalb für den Produktivbetrieb gesperrt. Die bisherigen Foto-Endpunkte verwalten ihren Fotoindex unverändert.
 
 Der Client sendet fachliche, bearbeitbare Felder unter `record`:
 
@@ -420,7 +430,7 @@ Die Runtime lehnt unbekannte Felder mit `422`, nicht berechtigte, unsichtbare, r
 
 Beim Erzeugen setzt der Server `technik.erstellt_am` und `technik.erstellt_von`; `technik.geaendert_am` und `technik.geaendert_von` bleiben `null`. Beim Aktualisieren bleiben die Erstellungswerte erhalten und die Änderungswerte werden serverseitig gesetzt. Der Client kann sie ebenso wenig wie `id` bestimmen.
 
-Die generische Schreib-API ist in dieser Phase funktional implementiert und automatisiert getestet, wird jedoch noch nicht gegen das GitHub-Datenrepository eingesetzt. Die Tests verwenden ausschließlich `InMemoryGitRepository`. Index- und State-Aktualisierung sowie die produktive ID-/Signaturvergabe sind gesonderte Integrationsschritte.
+Die generische Schreib-API ist in dieser Phase funktional implementiert und automatisiert getestet, wird jedoch noch nicht gegen das GitHub-Datenrepository eingesetzt. Die Tests verwenden ausschließlich `InMemoryGitRepository`. Die generische Index-Aktualisierung und die Produktivfreigabe sind gesonderte Integrationsschritte.
 
 Die bestehenden Foto-Endpunkte bleiben während der Migration Referenz und werden erst ersetzt, wenn die generische API vollständige Funktionsparität nachgewiesen hat.
 
@@ -437,4 +447,4 @@ Die bestehenden Foto-Endpunkte bleiben während der Migration Referenz und werde
 
 Der Foto-Pilot bleibt der verbindliche Regressionstest. Vor jedem größeren Refactoring müssen die bestehenden Tests grün sein. Neue generische Infrastruktur bekommt eigene Tests, bevor bestehende Foto-Logik darauf umgestellt wird.
 
-Der aktuelle Schritt baut noch keine generische ID-/Signaturengine und schaltet die generische Schreib-API nicht für den Produktivbetrieb frei. `foto_papierabzuege` bleibt als Zugriffsschlüssel erhalten; die bestehende Foto-API, die bestehende Foto-Erfassungsmaske und die bestehenden YAML-/Markdown-Daten werden nicht migriert.
+Der aktuelle Schritt baut eine generische ID-/Signaturengine, schaltet die generische Schreib-API aber nicht für den Produktivbetrieb frei. `foto_papierabzuege` bleibt als Zugriffsschlüssel erhalten; die bestehende Foto-API, die bestehende Foto-Erfassungsmaske und die bestehenden YAML-/Markdown-Daten werden nicht migriert.

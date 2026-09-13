@@ -1,0 +1,50 @@
+"""Repository-backed counters shared by configured allocation strategies."""
+
+from __future__ import annotations
+
+from copy import deepcopy
+import json
+from typing import Any
+
+from ..github.errors import RepositoryNotFoundError
+from ..github.repository import DataRepository
+from ..modules import ModuleDefinition
+from .runtime import RecordValidationError
+
+
+class ModuleState:
+    def __init__(self, repository: DataRepository, module: ModuleDefinition):
+        config = module.storage.get("state") or {}
+        self.path = config.get("path")
+        if not isinstance(self.path, str) or not self.path:
+            raise RecordValidationError(["Modul-State-Pfad ist nicht konfiguriert."])
+        try:
+            source = repository.read_file(self.path).content
+        except RepositoryNotFoundError as exc:
+            raise RecordValidationError([f"Modul-State fehlt: {self.path}"]) from exc
+        try:
+            data = json.loads(source)
+        except (ValueError, TypeError) as exc:
+            raise RecordValidationError(["Modul-State ist kein gueltiges JSON."]) from exc
+        if not isinstance(data, dict):
+            raise RecordValidationError(["Modul-State muss ein Objekt sein."])
+        self.data: dict[str, Any] = deepcopy(data)
+
+    def next_number(self, key: str, partition: str | None = None) -> int:
+        counters = self.data.get(key)
+        if partition is not None:
+            if not isinstance(counters, dict):
+                raise RecordValidationError([f"Modul-State-Zaehler fehlt: {key}"])
+            value = counters.get(partition)
+        else:
+            value = counters
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise RecordValidationError([f"Modul-State-Zaehler fehlt oder ist ungueltig: {key}/{partition or ''}"])
+        if partition is None:
+            self.data[key] = value + 1
+        else:
+            counters[partition] = value + 1
+        return value
+
+    def content(self) -> str:
+        return json.dumps(self.data, ensure_ascii=False, indent=2) + "\n"
