@@ -430,9 +430,61 @@ Die Runtime lehnt unbekannte Felder mit `422`, nicht berechtigte, unsichtbare, r
 
 Beim Erzeugen setzt der Server `technik.erstellt_am` und `technik.erstellt_von`; `technik.geaendert_am` und `technik.geaendert_von` bleiben `null`. Beim Aktualisieren bleiben die Erstellungswerte erhalten und die Änderungswerte werden serverseitig gesetzt. Der Client kann sie ebenso wenig wie `id` bestimmen.
 
-Die generische Schreib-API ist in dieser Phase funktional implementiert und automatisiert getestet, wird jedoch noch nicht gegen das GitHub-Datenrepository eingesetzt. Die Tests verwenden ausschließlich `InMemoryGitRepository`. Die generische Index-Aktualisierung und die Produktivfreigabe sind gesonderte Integrationsschritte.
+Die normale Testsuite verwendet weiterhin ausschließlich lokale Testrepositories. Ein separat und ausdrücklich gestarteter Integrationslauf prüft die generische Schreib-API mit dem echten GitHub-Adapter auf `Erschliessungsdaten/integration-test`. Die generische Index-Aktualisierung und die Produktivfreigabe sind gesonderte Integrationsschritte.
 
 Die bestehenden Foto-Endpunkte bleiben während der Migration Referenz und werden erst ersetzt, wenn die generische API vollständige Funktionsparität nachgewiesen hat.
+
+### Isolierter GitHub-Integrationstest
+
+`integration_tests/generic_github.py` ist von der normalen Testsuche getrennt. Ein Live-Lauf erfordert sowohl `GENERIC_GITHUB_INTEGRATION=1` als auch `--write`:
+
+```bash
+GENERIC_GITHUB_INTEGRATION=1 .venv/bin/python -m integration_tests.generic_github \
+  --write --report /private/tmp/generic-github-integration-report.json
+```
+
+Die wirksame Konfiguration muss bereits exakt `StiftsarchivSeitenstetten/Erschliessungsdaten`, Branch `integration-test`, ergeben; der Runner stellt den Branch nicht selbst um. Er verlangt den Anwendungsbranch `generic-module-architecture-v1`, prüft, dass `.env` nicht versioniert ist, und dokumentiert Code- sowie Daten-Heads. Vor jeder GitHub-Mutation kontrolliert er erneut den Zielbranch und den unveränderten `main`-Head. Seine Pfadfreigabe erlaubt nur `data/integration-test/integration-NNNN.md` und `state/integration-test.json`. Ref-Updates sind ausschließlich auf `integration-test` und mit `force: false` möglich.
+
+Das Modul `generic_integration_test` wird nur in diesem Testprozess aus `integration_tests/generic_fixture.py` geladen. Es nutzt die vorhandene Modulvalidierung, beide Vergabestrategien, Text, Repeater, `date_range` sowie ein redaktionelles Feld. Login, CSRF, Rollenprüfung und die generischen HTTP-Routen laufen unverändert in einem lokalen ASGI-Testclient; nur die Modulauflösung wird auf die isolierte Testdefinition begrenzt. Benutzer und Sessions liegen in einer temporären SQLite-Datenbank. `generic_writes_enabled` wird ausschließlich an dieser App-Instanz aktiviert, nachdem die standardmäßige Sperre mit HTTP 503 geprüft wurde. Die laufende Produktionsanwendung erhält keine Freigabe.
+
+Ein fehlender State wird nur für die isolierte Testfläche mit Zählern ab eins initialisiert, sofern noch kein Testverzeichnis existiert. Create vergibt ID und Signatur, validiert den vollständigen YAML-Datensatz und schreibt Record plus State atomar in einen Git-Commit. Jeder erfolgreiche Commit wird direkt über GitHub auf Dateiliste und Elterncommit geprüft. Der Read-back über GET wird mit den gespeicherten fachlichen Daten verglichen, einschließlich Repeater, Datierung und Rollenfilter.
+
+Beim Update wird die Git-Blob-Revision als `base_revision` übergeben. ID, Signatur, Erstellungsmetadaten und State bleiben erhalten; Änderungsmetadaten und neue Revision werden geprüft. Ein zweites Update mit der alten Revision muss HTTP 409 ergeben. Schemafehler, unbekannte Felder, read-only und versteckte Felder, clientseitige ID, technische Metadaten sowie fehlende Revision dürfen weder Record noch State noch Branch-Head verändern.
+
+Der Ref-Konflikttest hält einen alten Branch-Head fest, erzeugt regulär einen zweiten Datensatz und versucht danach einen Commit mit dem veralteten Head. Der echte Adapter muss ihn vor dem Erzeugen von Git-Objekten ablehnen. Eine zusätzliche künstliche Race Condition zwischen Git-Tree-Erzeugung und Ref-Update wird live nicht erzwungen; die bestehende Ref-Fehlerbehandlung bleibt durch Adapter-Unit-Tests abgedeckt. Es erfolgen keine Force-Pushes oder History-Umschreibungen.
+
+Die Nachkontrolle vergleicht alle geschützten Git-Bäume und Blobs sowie die tatsächliche Commitfolge und Dateiliste. Damit werden auch `data/fotos`, Foto-State und vorhandener Fotoindex ohne Vollauflistung der Fotodatensätze auf Unverändertheit geprüft. Testdatensätze bleiben als nachvollziehbare Integrationsartefakte erhalten. Der JSON-Bericht enthält Heads, Commit-Dateilisten, IDs, Signaturen und Prüfergebnisse, aber keine Tokens oder Schlüssel.
+
+Der gleiche HTTP-Ablauf ist mit `--offline` ausschließlich gegen ein In-Memory-Repository ausführbar und wird von `tests/test_generic_integration_safety.py` ohne Netzwerk geprüft. Die normale Suite aktiviert niemals den Live-Modus.
+
+Ohne generischen Index funktionieren bereits Create, direkter Detailzugriff per bekannter ID, Update und die kleine Verzeichnisliste des Testmoduls. Diese Liste liest noch die einzelnen Dateien; für große Bestände sowie generische Signatur-, Feld- und Volltextsuche ist später eine abgeleitete generische Indexstruktur erforderlich. Dieser Integrationslauf ändert keine Sucharchitektur und keinen Fotoindex.
+
+Der erste ausgeführte Live-Lauf auf Architekturstand `5e77d6f1b9856d0bc5c42f95e0323b0590d07f8f` war erfolgreich:
+
+| Prüfung | Ergebnis |
+| --- | --- |
+| Wirksamer Datenbranch | `integration-test` |
+| Daten-main vorher und nachher | `bcde7c81187fd54466f4b2ecd80e10260bda40f0` |
+| integration-test vorher | `1320701c74ab9a294c7b392b354050703af5616e` |
+| integration-test nachher | `e54a27ff3c36afb1f220b0705a1eebd4fa6f052c` |
+| Erster Datensatz | `integration-0001`, `INTEGRATION.T.1` |
+| Zweiter Datensatz | `integration-0002`, `INTEGRATION.T.2` |
+| Finaler Test-State | `next_record_id: 3`, `next_signature_number: {T: 3}` |
+| Read-back | Fachwerte, Repeater, date_range, Revision und Rollen redaktion/ehrenamtlich korrekt |
+| Update | ID, Signatur, `erstellt_*` und State unverändert; `geaendert_*` und neue Revision gesetzt |
+| Fehlerfälle | Veraltete Revision 409; fehlende Revision, Schema und unbekanntes Feld 422; read-only, technische Metadaten, Client-ID und verborgenes Feld 403 |
+| Fehlerfolgen | Kein zusätzlicher Commit, kein veränderter Record oder State |
+| Ref-Konflikt | Veralteter Branch-Head vor Git-Objekterzeugung abgewiesen |
+| Nachkontrolle | Exakt die vier beabsichtigten Testcommits; alle geschützten Bäume und Blobs unverändert |
+
+Die erfolgreiche Commitfolge im Datenrepository:
+
+1. `e988f72f358422804e4be1f0bca97d7076ca37fe`: ausschließlich Test-State initialisiert.
+2. `bc96dbb4b680f9a6356964b3812b175c564bf155`: `data/integration-test/integration-0001.md` und Test-State gemeinsam erzeugt/fortgeschrieben.
+3. `79d35f64056ab7d4165953311d2be59d1247771d`: ausschließlich `integration-0001.md` aktualisiert.
+4. `e54a27ff3c36afb1f220b0705a1eebd4fa6f052c`: `data/integration-test/integration-0002.md` und Test-State gemeinsam erzeugt/fortgeschrieben.
+
+Die erste Dateirevision `0b481fa6849396aca15ab7528d44c2b4aa0c4971` wurde durch das Update zu `9283b4c63c1e0378666d75a2a28af8bd7dd66f71`. Der anschließende PUT mit der alten Revision blieb ohne Commit. Im gesamten Lauf wurden nur die beiden Testdatensätze und `state/integration-test.json` verändert. `data/fotos`, `state/foto-papierabzuege.json`, bestehende Indizes und alle sonstigen Dateien blieben identisch.
 
 ## Refactoring-Plan
 
