@@ -228,14 +228,60 @@ Analyse des aktuellen Foto-Piloten: `backend/records/photos.py` setzt bei Neuanl
 
 Die Record Runtime weiß nicht, ob Datensätze aus GitHub, einem In-Memory-Testrepository oder einer späteren Persistenzschicht kommen. Sie verarbeitet Python-Dictionaries, Moduldefinitionen und Benutzerrollen. Laden, Commit, Ref-Konflikte, Index und State bleiben Aufgabe der Repository- bzw. Persistenzschicht.
 
-Das Zielbild für spätere generische Endpunkte ist:
+Die generische Record-API ist zunächst ausdrücklich read-only. Aktiv sind:
 
 - `GET /api/modules/{module_key}/records`
 - `GET /api/modules/{module_key}/records/{record_id}`
+
+Der Ablauf ist:
+
+```text
+API Route
+  -> ModuleRegistry / Module Runtime
+  -> Record Runtime
+  -> Repository
+```
+
+Die Route lädt das Modul, prüft den Modulzugriff des Benutzers, liest Datensätze über die bestehende Repository-Schnittstelle und lässt die Record Runtime die rollenabhängige fachliche Sicht erzeugen. Listenwerte stammen aus `list.columns` der Modulkonfiguration. Ist eine konfigurierte Listenspalte für eine Rolle nicht sichtbar, wird ihr Wert nicht ausgeliefert.
+
+Response für einen einzelnen Datensatz trennt fachliche Daten und Transportmetadaten:
+
+```json
+{
+  "module": "foto_papierabzuege",
+  "record_id": "foto-000001",
+  "record": {},
+  "meta": {
+    "revision": "..."
+  }
+}
+```
+
+Listen verwenden entsprechend:
+
+```json
+{
+  "module": "foto_papierabzuege",
+  "records": [
+    {
+      "record_id": "foto-000001",
+      "values": {},
+      "meta": {
+        "revision": "..."
+      }
+    }
+  ]
+}
+```
+
+`revision` ist die serverseitig bekannte Version eines gespeicherten Datensatzes. `base_revision` ist eine spätere, vom Client zurückgesendete Konfliktinformation für Schreiboperationen und gehört nicht in den kanonischen YAML-/Markdown-Datensatz.
+
+Noch nicht aktiv sind:
+
 - `POST /api/modules/{module_key}/records`
 - `PUT /api/modules/{module_key}/records/{record_id}`
 
-Diese Endpunkte ersetzen die produktiven Foto-Endpunkte noch nicht. Der Foto-Pilot bleibt Referenz und Regressionstest.
+Die bestehenden Foto-Endpunkte bleiben während der Migration Referenz und werden erst ersetzt, wenn die generische API vollständige Funktionsparität nachgewiesen hat.
 
 ## Refactoring-Plan
 

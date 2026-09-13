@@ -144,7 +144,10 @@ def write_runtime_module(directory: Path, schema_path: Path) -> Path:
         "form": {"sections": [{"id": "main", "label": "Main", "order": 10, "fields": fields}]},
         "access": {"fields": access},
         "search": {"fulltext": ["daten.name"], "filters": []},
-        "list": {"columns": [{"label": "Name", "path": "daten.name", "sortable": True}]},
+        "list": {"columns": [
+            {"label": "Name", "path": "daten.name", "sortable": True},
+            {"label": "Geheim", "path": "daten.secret", "sortable": False},
+        ]},
         "presets": {"enabled_fields": ["daten.name"], "disabled_fields": ["technik"]},
     }
     path = directory / "runtime-test.yaml"

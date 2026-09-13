@@ -39,6 +39,10 @@ form:
       label: "Identifikation"
       order: 10
       fields:
+        - path: signatur.anzeige
+          widget: text
+          label: "Signatur"
+          order: 5
         - path: signatur.format
           widget: select
           label: "Format"
@@ -142,6 +146,9 @@ form:
 
 access:
   fields:
+    signatur.anzeige:
+      view: [ehrenamtlich, redaktion, admin]
+      edit: []
     signatur.format:
       view: [ehrenamtlich, redaktion, admin]
       edit: [ehrenamtlich, redaktion, admin]
