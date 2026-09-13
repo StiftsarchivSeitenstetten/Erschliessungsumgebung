@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Modulvorschau - Erschließungsumgebung</title>
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="module.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Stiftsarchiv Seitenstetten</p>
+        <h1 id="module-title">Modulvorschau</h1>
+        <p id="module-description" class="generic-help"></p>
+      </div>
+      <div class="auth-user">
+        <a class="button-like secondary" href="/arbeitsbereiche">Modul wechseln</a>
+      </div>
+    </header>
+    <main class="generic-shell">
+      <section class="status-band">
+        <div>
+          <h2>Read-only Preview</h2>
+          <p>Diese Ansicht rendert Datensätze generisch aus Modul-Descriptor und Record-API. Speichern ist hier noch deaktiviert.</p>
+        </div>
+      </section>
+      <section class="form-section">
+        <h2>Datensätze</h2>
+        <div id="record-list" class="record-list" aria-live="polite"></div>
+      </section>
+      <section id="record-preview" class="form-section" aria-live="polite"></section>
+      <p id="module-error" class="errors" aria-live="assertive"></p>
+    </main>
+    <script type="module" src="module.js"></script>
+  </body>
+</html>

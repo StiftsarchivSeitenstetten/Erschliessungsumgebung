@@ -121,6 +121,33 @@ Die Detailkonfiguration bleibt unter `GET /api/modules/{module_key}`. Die Modula
 
 Der bestehende Foto-Direktzugang bleibt während der Migration erhalten. Bei einem einzigen freigegebenen Modul darf die Auswahlseite vorübergehend direkt dorthin navigieren. Bei mehreren Modulen wird eine generische Auswahl angezeigt. Ein Modulwechsel ist über die Arbeitsbereichsauswahl möglich, ohne dass der Benutzer sich abmelden muss.
 
+## Generischer Application Shell und FormRenderer
+
+Der erste generische Frontend-Schritt ist eine ausdrücklich lesende Modulvorschau unter `/app/module/?module={module_key}`. Sie ersetzt die bestehende Foto-Erfassungsmaske unter `/app/` noch nicht und führt keine Schreiboperationen aus.
+
+Die Vorschau lädt:
+
+- `GET /api/modules/{module_key}` für den rollenaufgelösten Modul-Descriptor.
+- `GET /api/modules/{module_key}/records` für die konfigurierte Datensatzliste.
+- `GET /api/modules/{module_key}/records/{record_id}` für den ausgewählten Datensatz.
+
+Der `FormRenderer` arbeitet ausschließlich mit Descriptor-Metadaten: Abschnitte, Feldreihenfolge, Pfade, Labels, Hilfetexte, Widgets sowie den bereits serverseitig aufgelösten Flags `visible`, `editable` und `presettable`. Er enthält keine Kenntnis konkreter Erschließungsformate oder Foto-Feldnamen.
+
+Die erste `WidgetRegistry` unterstützt für die read-only Vorschau:
+
+- `text`
+- `textarea`
+- `checkbox`
+- `select`
+- `date`
+- `date_range`
+- `vocabulary_select`
+- `repeater`
+
+Repeater rendern ihre Unterfelder rekursiv über dieselbe Feldmetadaten-Schnittstelle. Pfade werden generisch über einfache Punktnotation gelesen. Unbekannte Widgets schlagen kontrolliert fehl, damit fehlende Renderer nicht stillschweigend falsche Anzeigen erzeugen.
+
+Schreibende generische Endpunkte, Draft-Zustände, clientseitige Validierung und ein produktiver Ersatz der Foto-Maske bleiben spätere Schritte. Der Browser interpretiert auch in der Vorschau keine Rollenlisten; Berechtigungen kommen bereits als `visible` und `editable` vom Backend.
+
 ## Module Runtime Model
 
 Die `ModuleRegistry` lädt und validiert deklarative Moduldateien. Das daraus erzeugte Module Runtime Model ist die zentrale Laufzeitschnittstelle für Backend und später Frontend. Andere Anwendungsteile sollen nicht beliebige YAML-Dictionaries durchsuchen, sondern über definierte Attribute und Methoden arbeiten.
@@ -326,4 +353,4 @@ Die bestehenden Foto-Endpunkte bleiben während der Migration Referenz und werde
 
 Der Foto-Pilot bleibt der verbindliche Regressionstest. Vor jedem größeren Refactoring müssen die bestehenden Tests grün sein. Neue generische Infrastruktur bekommt eigene Tests, bevor bestehende Foto-Logik darauf umgestellt wird.
 
-Der aktuelle Schritt baut noch keinen generischen Formularrenderer und keine generische Signaturengine. `foto_papierabzuege` bleibt als Zugriffsschlüssel erhalten; die bestehende Foto-API und die bestehenden YAML-/Markdown-Daten werden nicht migriert.
+Der aktuelle Schritt baut noch keine generische Signaturengine und keine generische Schreibschicht. `foto_papierabzuege` bleibt als Zugriffsschlüssel erhalten; die bestehende Foto-API, die bestehende Foto-Erfassungsmaske und die bestehenden YAML-/Markdown-Daten werden nicht migriert.

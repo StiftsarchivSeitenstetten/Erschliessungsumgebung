@@ -1,0 +1,47 @@
+.generic-shell {
+  width: min(1100px, calc(100% - 32px));
+  margin: 24px auto;
+}
+
+.generic-section {
+  border-top: 2px solid var(--line);
+  padding-top: 18px;
+  margin-top: 24px;
+}
+
+.generic-field {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.generic-field input,
+.generic-field textarea,
+.generic-field select {
+  width: 100%;
+}
+
+.generic-field output {
+  display: block;
+  min-height: 44px;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #ffffff;
+}
+
+.generic-help,
+.generic-empty {
+  color: var(--muted);
+}
+
+.generic-repeater {
+  display: grid;
+  gap: 14px;
+}
+
+.generic-repeater-item {
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+}
