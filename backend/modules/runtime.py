@@ -161,6 +161,17 @@ class ModuleDefinition:
         }
 
     def descriptor_for_role(self, role: str) -> dict[str, Any]:
+        def visible(path):
+            if path == "id":
+                return True
+            fields = [field for field in self.fields if path == field.path or path.startswith(field.path + ".")]
+            return bool(fields) and max(fields, key=lambda field: len(field.path)).can_view(role)
+
+        search = {**self.search_config}
+        for key in ("fulltext", "lookup"):
+            search[key] = [path for path in search.get(key, []) if visible(path)]
+        search["filters"] = [field for field in search.get("filters", []) if visible(field["path"])]
+        listing = {**self.list_config, "columns": [column for column in self.list_config.get("columns", []) if visible(column["path"])]}
         return {
             **self.public_metadata(),
             "record_type": self.record_type,
@@ -172,8 +183,8 @@ class ModuleDefinition:
                 field.descriptor_for_role(role)
                 for field in sorted(self.fields, key=lambda item: (item.section, item.order, item.id))
             ],
-            "search": self.search_config,
-            "list": self.list_config,
+            "search": search,
+            "list": listing,
             "vocabularies": self.vocabularies,
             "ui_profiles": self.ui_profiles,
         }

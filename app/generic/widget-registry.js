@@ -99,21 +99,23 @@ function renderDateInputs(context, prefix, value) {
   ];
 }
 
-function readDateInputs(root, prefix, originalValue = {}) {
-  const value = { ...originalValue };
-  value[dateKey(originalValue, "year", "jahr")] = parseNullableInteger(root.querySelector(`[data-date-part='${prefix}.year']`).value);
-  value[dateKey(originalValue, "month", "monat")] = parseNullableInteger(root.querySelector(`[data-date-part='${prefix}.month']`).value);
-  value[dateKey(originalValue, "day", "tag")] = parseNullableInteger(root.querySelector(`[data-date-part='${prefix}.day']`).value);
-  const display = root.querySelector(`[data-date-part='${prefix}.display']`).value;
-  const certainty = root.querySelector(`[data-date-part='${prefix}.certainty']`).value;
-  const note = root.querySelector(`[data-date-part='${prefix}.note']`).value;
-  if ("original" in originalValue) value.original = display || null;
-  else if (display) value.display = display;
-  if ("unsicherheit" in originalValue) value.unsicherheit = certainty || null;
-  else if (certainty) value.certainty = certainty;
-  if ("anmerkung" in originalValue) value.anmerkung = note || null;
-  else if (note) value.hinweis = note;
-  return value;
+function retainOptionalPart(value, original, key, raw, numeric = false) {
+  if (raw === "" && !(key in original)) return;
+  value[key] = raw === "" ? (original[key] === "" ? "" : null) : numeric ? parseNullableInteger(raw) : raw;
+}
+
+function readDateInputs(root, prefix, originalValue) {
+  const original = originalValue || {};
+  const value = { ...original };
+  for (const [english, german] of [["year", "jahr"], ["month", "monat"], ["day", "tag"]]) {
+    retainOptionalPart(value, original, dateKey(original, english, german), root.querySelector(`[data-date-part='${prefix}.${english}']`).value, true);
+  }
+  for (const [part, key] of [["display", "original" in original ? "original" : "display"],
+    ["certainty", "unsicherheit" in original ? "unsicherheit" : "certainty"],
+    ["note", "anmerkung" in original ? "anmerkung" : "hinweis"]]) {
+    retainOptionalPart(value, original, key, root.querySelector(`[data-date-part='${prefix}.${part}']`).value);
+  }
+  return Object.keys(value).length ? value : cloneValue(originalValue);
 }
 
 const textWidget = {
@@ -205,13 +207,16 @@ const dateRangeWidget = {
     ]);
   },
   readValue(context, root) {
-    return {
-      from: readDateInputs(root, "from", context.originalValue?.from || {}),
-      to: readDateInputs(root, "to", context.originalValue?.to || {}),
-      display: root.querySelector("[data-range-part='display']").value || null,
-      certainty: root.querySelector("[data-range-part='certainty']").value || null,
-      hinweis: root.querySelector("[data-range-part='note']").value || null
-    };
+    const original = context.originalValue || {};
+    const value = {...original};
+    for (const [part, key] of [["from", "von" in original ? "von" : "from"], ["to", "bis" in original ? "bis" : "to"]]) {
+      const date = readDateInputs(root, part, original[key]);
+      if (date !== undefined) value[key] = date;
+    }
+    for (const [part, key] of [["display", "display"], ["certainty", "certainty"], ["note", "note" in original ? "note" : "hinweis"]]) {
+      retainOptionalPart(value, original, key, root.querySelector(`[data-range-part='${part}']`).value);
+    }
+    return Object.keys(value).length ? value : cloneValue(context.originalValue);
   },
   setValue(context, root, value) {
     context.value = value;

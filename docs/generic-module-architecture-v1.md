@@ -595,6 +595,49 @@ Die vier beabsichtigten Commits auf `integration-test`:
 
 Die Nachkontrolle bestätigte exakt diese Commitfolge und vier geänderte Dateien. Der Legacy-Fotoindex enthält weiterhin 10.330 Einträge; die zusätzliche Auffindbarkeit besteht über die generische API. Eine Umschaltung des alten Formulars oder seiner Suche wurde nicht vorgenommen.
 
+### Generische Anwendung: Liste, Suche und Navigation
+
+Die Anwendung unter `/app/module/?module={module_key}` verwendet die vorhandene generische Record-/Index-API. `app/generic/record-list.js` rendert eine semantische Tabelle ausschließlich aus `list.columns`, in deren deklarierter Reihenfolge. Labels stammen aus der Spaltendefinition oder dem Feld-Descriptor. Die erste Spalte öffnet den Datensatz; ohne konfigurierte Spalten dient die technische ID als Fallback. Strings, leere Werte, Identifier und einfache Datums-/Bereichswerte werden generisch dargestellt. Es gibt keine Foto-Spalten oder Foto-Modulabfragen im Frontend.
+
+Die Suchmaske sendet `q` sowie optional `lookup_field` und `lookup_value` an dieselbe Listenroute. Suche löschen lädt die ungefilterte Liste; keine Treffer werden ausdrücklich angezeigt. Das Frontend führt weder eine eigene Volltextsuche noch eine Nachsortierung durch. Suchfelder und Listenspalten werden schon im serverseitigen Descriptor rollenabhängig freigegeben; der Browser implementiert keine Rollenmatrix. Der vorhandene serverseitige Trefferfilter verhindert weiterhin Treffer allein über unsichtbare Felder.
+
+`ResultState` hält Modul, Suchbegriff, Lookup, serverseitige Standardsortierung, Trefferliste, geöffnete ID und zuletzt geöffnete ID. Die Position wird aus der tatsächlichen Trefferliste bestimmt. **Vorheriger und Nächster beziehen sich immer auf die aktuelle serverseitig bestimmte Treffer- und Sortierreihenfolge.** Am ersten/letzten Treffer ist die jeweilige Richtung deaktiviert, bei einem einzelnen Treffer beide. Ein direkt geöffneter Record außerhalb der aktuellen Suche bleibt lesbar, hat aber keine Nachbarn. Neue Suchergebnisse schließen den bisherigen Record. Die Liste kann später über denselben Ladeweg nach einem gespeicherten Update aktualisiert werden.
+
+Record-Ladung und Read-/Edit-Darstellung verwenden unverändert `FormState` und `FormRenderer`. Vor Recordwechsel, Rückkehr zur Liste, Modulwechsel und Browser-History-Navigation wird der aktuelle Formularzustand ausgelesen. Bei Änderungen fragt ein nativer HTML-Dialog nach ausdrücklichem Verwerfen; Abbrechen und Escape erhalten den Entwurf. Während einer Ladeanfrage ist der betroffene Formular-/Listenbereich gegen weitere Eingaben gesperrt. Überholte Antworten werden anhand einer Anfragegeneration verworfen. Reload oder Verlassen des Dokuments werden zusätzlich durch `beforeunload` geschützt. Es gibt keine Save-Verkabelung und keine automatische Speicherung.
+
+Modul, Suchbegriff, Lookup und geöffnete Record-ID stehen in der URL. `pushState`/`popstate` ermöglichen Zurück/Vorwärts ohne Routerbibliothek. Zurück zur Liste erhält Suchbegriff und Reihenfolge und fokussiert den zuletzt geöffneten Link. Bei abgebrochener History-Navigation stellt die App die bisher akzeptierte URL wieder her; dabei kann ein neuer History-Eintrag entstehen. Eine vollständige History-Transaktionsverwaltung ist nicht Teil von v1.
+
+`Modul wechseln` führt auf `/arbeitsbereiche?view=generic`. Nur diese ausdrücklich gewählte Ansicht verlinkt die generischen Module. Der bisherige Login-Einstieg und die Arbeitsbereichsauswahl ohne Parameter führen weiterhin zum alten Fotoformular. `/app/`, Foto-Suche, Presets, Neuanlage, Speichern und Legacy-Navigation wurden nicht umgestellt.
+
+#### Rein lesender Browsertest
+
+`integration_tests/navigation_browser.py` startet die reguläre Anwendung mit temporärer SQLite-Benutzerdatenbank und zwei lokalen Testkonten (`navigation-redaktion`, `navigation-ehrenamtlich`, Testpasswort `NavigationTest123!`). Die GitHub-Konfiguration muss auf das freigegebene Datenrepository und exakt `integration-test` zeigen. GitHub-Record-Schreiben wird sowohl im Repository als auch per HTTP-Middleware blockiert; die generische Schreibfreigabe bleibt aus. Beim Beenden werden beide Branch-Heads erneut geprüft.
+
+```bash
+.venv/bin/python -m integration_tests.navigation_browser --port 8768
+.venv/bin/python -m integration_tests.navigation_browser --port 8769 --alternate-config
+```
+
+`--alternate-config` variiert ausschließlich das zweite Testmodul: Spalten Testtext/Testzeitraum/redaktioneller Testwert, Lookup auf `daten.text` und absteigende Sortierung nach `daten.text`. Sein Index wird aus den drei vorhandenen kanonischen Testdateien nur im Arbeitsspeicher abgeleitet. Es entsteht kein GitHub-Commit. Ohne Option wird der vorhandene Testindex gelesen.
+
+Praktisch bestätigt wurden die vollständige Fotoliste, ID-Direktlink, Signatur-Lookup `9.4.2.A.8610`, Volltext `INTEGRATIONSTEST nach generischem Update`, Öffnen von `foto-010332` und die Nachbarn `foto-010331` / `foto-008118`. Position ohne Filter ist 8597 von 10.331. Ein Lookup-Einzeltreffer hat keine Nachbarn. Keine-Treffer-Zustand und Löschen der Suche wurden geprüft. Im zweiten Modul begrenzt die Suche `GENERIC INTEGRATION` die Navigation auf genau zwei Records; der dritte ist nicht erreichbar. Rückkehr, URL sowie Browser-Zurück/Vorwärts erhalten die Suche.
+
+Dirty-Prüfung: Textänderung, Warnung bei Nächster und Modulwechsel, Abbrechen ohne Datenverlust, bestätigtes Verwerfen und erneuter sauberer Zustand wurden im Browser geprüft. Dabei wurde ein vorhandener Fehler im Date-Range-Widget gefunden: Auslesen ergänzte fehlende optionale Schlüssel und erzeugte dadurch falschen Dirty State. Die Widget-Lesung erhält jetzt die sparse kanonische Struktur, einschließlich null, fehlender Schlüssel und vorhandener Datumsschlüssel. Ein ausführbarer JavaScript-Regressionstest prüft den Roundtrip nach Verwerfen.
+
+Rollenprüfung: `IndexGeheimNurRedaktion` liefert redaktionell einen Treffer und eine sichtbare Spalte. Ehrenamt erhält keinen Treffer und keine solche Spalte. Im Foto-Modul fehlt für Ehrenamt das Titelfeld, Beschreibung ist editierbar und Signatur bleibt gesperrt. Das alte Fotoformular wurde zusätzlich rein lesend geöffnet.
+
+#### Performance und Grenzen
+
+Im lokalen Browser wurden 10.331 Fototreffer vollständig geladen und als Tabelle dargestellt. Messung mit kaltem Repository-Cache: 2.836 ms für Listenrequest inklusive GitHub-Indexdownload, JSON und serverseitiger Suche; 480 ms DOM-Aufbau; rund 22 MB JavaScript-Heap (keine Messung des gesamten Browser-/DOM-Prozessspeichers). Mit vorhandenem Cache: 954 ms Request und 489 ms DOM-Aufbau. Signatur-Lookup und Volltext lagen bei 554 bzw. 562 ms. Dies sind lokale Einzelmessungen, keine garantierten Produktionslatenzen.
+
+Ein wiederholter Download des 11-MB-Indexes brach während der Prüfung mit `IncompleteRead` ab. Als begrenzte Übergangslösung hält der GitHub-Adapter höchstens eine große Datei im Speicher. Jeder Zugriff fragt weiterhin deren aktuelle Contents-Metadaten ab; nur bei identischem Pfad und identischer Blob-SHA wird der Inhalt wiederverwendet. Geänderte Revisionen werden neu geladen; Fehler werden nicht durch veraltete Cachewerte verdeckt. Abgebrochene Transfers werden jetzt als Repository-Fehler gemeldet. Commit-/Ref-Logik und Atomarität bleiben unverändert. Es gibt keinen clientseitigen Suchindex, keine Pagination und keinen Cache für rollenabhängige Treffer.
+
+Die Tabelle war im lokalen Desktopbrowser bedienbar; rund eine halbe Sekunde synchroner DOM-Aufbau bleibt eine bekannte Grenze. Bei 390 Pixeln Breite wurde kein horizontales Seiten-Scrolling festgestellt. Für weitere Größenordnungen und mobile Langlisten sind Pagination oder begrenztes Rendering spätere Aufgaben. Komplexe Filter, frei wählbare Sortierung, produktives Speichern und die Legacy-Umschaltung bleiben ausdrücklich offen.
+
+Die Browserprüfung erzeugte keine Datencommits. Beide Testserver wurden beendet und bestätigten unveränderte Heads vor/nach der Prüfung: Daten-main `bcde7c81187fd54466f4b2ecd80e10260bda40f0`, integration-test `3e02dfb026ea33d7e68783ede6d41e0af1449ce6`. Die lokale `.env` blieb unversioniert und auf `integration-test`.
+
+Abschlussprüfung: 184 Python-Unittests einschließlich ausführbarer JavaScript-Assertions für Trefferzustand, Navigation, Spaltenrenderer und Datums-Roundtrip erfolgreich; `scripts/validate.py` und `git diff --check` erfolgreich. Für die JavaScript-Assertions wird Node.js benötigt (lokal Node 24); ohne Node wird dieser einzelne Test ausdrücklich als übersprungen gemeldet. Normale Tests schreiben nicht nach GitHub.
+
 ## Refactoring-Plan
 
 1. Modul-Registry einführen, die bestehende Modulkonfigurationen laden kann, ohne die Foto-Funktion zu verändern.

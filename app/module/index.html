@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Modulvorschau - Erschließungsumgebung</title>
     <link rel="stylesheet" href="../style.css">
-    <link rel="stylesheet" href="module.css">
+    <link rel="stylesheet" href="module.css?v=navigation-2">
   </head>
   <body>
     <header class="app-header">
@@ -15,10 +15,31 @@
         <p id="module-description" class="generic-help"></p>
       </div>
       <div class="auth-user">
-        <a class="button-like secondary" href="/arbeitsbereiche">Modul wechseln</a>
+        <a id="change-module" class="button-like secondary" href="/arbeitsbereiche?view=generic">Modul wechseln</a>
       </div>
     </header>
     <main class="generic-shell">
+      <section id="list-panel" class="form-section">
+        <h2>Datensätze</h2>
+        <form id="search-form" class="search-controls">
+          <div id="fulltext-controls"><label for="search-text">Volltextsuche</label><input id="search-text" type="search"></div>
+          <div id="lookup-controls">
+            <label for="lookup-field">Exakter Lookup</label>
+            <select id="lookup-field"><option value="">Feld wählen</option></select>
+            <label for="lookup-value">Exakter Wert</label><input id="lookup-value" type="search">
+          </div>
+          <div class="preview-actions"><button type="submit">Suchen</button><button id="clear-search" type="button" class="secondary">Suche löschen</button></div>
+        </form>
+        <p id="result-count" role="status"></p>
+        <div id="record-list" class="generic-record-list"></div>
+      </section>
+      <div id="detail-panel" hidden>
+      <nav class="preview-actions" aria-label="Treffernavigation">
+        <button id="back-to-list" type="button" class="secondary">Zur Trefferliste</button>
+        <button id="previous-record" type="button" class="secondary" disabled>Vorheriger</button>
+        <button id="next-record" type="button" class="secondary" disabled>Nächster</button>
+        <span id="record-position" role="status"></span>
+      </nav>
       <section class="status-band">
         <div>
           <h2>Read-only Preview</h2>
@@ -31,18 +52,23 @@
           <button type="button" class="secondary" disabled title="In dieser Entwicklungsansicht gibt es keine Schreib-API.">Speichern deaktiviert</button>
         </div>
       </section>
-      <section class="form-section">
-        <h2>Datensätze</h2>
-        <div id="record-list" class="record-list" aria-live="polite"></div>
-      </section>
       <section id="record-preview" class="form-section" aria-live="polite"></section>
       <section class="form-section">
         <h2>Entwicklungs-Payload</h2>
         <p class="generic-help">Dieser Payload wird nur lokal erzeugt und nicht versendet.</p>
         <pre id="payload-preview" class="payload-preview" aria-live="polite"></pre>
       </section>
+      </div>
       <p id="module-error" class="errors" aria-live="assertive"></p>
     </main>
-    <script type="module" src="module.js"></script>
+    <dialog id="discard-dialog" aria-labelledby="discard-heading">
+      <h2 id="discard-heading">Ungespeicherte Änderungen</h2>
+      <p>Änderungen verwerfen und fortfahren?</p>
+      <form method="dialog" class="preview-actions">
+        <button value="cancel" class="secondary" autofocus>Abbrechen</button>
+        <button value="discard">Änderungen verwerfen</button>
+      </form>
+    </dialog>
+    <script type="module" src="module.js?v=navigation-4"></script>
   </body>
 </html>

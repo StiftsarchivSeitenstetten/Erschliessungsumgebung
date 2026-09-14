@@ -26,6 +26,7 @@ class GitHubDataRepository:
         self.settings = settings
         self.client: GitHubClient | None = None
         self.token_expires_at: datetime | None = None
+        self._large_file_cache: RepositoryFile | None = None
         self.refresh_installation_token()
 
     def now(self) -> datetime:
@@ -79,12 +80,19 @@ class GitHubDataRepository:
         )
         if response.get("type") != "file":
             raise RepositoryNotFoundError(path)
+        cached = getattr(self, "_large_file_cache", None)
+        if cached and cached.path == path and cached.revision == response["sha"]:
+            return cached
         encoded = response.get("content") or ""
         if not encoded and response.get("git_url"):
             blob_response = self.request("GET", response["git_url"].removeprefix(GitHubClient.api_base))
             encoded = blob_response["content"]
         content = base64.b64decode(encoded.encode("ascii")).decode("utf-8")
-        return RepositoryFile(path=path, content=content, revision=response["sha"])
+        file = RepositoryFile(path=path, content=content, revision=response["sha"])
+        # Keep only one large blob; the fresh Contents SHA above is always checked.
+        if len(content) >= 1_000_000:
+            self._large_file_cache = file
+        return file
 
     def list_directory(self, path: str) -> list[RepositoryFile]:
         response = self.request(

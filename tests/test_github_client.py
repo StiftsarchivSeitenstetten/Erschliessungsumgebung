@@ -3,11 +3,12 @@ import base64
 import unittest
 from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError
+from http.client import IncompleteRead
 from unittest.mock import patch
 
 from backend.github.client import GitHubClient
 from backend.github.github_repository import GitHubDataRepository
-from backend.github.errors import RepositoryAuthError, RepositoryConflictError, RepositoryEmptyError
+from backend.github.errors import RepositoryAuthError, RepositoryConflictError, RepositoryEmptyError, RepositoryError
 
 
 def http_error(status: int, body: str) -> HTTPError:
@@ -21,6 +22,27 @@ def http_error(status: int, body: str) -> HTTPError:
 
 
 class GitHubClientTest(unittest.TestCase):
+    def test_incomplete_download_is_a_repository_error(self):
+        with patch("backend.github.client.urlopen", side_effect=IncompleteRead(b"partial", 20)):
+            with self.assertRaises(RepositoryError):
+                GitHubClient("test").request("GET", "/test")
+
+    def test_large_blob_cache_checks_fresh_revision_and_never_masks_errors(self):
+        repository = GitHubDataRepository.__new__(GitHubDataRepository)
+        repository.settings = type("Settings", (), {"github_data_owner":"example", "github_data_repo":"repo", "github_data_branch":"integration-test"})()
+        first = "a" * 1_000_000
+        second = "b" * 1_000_000
+        def metadata(sha):
+            return {"type":"file", "sha":sha, "git_url":f"https://api.github.com/repos/example/repo/git/blobs/{sha}"}
+        with patch.object(repository, "request", side_effect=[metadata("a"), {"content":base64.b64encode(first.encode()).decode()}, metadata("a"), metadata("b"), {"content":base64.b64encode(second.encode()).decode()}, RepositoryError("network")]) as request:
+            self.assertEqual(repository.read_file("index.json").content, first)
+            self.assertEqual(repository.read_file("index.json").content, first)
+            self.assertEqual(repository.read_file("index.json").content, second)
+            with self.assertRaises(RepositoryError):
+                repository.read_file("index.json")
+            self.assertEqual(request.call_count, 6)
+        self.assertEqual(repository._large_file_cache.revision, "b")
+
     def test_empty_repository_409_is_not_ref_conflict(self):
         client = GitHubClient("token")
         with patch("backend.github.client.urlopen", side_effect=http_error(409, '{"message":"Git Repository is empty."}')):

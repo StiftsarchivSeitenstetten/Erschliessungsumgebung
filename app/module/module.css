@@ -3,6 +3,31 @@
   margin: 24px auto;
 }
 
+[hidden] { display: none !important; }
+.generic-shell .form-section, .generic-shell .status-band { border: 0; border-radius: 0; padding: 0; background: transparent; box-shadow: none; }
+.search-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; margin-block: 20px; }
+.search-controls > .preview-actions { grid-column: 1 / -1; }
+.search-controls > div { min-width: 0; }
+.search-controls label { display: block; margin-block: 8px; }
+.search-controls input, .search-controls select { width: 100%; min-width: 0; }
+.search-controls select { font: inherit; min-height: 48px; padding: 10px; border: 2px solid var(--line); border-radius: 8px; background: white; }
+#lookup-controls { display: grid; grid-template-columns: 1fr 2fr; column-gap: 12px; }
+#lookup-controls label[for="lookup-field"] { grid-column: 1; grid-row: 1; }
+#lookup-controls label[for="lookup-value"] { grid-column: 2; grid-row: 1; }
+@media (max-width: 650px) { .search-controls { grid-template-columns: 1fr; } }
+@media (max-width: 450px) {
+  #lookup-controls { display: block; }
+  .generic-record-list table { font-size: 14px; }
+}
+.generic-record-list table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.generic-record-list th, .generic-record-list td { text-align: left; vertical-align: top; padding: 12px 8px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.generic-record-list th { background: #eef3f0; }
+.generic-record-list a { display: inline-block; padding-block: 8px; }
+.generic-record-list tr:focus-within { background: #eef3f0; }
+#record-position { overflow-wrap: anywhere; }
+dialog { max-width: min(480px, calc(100% - 32px)); border: 2px solid var(--line); border-radius: 8px; padding: 24px; }
+dialog::backdrop { background: #0006; }
+
 .generic-section {
   border-top: 2px solid var(--line);
   padding-top: 18px;

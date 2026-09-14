@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+from http.client import IncompleteRead
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -56,7 +57,7 @@ class GitHubClient:
             if exc.code == 409 or exc.code == 422:
                 raise RepositoryConflictError("GitHub-Ref wurde parallel aktualisiert.") from exc
             raise RepositoryError(f"GitHub-Fehler {exc.code}") from exc
-        except URLError as exc:
+        except (URLError, IncompleteRead, TimeoutError, ConnectionError) as exc:
             raise RepositoryError("GitHub ist nicht erreichbar.") from exc
 
     @staticmethod

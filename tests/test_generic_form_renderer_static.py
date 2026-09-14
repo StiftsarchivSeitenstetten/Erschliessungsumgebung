@@ -10,8 +10,8 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         html = (ROOT / "app" / "module" / "index.html").read_text(encoding="utf-8")
         script = (ROOT / "app" / "module" / "module.js").read_text(encoding="utf-8")
 
-        self.assertIn('src="module.js"', html)
-        self.assertIn('href="/arbeitsbereiche"', html)
+        self.assertIn('src="module.js?v=navigation-4"', html)
+        self.assertIn('href="/arbeitsbereiche?view=generic"', html)
         self.assertIn("Read-only Preview", html)
         self.assertIn('let mode = "read"', script)
         self.assertIn("new FormState(moduleDescriptor, data.record)", script)

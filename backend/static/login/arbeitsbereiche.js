@@ -30,6 +30,9 @@ async function loadModuleCatalog() {
 }
 
 function moduleUrl(module) {
+  if (new URLSearchParams(location.search).get("view") === "generic") {
+    return `/app/module/?module=${encodeURIComponent(module.id)}`;
+  }
   return `/app/?module=${encodeURIComponent(module.id)}`;
 }
 
@@ -51,7 +54,7 @@ function renderWorkspaces(user, modules) {
     }
     list.append(link);
   });
-  if (modules.length === 1) {
+  if (modules.length === 1 && new URLSearchParams(location.search).get("view") !== "generic") {
     window.location.href = moduleUrl(modules[0]);
   }
 }
