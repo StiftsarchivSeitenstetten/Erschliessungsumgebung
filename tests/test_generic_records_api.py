@@ -22,6 +22,8 @@ from backend.permissions import MODULE_FOTO_PAPIERABZUEGE  # noqa: E402
 from backend.records.photos import read_photo_record  # noqa: E402
 from backend.records.photo_index import INDEX_PATH, build_photo_index, dump_photo_index  # noqa: E402
 from scripts.foto_core import render_photo_markdown  # noqa: E402
+from backend.modules import get_module
+from backend.records.module_index import build_module_index, dump_index
 from tests.test_record_runtime import valid_payload, write_runtime_module, write_runtime_schema  # noqa: E402
 from tests.test_records_api import sample_record  # noqa: E402
 
@@ -76,6 +78,7 @@ class GenericRecordsApiTest(unittest.TestCase):
         record["datierung"] = {"jahr": 1966, "monat": 5, "tag": None, "anmerkung": "vermutet"}
         self.repository.files["data/fotos/foto-000001.md"] = render_photo_markdown(record)
         self.repository.files[INDEX_PATH] = dump_photo_index(build_photo_index([record]))
+        self.repository.files["indexes/generic/fotos.json"] = dump_index(build_module_index(get_module("foto_papierabzuege"), [self.repository.read_file("data/fotos/foto-000001.md")]))
         return record
 
     def test_generic_get_photo_matches_existing_read_logic_and_filters_role(self):

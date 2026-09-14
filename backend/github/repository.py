@@ -47,7 +47,8 @@ class InMemoryGitRepository:
         return self.head
 
     def _revision(self, path: str, content: str) -> str:
-        return hashlib.sha1(f"{self.head}:{path}:{content}".encode("utf-8")).hexdigest()
+        data = content.encode("utf-8")
+        return hashlib.sha1(f"blob {len(data)}\0".encode() + data).hexdigest()
 
     def read_file(self, path: str) -> RepositoryFile:
         self.read_file_calls.append(path)

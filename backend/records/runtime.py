@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from functools import cached_property
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -76,6 +77,16 @@ class RecordRuntime:
         return editable
 
     def validate(self, record: dict[str, Any]) -> None:
+        errors = sorted(self.validator.iter_errors(record), key=lambda error: list(error.path))
+        if errors:
+            messages = [
+                f"{'.'.join(str(part) for part in error.path) or '<root>'}: {error.message}"
+                for error in errors
+            ]
+            raise RecordValidationError(messages)
+
+    @cached_property
+    def validator(self):
         schema = json.loads(self.module.schema_path.read_text(encoding="utf-8"))
         core_schema_path = ROOT / "schemas" / "core-datatypes.schema.json"
         core_schema = json.loads(core_schema_path.read_text(encoding="utf-8"))
@@ -84,14 +95,7 @@ class RecordRuntime:
             str(core_schema_path): core_schema,
         }
         resolver = RefResolver.from_schema(schema, store=store)
-        validator = jsonschema.Draft202012Validator(schema, resolver=resolver)
-        errors = sorted(validator.iter_errors(record), key=lambda error: list(error.path))
-        if errors:
-            messages = [
-                f"{'.'.join(str(part) for part in error.path) or '<root>'}: {error.message}"
-                for error in errors
-            ]
-            raise RecordValidationError(messages)
+        return jsonschema.Draft202012Validator(schema, resolver=resolver)
 
     def prepare_create(self, payload: dict[str, Any], user: Any, server_values: dict[str, Any] | None = None) -> dict[str, Any]:
         record = self.filter_for_edit(payload, user.role)

@@ -16,6 +16,7 @@ from backend.github.github_repository import GitHubDataRepository
 from backend.modules import get_module
 from backend.records.generic_read import parse_record_content
 from backend.records.runtime import RecordRuntime
+from backend.records.module_index import blob_revision, dump_index, index_path, make_index
 from .generic_github import GuardedRepository, check, check_target, git
 from .photo_fixture import INDEX_PATH, MODULE_KEY, PASSWORD, STATE_PATH, legacy_payload, sample_payload, server_defaults
 
@@ -29,7 +30,9 @@ class PhotoRepository(GuardedRepository):
 
     def check_files(self, files):
         check(self.allowed_record_path is not None, "Neue Foto-Testdatei noch nicht bestimmt.")
-        check(set(files) in ({self.allowed_record_path}, {self.allowed_record_path, STATE_PATH}),
+        generic_index = index_path(get_module(MODULE_KEY))
+        check(set(files) in ({self.allowed_record_path}, {self.allowed_record_path, STATE_PATH},
+                            {self.allowed_record_path, generic_index}, {self.allowed_record_path, STATE_PATH, generic_index}),
               "Nur neue Foto-Testdatei und gemeinsamer Record/State-Commit erlaubt.")
 
 
@@ -124,7 +127,7 @@ def exercise(repository, report, partition="A"):
         app.state.generic_writes_enabled = True
         created = ok(client.post(url, json={"record": payload}, headers=headers), 201)
         check(created["record_id"] == record_id, "Falsche ID.")
-        check(set(repository.commits[-1]["files"]) == {path, STATE_PATH}, "Record und State nicht gemeinsam committed.")
+        check(set(repository.commits[-1]["files"]) == {path, STATE_PATH, index_path(module)}, "Record, State und Index nicht gemeinsam committed.")
         record = compare_legacy(repository, path, payload, state)
         check(record["signatur"]["anzeige"] == signature and record["signatur"]["status"] == "vergeben", "Falsche Signatur.")
         check(record["technik"]["erstellt_am"] and record["technik"]["erstellt_von"] == "foto-test-redaktion", "Erstellungsmetadaten fehlen.")
@@ -164,7 +167,7 @@ def exercise(repository, report, partition="A"):
         check(current["erschliessung"] == updated_payload["erschliessung"] and current["datierung"] == updated_payload["datierung"], "Update-Fachwerte falsch.")
         check(updated["meta"]["revision"] != created["meta"]["revision"], "Keine neue Dateirevision.")
         check(repository.read_file(STATE_PATH) == state_after_create, "Update hat State geaendert.")
-        check(repository.commits[-1]["files"] == [path], "Update hat andere Dateien veraendert.")
+        check(set(repository.commits[-1]["files"]) == {path, index_path(module)}, "Update muss Record und Index aendern.")
         check(read_photo_record(repository, record_id).data == current, "Legacy-Lesen nach Update falsch.")
         check(ok(client.get(record_url)) == updated, "Generisches Lesen nach Update falsch.")
         head = repository.get_branch_head()
@@ -216,7 +219,7 @@ def run_live(report_path):
         report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         print(json.dumps(report, indent=2), flush=True)
         check(report["main_after"] == report["main_before"] and report["history_matches"], "Unerwartete Branch-Aenderungen.")
-        check(set(report["changed_files"]) <= {STATE_PATH, repository.allowed_record_path}, "Unerwartete geaenderte Dateien.")
+        check(set(report["changed_files"]) <= {STATE_PATH, repository.allowed_record_path, index_path(get_module(MODULE_KEY))}, "Unerwartete geaenderte Dateien.")
 
 
 def run_offline(report_path):
@@ -224,13 +227,15 @@ def run_offline(report_path):
 
     class OfflineRepository(InMemoryGitRepository):
         def _revision(self, path, content):
-            return hashlib.sha1(content.encode()).hexdigest()
+            return blob_revision(content)
 
     repository = OfflineRepository({
         STATE_PATH: json.dumps({"next_record_id": 10332, "next_signature_number": {"A": 8610, "B": 1046, "C": 579, "D": 81, "E": 36, "F": 1}}),
         INDEX_PATH: json.dumps({"schema_version": 1, "records": []}),
     })
     report = {}
+    module = get_module(MODULE_KEY)
+    repository.files[index_path(module)] = dump_index(make_index(module, []))
     with tempfile.TemporaryDirectory(prefix="photo-generic-offline-") as directory:
         with patch.dict(os.environ, {"DATABASE_URL": f"sqlite:///{directory}/auth.sqlite3", "COOKIE_SECURE": "false"}):
             exercise(repository, report)

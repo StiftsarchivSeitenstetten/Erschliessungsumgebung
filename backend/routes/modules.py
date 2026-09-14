@@ -14,6 +14,7 @@ from ..modules import get_module, list_modules
 from ..permissions import has_module_access
 from ..records.generic_read import list_generic_records, list_values_for_role, read_generic_record
 from ..records.generic_write import create_generic_record, update_generic_record
+from ..records.module_index import index_path, query_index, read_module_index
 from ..records.runtime import RecordPermissionError, RecordRuntime, RecordUnknownFieldError, RecordValidationError
 from .deps import require_authenticated_user, require_csrf
 from .records import get_data_repository
@@ -83,12 +84,24 @@ def module_catalog(user: User = Depends(require_authenticated_user)) -> list[dic
 @router.get("/{module_key}/records")
 def list_module_records(
     module_key: str,
+    q: str = "",
+    lookup_field: str | None = None,
+    lookup_value: str | None = None,
     user: User = Depends(require_authenticated_user),
     repository: DataRepository = Depends(get_data_repository),
 ) -> dict[str, object]:
     module = load_authorized_module(module_key, user)
     runtime = RecordRuntime(module)
     try:
+        if index_path(module):
+            index = read_module_index(repository, module)
+            try:
+                items = query_index(module, index, user.role, q=q, lookup_field=lookup_field, lookup_value=lookup_value)
+            except RecordValidationError as exc:
+                raise HTTPException(status_code=422, detail=exc.errors) from exc
+            return {"module": module.access_key, "records": items}
+        if q or lookup_field is not None or lookup_value is not None:
+            raise HTTPException(status_code=422, detail="Suche benoetigt einen konfigurierten Modulindex.")
         records = list_generic_records(repository, module)
         items = []
         for stored in records:
@@ -100,6 +113,8 @@ def list_module_records(
             })
     except RecordValidationError as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=exc.errors) from exc
+    except RepositoryError as exc:
+        raise HTTPException(status_code=503, detail="Modulindex nicht verfuegbar; Rebuild erforderlich.") from exc
     return {"module": module.access_key, "records": items}
 
 

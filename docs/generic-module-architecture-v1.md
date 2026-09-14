@@ -405,7 +405,7 @@ Die Strategy Registry in `backend/records/strategies.py` ordnet deklarierte Name
 
 Ein im Formular angezeigter Signaturvorschlag ist keine Reservierung. Die verbindliche Nummer entsteht erst beim serverseitigen Create. `PUT` vergibt weder ID noch Nummer neu; eine Änderung der Partition ist ohne ausdrückliche Konfigurationsfreigabe `allow_update` gesperrt und bleibt zusätzlich an die Feldrechte gebunden.
 
-Datensatz und Modul-State sind für die Vergabe kanonisch. Ein Such-/Listenindex ist dagegen aus den Datensätzen abgeleitet. Die generische Schreib-API aktualisiert ihn in diesem Schritt noch nicht; sie bleibt deshalb für den Produktivbetrieb gesperrt. Die bisherigen Foto-Endpunkte verwalten ihren Fotoindex unverändert.
+Datensatz und Modul-State bestimmen die Vergabe. Ein Such-/Listenindex ist dagegen vollständig aus den Datensätzen abgeleitet. Bei konfiguriertem `storage.index.path` aktualisiert die generische Schreib-API ihn inzwischen gemeinsam mit Record und gegebenenfalls State. Die API bleibt für den Produktivbetrieb gesperrt. Die bisherigen Foto-Endpunkte verwalten ihren Legacy-Fotoindex unverändert.
 
 Der Client sendet fachliche, bearbeitbare Felder unter `record`:
 
@@ -430,7 +430,7 @@ Die Runtime lehnt unbekannte Felder mit `422`, nicht berechtigte, unsichtbare, r
 
 Beim Erzeugen setzt der Server `technik.erstellt_am` und `technik.erstellt_von`; `technik.geaendert_am` und `technik.geaendert_von` bleiben `null`. Beim Aktualisieren bleiben die Erstellungswerte erhalten und die Änderungswerte werden serverseitig gesetzt. Der Client kann sie ebenso wenig wie `id` bestimmen.
 
-Die normale Testsuite verwendet weiterhin ausschließlich lokale Testrepositories. Ein separat und ausdrücklich gestarteter Integrationslauf prüft die generische Schreib-API mit dem echten GitHub-Adapter auf `Erschliessungsdaten/integration-test`. Die generische Index-Aktualisierung und die Produktivfreigabe sind gesonderte Integrationsschritte.
+Die normale Testsuite verwendet weiterhin ausschließlich lokale Testrepositories. Separat und ausdrücklich gestartete Integrationsläufe prüfen die generische Schreib- und Indexschicht mit dem echten GitHub-Adapter auf `Erschliessungsdaten/integration-test`. Die Produktivfreigabe ist ein gesonderter Schritt.
 
 Die bestehenden Foto-Endpunkte bleiben während der Migration Referenz und werden erst ersetzt, wenn die generische API vollständige Funktionsparität nachgewiesen hat.
 
@@ -457,7 +457,7 @@ Die Nachkontrolle vergleicht alle geschützten Git-Bäume und Blobs sowie die ta
 
 Der gleiche HTTP-Ablauf ist mit `--offline` ausschließlich gegen ein In-Memory-Repository ausführbar und wird von `tests/test_generic_integration_safety.py` ohne Netzwerk geprüft. Die normale Suite aktiviert niemals den Live-Modus.
 
-Ohne generischen Index funktionieren bereits Create, direkter Detailzugriff per bekannter ID, Update und die kleine Verzeichnisliste des Testmoduls. Diese Liste liest noch die einzelnen Dateien; für große Bestände sowie generische Signatur-, Feld- und Volltextsuche ist später eine abgeleitete generische Indexstruktur erforderlich. Dieser Integrationslauf ändert keine Sucharchitektur und keinen Fotoindex.
+Beim ersten Integrationslauf ohne Index funktionierten Create, direkter Detailzugriff per bekannter ID, Update und die kleine Verzeichnisliste des Testmoduls. Unindexierte Module unterstützen diese Verzeichnisliste weiterhin. Für inzwischen indexierte Module wird die Liste ausschließlich aus dem generischen Index gelesen; ein fehlender Index muss zuerst aufgebaut werden.
 
 Der erste ausgeführte Live-Lauf auf Architekturstand `5e77d6f1b9856d0bc5c42f95e0323b0590d07f8f` war erfolgreich:
 
@@ -496,7 +496,7 @@ GENERIC_GITHUB_INTEGRATION=1 GENERIC_PHOTO_INTEGRATION=1 \
   --report /private/tmp/photo-generic-live.json
 ```
 
-Der Runner prüft vor jedem Schreiben den wirksamen Datenbranch, den Anwendungsbranch und den unveränderten Daten-main-Head. Aus dem gelesenen Foto-State bestimmt er die erwartete neue ID; Index und direkter Dateizugriff müssen bestätigen, dass sie noch frei ist. Seine Pfadfreigabe erlaubt ausschließlich diese eine neue Datei sowie deren gemeinsamen Create-Commit mit dem Foto-State. Weder bestehende Fotos noch der Index dürfen geschrieben werden. Zähler werden nicht manuell verändert; die generischen Strategien führen die Vergabe durch.
+Der Runner prüft vor jedem Schreiben den wirksamen Datenbranch, den Anwendungsbranch und den unveränderten Daten-main-Head. Aus dem gelesenen Foto-State bestimmt er die erwartete neue ID; Legacy-Index und direkter Dateizugriff müssen bestätigen, dass sie noch frei ist. Seine Pfadfreigabe erlaubt diese neue Datei sowie den gemeinsamen Create-Commit mit Foto-State und inzwischen auch generischem Index. Für heutige Wiederholungen muss der generische Index vorher aufgebaut sein. Bestehende Fotos und Legacy-Index bleiben geschützt. Zähler werden nicht manuell verändert; die generischen Strategien führen die Vergabe durch.
 
 Der Test verwendet echte Login-/CSRF-Prüfung, die unveränderten generischen POST-/GET-/PUT-Routen und beide Rollen. `photo_fixture.py` liefert vollständige fachliche Testwerte und über den vorhandenen optionalen Serverwertegeber nur Schema-/Modulkennung, Workflow-Standardwerte und `technik.quelle: webapp`. Er liefert keine ID oder Signaturnummer. Diese Standardwerte sind weiterhin eine testlokale Konfiguration, keine allgemeine produktive Default-Engine.
 
@@ -526,6 +526,74 @@ Das alte Formular wurde im Browser unter `/app/?record=foto-010332` praktisch ge
 Der Fotoindex blieb bytegleich bei 10.330 Einträgen. Der neue Datensatz fehlt darin: Legacy-Liste und Suche zeigen ihn nicht, Signatur-Lookup liefert 404, Vorher-/Nachher-Navigation im Formular ist deaktiviert. Direkte ID-Lesung und direkte Formular-URL funktionieren. Generische Indexierung ist deshalb vor einer produktiven Umschaltung zwingend; eine Foto-Sonderlösung wurde nicht ergänzt.
 
 Weitere noch bestehende Unterschiede: Die generische Runtime validiert JSON Schema, während Legacy zusätzlich fachliche Kalender- und Konsistenzprüfungen ausführt; der Test überprüft den konkret gespeicherten Datensatz zusätzlich mit diesen Legacy-Prüfungen. Legacy-Create wiederholt Ref-Konflikte begrenzt automatisch, generisches Create meldet 409 zur erneuten Vergabe. Diese Unterschiede sowie die noch testlokalen Server-Standardwerte müssen vor produktiver Funktionsparität berücksichtigt werden. Normale Unit-Tests führen den gleichen Foto-HTTP-Ablauf nur mit `--offline` aus; zusätzliche Vergleichstests prüfen sämtliche A–F-Partitionen mit unveränderten generischen Strategien.
+
+### Generische Index- und Suchschicht
+
+**Kein fachlicher Datensatz darf ausschließlich im Index existieren. Der Index ist vollständig aus den kanonischen Datensätzen rekonstruierbar.** Die YAML-/Markdown-Dateien bleiben die einzige kanonische Quelle fachlicher Werte; der Index darf gelöscht und durch einen Rebuild ersetzt werden.
+
+`backend/records/module_index.py` wertet ausschließlich Modulkonfiguration, Schema, Feldpfade und generische Werte aus. `list.columns` liefert Listenwerte, `list.default_sort` beziehungsweise `search.default_sort` die Ordnung; `search.fulltext`, `search.lookup` und `search.filters` bestimmen Such-, Lookup- und vorbereitete Filterwerte. Es gibt keine zweite Suchkonfiguration und keine Foto-Feldnamen oder Modulabfragen in der Engine.
+
+Das versionierte JSON-Format enthält `schema_version: 1`, die Modul-ID, einen Fingerprint der Indexkonfiguration und des Schemas sowie nach `record_id` stabil sortierte `records`. Jeder Eintrag enthält `record_id`, die Git-Blob-`revision`, `values` mit konfigurierten Pfad-Wert-Paaren, normalisierte `lookup`-Werte, normalisierte Suchtexte je Feld unter `search` und den serverinternen aggregierten `search_text`. Auch Sortier- und Filterfelder sind unter `values` enthalten. Unkonfigurierte Fachfelder oder technische Provenienz werden nicht mitkopiert.
+
+Strings werden für die Suche mit Unicode-NFKC, Casefolding und vereinheitlichten Leerzeichen normalisiert. Leere Werte tragen nichts bei. Arrays und Repeater aggregieren ihre Unterwerte; auch Pfade innerhalb von Repeatern sind möglich. Strukturierte Werte tragen ihre kanonischen Skalare bei: beispielsweise Agent-/Ortsnamen, Term-IDs, Identifier-Werte und Sprachcodes. Datumsobjekte enthalten zusätzlich normalisierte Werte wie `1967-06-13`; Date-Ranges aggregieren Anfang, Ende und vorhandene Anzeige. Ein Vocabulary-Service zur nachträglichen Labelauflösung ist noch nicht angeschlossen.
+
+Die natürliche Standardsortierung vergleicht Zahlen als Zahlen und zerlegt Identifier-Strings in Text- und Zahlenanteile (`X.2`, `X.2a`, `X.10`). Strukturierte Datumswerte werden chronologisch, Bereiche nach ihrem Anfang sortiert; bei gleichen Werten dient die ID als stabiler zweiter Schlüssel. Die API liefert diese Reihenfolge bereits als Grundlage späterer Nachbarnavigation.
+
+`build_index_entry` erzeugt einen Eintrag. `build_module_index` validiert alle gelieferten Records mit einer wiederverwendeten Schema-Validatorinstanz, prüft ID/Dateipfad und doppelte IDs und erzeugt einen vollständigen Index. `rebuild_module_index` liest alle kanonischen Dateien des Moduls, baut den Index neu und schreibt ihn über die Repository-Commit-Grenze. Ein zweiter identischer Rebuild erzeugt keinen weiteren Commit. Der Rebuild ist Reparatur- und Referenzmechanismus; inkrementelle Indizes werden in Tests dagegen verglichen.
+
+Der GitHub-Rebuild im Integrationsrunner verwendet einen Archiv-Snapshot des festgehaltenen Commit-Hashes. Er umgeht damit die auf 1.000 Einträge begrenzte Contents-Verzeichnisabfrage, ohne normale Listenaufrufe mit Einzeldaten zu belasten. Die Optimistic-Concurrency-Prüfung bindet das Schreiben an diesen Ausgangsstand. Das Archiv wird im Speicher gelesen, ohne Dateien daraus auf dem Rechner zu extrahieren.
+
+Die Indexrevision ist der Git-Blob-Hash der tatsächlich serialisierten Record-Bytes und lässt sich vor dem Commit berechnen. Create schreibt Record, State und Index in **einem** Commit. Update ersetzt Record und Indexeintrag einschließlich Revision, ohne den State zu verändern. Validierungsfehler, Indexerfehler, Dateikollision oder Ref-Konflikt dürfen keine dieser Dateien teilweise fortschreiben. Ein fehlender, beschädigter oder wegen Konfigurationsänderungen veralteter Index führt zu einer Rebuild-Anforderung, nicht zu einem stillschweigenden Teilindex oder einer Vollauflistung als Fallback.
+
+Die bestehende generische Liste nutzt bei konfiguriertem Indexpfad ausschließlich diese Datei. Direkter ID-Zugriff lädt weiterhin die bekannte kanonische Datei. Beispiele:
+
+```text
+GET /api/modules/foto_papierabzuege/records
+GET /api/modules/foto_papierabzuege/records?q=INTEGRATIONSTEST
+GET /api/modules/foto_papierabzuege/records?lookup_field=signatur.anzeige&lookup_value=9.4.2.A.8610
+```
+
+Mehrere Suchwörter werden über die konfigurierten Felder kombiniert. Lookup ist ein normalisierter exakter Vergleich und liefert passende Listeneinträge. Komplexe Filtersyntax, Pagination und serverseitiges Index-Caching sind noch nicht implementiert.
+
+Der gespeicherte Index ist rollenunabhängig und wird niemals ungefiltert über die API ausgegeben. Listenwerte und Suchfelder werden anhand des aktuellen Feldkatalogs gefiltert. Ein verborgenes Feld darf auch keinen Treffer erzeugen; seine Werte werden deshalb beim Suchen nicht in den Suchtext des Benutzers aufgenommen. Lookup auf ein unsichtbares Feld wird abgewiesen. Unsichtbare Sortierfelder fallen auf ID-Sortierung zurück. Tests prüfen ausdrücklich, dass Ehrenamtliche weder redaktionelle Werte noch darüber hergeleitete Treffer erhalten.
+
+Für Foto liegt der generische Index unter `indexes/generic/fotos.json`. Der Legacy-Index `indexes/fotos.json` enthält weiterhin nur ID, Signatur, Format, Nummer und optionalen Zusatz; die alten Listen-, Signatur- und Navigationsfunktionen hängen davon ab. Der generische Index benötigt keine Foto-spezifischen Kurzschlüssel: Signatur, Format und weitere Werte kommen aus Feldpfaden. Nummer und Zusatz müssen nur dann zusätzlich indexiert werden, wenn eine Modulkonfiguration sie benötigt. Der Legacy-Index und das alte Formular werden nicht umgestellt.
+
+`integration_tests/index_github.py` ist ein ausdrücklich aktivierbarer Live-Test. Er prüft die Heads und die Schreibgrenze `integration-test`, validiert zunächst alle Snapshot-Dateien lokal, baut Foto- und Testmodulindex auf und prüft Rebuild-Idempotenz, Foto-ID/Lookup/Liste/Volltext sowie atomaren Create/Update und Rollenfilter des zweiten Moduls. Die normale Testsuite bleibt ohne externe Schreibzugriffe.
+
+```bash
+GENERIC_GITHUB_INTEGRATION=1 .venv/bin/python -m integration_tests.index_github \
+  --write --report /private/tmp/generic-index-live.json
+```
+
+Beim ersten vollständigen Rebuild wurde ein vorhandener Parserfehler entdeckt: `foto-008727` enthält `63.---` innerhalb der Beschriftung. Die alte generische Frontmatter-Erkennung schnitt dort ab. Sie erkennt jetzt ausschließlich eigenständige Trennzeilen; ein Regressionstest sichert das ab. Der fehlgeschlagene erste Versuch erzeugte keinen Datencommit. Es wurden weder Foto-Inhalte ergänzt noch Datensätze von der Validierung ausgenommen.
+
+Der danach erfolgreich ausgeführte Indexintegrationstest lieferte:
+
+| Prüfung | Ergebnis |
+| --- | --- |
+| Daten-main vorher/nachher | `bcde7c81187fd54466f4b2ecd80e10260bda40f0` |
+| integration-test vorher | `5ee513fb2221bf2ceaa0d4f8739f507769b84fb4` |
+| integration-test nachher | `3e02dfb026ea33d7e68783ede6d41e0af1449ce6` |
+| Generischer Fotoindex | 10.331 Einträge; 11.317.481 UTF-8-Bytes |
+| Foto-ID und Lookup | `9.4.2.A.8610` findet `foto-010332`; direkte ID-Lesung bleibt erfolgreich |
+| Foto-Liste und Volltext | `foto-010332` enthalten; Suche nach `INTEGRATIONSTEST nach generischem Update` erfolgreich |
+| Foto-Reihenfolge | Position 8596 (nullbasiert), vorher `foto-010331`, danach `foto-008118` |
+| Zweites Modul | zunächst zwei vollständig rekonstruierte Einträge, danach `integration-0003` / `INTEGRATION.T.3` atomar ergänzt und aktualisiert |
+| Test-State | `next_record_id: 4`, `next_signature_number: {T: 4}`; beim Update unverändert |
+| Rollenprüfung | `IndexGeheimNurRedaktion` erzeugt nur redaktionell einen Treffer; Ehrenamt erhält weder Wert noch Treffer |
+| Konflikt | veraltete Revision 409; Index und State unverändert |
+| Rebuild | beide Module zweimal gebaut; zweiter identischer Rebuild ohne Commit |
+| Geschützte Daten | Daten-main, sämtliche Fotos, Foto-State und Legacy-Fotoindex unverändert |
+
+Die vier beabsichtigten Commits auf `integration-test`:
+
+1. `d9de7f8a1bfbdee5f5779517ee76ffc3defc3c47`: `indexes/generic/fotos.json` aufgebaut.
+2. `1e94d94dae0ae8d580567cc25c38755d32bee5c5`: `indexes/generic/integration-test.json` aufgebaut.
+3. `700b39301ad44769b01800b5b023fd4427d07167`: `integration-0003.md`, Test-State und Testindex gemeinsam committed.
+4. `3e02dfb026ea33d7e68783ede6d41e0af1449ce6`: `integration-0003.md` und Testindex gemeinsam aktualisiert.
+
+Die Nachkontrolle bestätigte exakt diese Commitfolge und vier geänderte Dateien. Der Legacy-Fotoindex enthält weiterhin 10.330 Einträge; die zusätzliche Auffindbarkeit besteht über die generische API. Eine Umschaltung des alten Formulars oder seiner Suche wurde nicht vorgenommen.
 
 ## Refactoring-Plan
 

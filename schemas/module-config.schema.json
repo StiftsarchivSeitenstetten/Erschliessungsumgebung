@@ -124,6 +124,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "lookup": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/field_path" },
+          "uniqueItems": true
+        },
         "fulltext": {
           "type": "array",
           "items": { "$ref": "#/$defs/field_path" },

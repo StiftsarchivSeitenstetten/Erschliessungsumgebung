@@ -32,12 +32,14 @@ def parse_record_file(file: RepositoryFile) -> GenericStoredRecord:
 
 
 def parse_record_content(content: str) -> dict[str, Any]:
-    if content.startswith("---\n"):
-        parts = content.split("---", 2)
-        if len(parts) >= 3:
-            parsed = yaml.safe_load(parts[1]) or {}
+    lines = content.splitlines(keepends=True)
+    if lines and lines[0].rstrip("\r\n \t") == "---":
+        for position, line in enumerate(lines[1:], 1):
+            if line.rstrip("\r\n \t") == "---":
+                parsed = yaml.safe_load("".join(lines[1:position])) or {}
+                break
         else:
-            parsed = yaml.safe_load(content) or {}
+            raise ValueError("YAML-Frontmatter ist nicht geschlossen.")
     else:
         parsed = yaml.safe_load(content) or {}
     if not isinstance(parsed, dict):

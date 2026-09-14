@@ -12,6 +12,7 @@ from ..github.repository import DataRepository
 from ..modules import ModuleDefinition, get_path_value, path_exists
 from .generic_read import GenericStoredRecord, parse_record_file, record_path
 from .module_state import ModuleState
+from .module_index import index_write_files
 from .runtime import RecordRuntime, RecordValidationError
 from .strategies import allocate_server_values
 
@@ -62,9 +63,12 @@ def create_generic_record(
     else:
         raise RepositoryConflictError(f"Datensatz existiert bereits: {record_id}")
 
+    content = render_record_content(record)
+    files = {path: content, state.path: state.content()}
+    files.update(index_write_files(repository, module, record, content, create=True))
     repository.commit_files(
         expected_head=head,
-        files={path: render_record_content(record), state.path: state.content()},
+        files=files,
         message=f"Erzeuge {module.id} {record_id}",
     )
     return parse_record_file(repository.read_file(path))
@@ -98,9 +102,12 @@ def update_generic_record(
         if proposed != get_path_value(previous.data, partition_field, None):
             raise RecordValidationError(["Signaturpartition darf bei PUT nicht ohne explizite Modulfreigabe geaendert werden."])
     updated = runtime.prepare_update(previous.data, payload, user)
+    content = render_record_content(updated, previous_file.content)
+    files = {path: content}
+    files.update(index_write_files(repository, module, updated, content, create=False))
     repository.commit_files(
         expected_head=head,
-        files={path: render_record_content(updated, previous_file.content)},
+        files=files,
         message=f"Aktualisiere {module.id} {record_id}",
     )
     return parse_record_file(repository.read_file(path))

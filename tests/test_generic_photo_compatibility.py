@@ -12,6 +12,7 @@ import unittest
 from backend.github.repository import InMemoryGitRepository
 from backend.modules import get_module
 from backend.records.generic_write import create_generic_record
+from backend.records.module_index import dump_index, make_index
 from integration_tests.photo_fixture import MODULE_KEY, STATE_PATH, sample_payload, server_defaults
 from integration_tests.photo_github import PhotoRepository, compare_legacy
 
@@ -24,6 +25,7 @@ class GenericPhotoCompatibilityTest(unittest.TestCase):
         for partition in "ABCDEF":
             with self.subTest(partition=partition):
                 repository = InMemoryGitRepository({STATE_PATH: json.dumps(initial)})
+                repository.files[module.storage["index"]["path"]] = dump_index(make_index(module, []))
                 payload = sample_payload(partition)
                 stored = create_generic_record(repository, module, payload, user, server_defaults(module, user, payload))
                 record = compare_legacy(repository, stored.path, payload, initial)
@@ -35,7 +37,7 @@ class GenericPhotoCompatibilityTest(unittest.TestCase):
                 expected["next_record_id"] += 1
                 expected["next_signature_number"][partition] += 1
                 self.assertEqual(json.loads(repository.files[STATE_PATH]), expected)
-                self.assertEqual(set(repository.commits[-1]["files"]), {STATE_PATH, stored.path})
+                self.assertEqual(set(repository.commits[-1]["files"]), {STATE_PATH, stored.path, module.storage["index"]["path"]})
 
     def test_photo_guard_only_allows_selected_new_record(self):
         repository = object.__new__(PhotoRepository)

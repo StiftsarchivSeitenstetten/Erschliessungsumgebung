@@ -22,7 +22,7 @@ storage:
   state:
     path: state/foto-papierabzuege.json
   index:
-    path: indexes/fotos.json
+    path: indexes/generic/fotos.json
 
 id:
   strategy: prefixed_sequence
@@ -200,6 +200,8 @@ access:
       edit: [ehrenamtlich, redaktion, admin]
 
 search:
+  lookup:
+    - signatur.anzeige
   fulltext:
     - id
     - signatur.anzeige

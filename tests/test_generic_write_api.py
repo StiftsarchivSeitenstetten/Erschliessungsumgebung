@@ -19,6 +19,7 @@ from backend.modules import get_module, get_path_value, load_module, path_exists
 from backend.permissions import MODULE_FOTO_PAPIERABZUEGE
 from backend.records.generic_read import parse_record_content
 from backend.records.generic_write import render_record_content
+from backend.records.module_index import dump_index, make_index
 from scripts.foto_core import render_photo_markdown
 from tests.test_record_runtime import valid_payload, write_runtime_module, write_runtime_schema
 from tests.test_records_api import sample_record
@@ -44,6 +45,7 @@ class GenericWriteApiTest(unittest.TestCase):
         self.module_patch.start()
         self.app = create_app()
         self.repo = InMemoryGitRepository()
+        self.repo.files["indexes/generic/fotos.json"] = dump_index(make_index(get_module("foto_papierabzuege"), []))
         self.repo.files["state/runtime-test.json"] = json.dumps({"next_record_id": 1, "next_signature_number": {"A": 1}})
         self.repo.files["state/foto-papierabzuege.json"] = json.dumps({"next_record_id": 4, "next_signature_number": {"A": 7, "B": 1, "C": 1, "D": 1, "E": 1, "F": 1}})
         self.app.state.data_repository = self.repo
@@ -368,7 +370,7 @@ class GenericWriteApiTest(unittest.TestCase):
         self.assertNotIn("titel", created.json()["record"]["erschliessung"])
         path = "data/fotos/foto-000004.md"
         self.assertIn(path, self.repo.files)
-        self.assertEqual(self.repo.commits[0]["files"], [path, "state/foto-papierabzuege.json"])
+        self.assertEqual(self.repo.commits[0]["files"], [path, "indexes/generic/fotos.json", "state/foto-papierabzuege.json"])
 
         payload["erschliessung"]["beschriftung"] = "Neue Beschriftung"
         payload["erschliessung"]["beschreibung"] = "Neue Beschreibung"
