@@ -5,6 +5,7 @@ const REQUIRED_MODULE = "foto_papierabzuege";
 const SAVE_STATES = Object.freeze({
   CLEAN: "clean",
   DIRTY: "dirty",
+  RESERVING: "reserving",
   QUEUED: "queued",
   SAVING: "saving",
   AUTH_ERROR: "auth_error",
@@ -15,6 +16,7 @@ const SAVE_STATES = Object.freeze({
 const SAVE_STATE_MESSAGES = Object.freeze({
   [SAVE_STATES.CLEAN]: "Gespeichert",
   [SAVE_STATES.DIRTY]: "Ungespeicherte Änderungen",
+  [SAVE_STATES.RESERVING]: "Signatur wird reserviert …",
   [SAVE_STATES.QUEUED]: "Für Speicherung vorgemerkt",
   [SAVE_STATES.SAVING]: "Wird gespeichert …",
   [SAVE_STATES.AUTH_ERROR]: "Anmeldung erforderlich – Änderungen nicht gespeichert",
@@ -55,7 +57,8 @@ const state = {
   editingRecord: null,
   baseRevision: null,
   serverSnapshot: null,
-  pendingSnapshot: null,
+  queuedSnapshot: null,
+  currentQueueOperationId: null,
   saveState: SAVE_STATES.DIRTY,
   maySaveEditingRecord: false
 };
@@ -68,6 +71,7 @@ const downloadButton = document.querySelector("#download");
 const finalizeButton = document.querySelector("#finalize");
 const discardButton = document.querySelector("#discard-changes");
 const saveStatus = document.querySelector("#save-status");
+const queueStatus = document.querySelector("#queue-status");
 const numberOutput = document.querySelector("#number-output");
 const signatureOutput = document.querySelector("#signature-output");
 const archivisDateOutput = document.querySelector("#archivis-date");
@@ -80,6 +84,8 @@ const recordSearch = document.querySelector("#record-search");
 const recordList = document.querySelector("#record-list");
 const recordNavTop = document.querySelector("#record-nav-top");
 const recordNavBottom = document.querySelector("#record-nav-bottom");
+let saveQueueStore = null;
+let saveQueueProcessor = null;
 
 const fieldMap = {
   titel: { label: "Titel", kind: "scalar", selector: "#titel" },
@@ -98,6 +104,7 @@ const fieldMap = {
 };
 
 async function init() {
+  await initializeSaveQueue();
   state.user = await loadCurrentUser();
   config = await loadConfig();
   await refreshRecords();
@@ -230,7 +237,7 @@ function bindEvents() {
   form.addEventListener("input", updateDirtyState);
   form.addEventListener("change", updateDirtyState);
   window.addEventListener("beforeunload", (event) => {
-    if (!hasUnsavedChanges()) return;
+    if (!hasUnsecuredChanges()) return;
     event.preventDefault();
     event.returnValue = "";
   });
@@ -266,6 +273,12 @@ async function logout() {
 }
 
 function setMode(mode) {
+  if (mode === "new" && mode !== state.mode) {
+    if (!confirmDiscardUnsavedChanges()) return;
+    startNewRecord({ skipConfirmation: true });
+    renderRecordList();
+    return;
+  }
   if (mode !== state.mode && !confirmDiscardUnsavedChanges()) return;
   state.mode = mode;
   document.querySelector("#mode-new").classList.toggle("active", mode === "new");
@@ -341,7 +354,8 @@ function applyLoadedRecord(record, baseRevision) {
   document.querySelector("#personen-list").innerHTML = "";
   fillFormFromRecord(record);
   state.serverSnapshot = formSnapshot();
-  state.pendingSnapshot = null;
+  state.queuedSnapshot = null;
+  state.currentQueueOperationId = null;
   updateSignatureOutput();
   updateArchivisDate();
   updateRecordNavigation();
@@ -418,17 +432,29 @@ function hasUnsavedChanges() {
   return formSnapshot() !== state.serverSnapshot;
 }
 
+function currentWorkingSnapshot() {
+  return JSON.stringify(readWorkingRecord());
+}
+
+function hasUnsecuredChanges() {
+  if (state.saveState === SAVE_STATES.RESERVING && state.currentQueueOperationId) return true;
+  if (state.queuedSnapshot !== null && currentWorkingSnapshot() === state.queuedSnapshot) return false;
+  if (state.mode === "edit" && state.editingRecord) return hasUnsavedChanges();
+  return state.mode === "new" && Boolean(state.format);
+}
+
 function isSaveInProgress() {
-  return state.saveState === SAVE_STATES.SAVING || state.saveState === SAVE_STATES.QUEUED;
+  return [SAVE_STATES.RESERVING, SAVE_STATES.SAVING, SAVE_STATES.QUEUED].includes(state.saveState);
 }
 
 function updateSaveControls(dirty = hasUnsavedChanges()) {
   form.dataset.dirty = dirty ? "true" : "false";
   if (state.mode === "edit" && state.editingRecord) {
-    finalizeButton.disabled = isSaveInProgress() || !state.maySaveEditingRecord || !dirty;
+    finalizeButton.disabled = Boolean(state.currentQueueOperationId) || isSaveInProgress() || !state.maySaveEditingRecord || !dirty;
     discardButton.disabled = isSaveInProgress() || !dirty;
   } else {
     discardButton.disabled = true;
+    if (state.currentQueueOperationId) finalizeButton.disabled = true;
   }
 }
 
@@ -462,7 +488,11 @@ function discardChanges() {
 }
 
 function confirmDiscardUnsavedChanges() {
-  if (!hasUnsavedChanges()) return true;
+  if (state.saveState === SAVE_STATES.RESERVING && state.currentQueueOperationId) {
+    errors.innerHTML = "<p>Bitte warten, bis ID und Signatur verbindlich reserviert sind.</p>";
+    return false;
+  }
+  if (!hasUnsecuredChanges()) return true;
   return window.confirm("Ungespeicherte Änderungen verwerfen und den Datensatz wechseln?");
 }
 
@@ -484,7 +514,6 @@ function nextId() {
 function currentDraftForFormat(format) {
   if (
     state.currentDraft &&
-    !state.finalizedCurrentDraft &&
     state.currentDraft.format === format
   ) {
     return state.currentDraft;
@@ -734,9 +763,8 @@ function updateSignatureOutput() {
     finalizeButton.disabled = true;
     return;
   }
-  const number = nextNumber(state.format);
-  numberOutput.textContent = String(number);
-  signatureOutput.textContent = buildSignature(state.format, number).anzeige;
+  numberOutput.textContent = "-";
+  signatureOutput.textContent = "Wird beim Speichern verbindlich reserviert";
   finalizeButton.disabled = state.finalizedCurrentDraft;
 }
 
@@ -770,8 +798,150 @@ function readWorkingRecord() {
   };
 }
 
-function readProductivePayload(baseRevision = state.baseRevision) {
-  return { ...readWorkingRecord(), base_revision: baseRevision };
+async function initializeSaveQueue() {
+  saveQueueStore = createIndexedDbSaveQueueStore({ indexedDB: window.indexedDB });
+  await saveQueueStore.open();
+  saveQueueProcessor = createSaveQueueProcessor({
+    store: saveQueueStore,
+    lockManager: window.navigator?.locks || null,
+    handlers: {
+      update: sendQueuedUpdate,
+      create: sendQueuedCreate,
+      onSuccess: handleQueuedSaveSuccess,
+      onError: handleQueuedSaveError
+    },
+    onChange: handleQueueChange
+  });
+  await refreshQueueStatus();
+}
+
+async function refreshQueueStatus(entries = null) {
+  const queueEntries = entries || (saveQueueStore ? await saveQueueStore.list() : []);
+  const count = queueEntries.length;
+  queueStatus.dataset.count = String(count);
+  queueStatus.textContent = count === 0
+    ? "Alle vorgemerkten Datensätze übertragen"
+    : count === 1
+      ? "1 Speichervorgang ausstehend"
+      : `${count} Speichervorgänge ausstehend`;
+}
+
+async function handleQueueChange(entry, entries) {
+  await refreshQueueStatus(entries);
+  if (!entry || entry.operation_id !== state.currentQueueOperationId) return;
+  if (entry.status === "reserving") setSaveState(SAVE_STATES.RESERVING);
+  if (entry.status === "queued") setSaveState(SAVE_STATES.QUEUED);
+  if (entry.status === "saving") setSaveState(SAVE_STATES.SAVING);
+  if (entry.status === "error") {
+    const failedState = failureSaveState(entry.last_error?.http_status);
+    setSaveState(failedState);
+    showSaveFailure(failedState, entry.last_error?.message);
+  }
+}
+
+async function responseError(response) {
+  const data = await response.json().catch(() => ({}));
+  const error = new Error(data.detail || `HTTP ${response.status}`);
+  error.status = response.status;
+  error.userMessage = Array.isArray(data.detail) ? data.detail.join("; ") : data.detail;
+  return error;
+}
+
+async function sendQueuedUpdate(entry) {
+  const response = await apiFetch(`/api/records/photos/${entry.record_id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...entry.snapshot, base_revision: entry.base_revision })
+  });
+  if (!response.ok) throw await responseError(response);
+  const saved = await response.json();
+  if (saved.record?.id !== entry.record_id) throw new Error("Backend bestätigte einen anderen Datensatz.");
+  return saved;
+}
+
+async function sendQueuedCreate(entry) {
+  const response = await apiFetch("/api/records/photos", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...entry.snapshot,
+      operation_id: entry.operation_id,
+      record_id: entry.record_id,
+      signature: entry.signature
+    })
+  });
+  if (!response.ok) throw await responseError(response);
+  const saved = await response.json();
+  if (saved.record?.id !== entry.record_id || saved.record?.signatur?.anzeige !== entry.signature) {
+    throw new Error("Backend bestätigte nicht die reservierte Identität.");
+  }
+  return saved;
+}
+
+async function reserveQueuedCreate(entry) {
+  const response = await apiFetch("/api/records/photos/reservations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ operation_id: entry.operation_id, partition: entry.partition })
+  });
+  if (!response.ok) throw await responseError(response);
+  const reservation = await response.json();
+  if (!reservation.record_id || !reservation.signature || !reservation.signature_data) {
+    throw new Error("Reservierungsantwort enthält keine vollständige Identität.");
+  }
+  return reservation;
+}
+
+async function handleQueuedSaveSuccess(entry, saved) {
+  if (entry.operation_id !== state.currentQueueOperationId) return;
+  if (entry.operation === "update" && state.editingRecord?.id !== entry.record_id) return;
+  if (entry.operation === "create" && state.currentDraft?.id !== entry.record_id) return;
+
+  state.editingRecord = saved.record;
+  state.baseRevision = saved.base_revision;
+  state.currentDraft = {
+    id: saved.record.id,
+    format: saved.record.signatur.format,
+    nummer: saved.record.signatur.nummer,
+    signature: saved.record.signatur
+  };
+  state.format = saved.record.signatur.format;
+  state.mode = "edit";
+  state.finalizedCurrentDraft = false;
+  state.serverSnapshot = JSON.stringify(entry.snapshot);
+  state.currentQueueOperationId = null;
+  state.queuedSnapshot = null;
+  state.maySaveEditingRecord = true;
+  document.querySelector("#mode-new").classList.remove("active");
+  document.querySelector("#mode-edit").classList.add("active");
+  recordBrowser.hidden = false;
+  const url = new URL(window.location.href);
+  url.searchParams.set("record", saved.record.id);
+  window.history.replaceState({}, "", url);
+  downloadButton.disabled = true;
+  errors.innerHTML = "";
+  updateSignatureOutput();
+  updateRecordNavigation();
+  setSaveState(hasUnsavedChanges() ? SAVE_STATES.DIRTY : SAVE_STATES.CLEAN);
+  await refreshRecords().catch((error) => console.error("Datensatzliste konnte nach dem Speichern nicht aktualisiert werden.", error));
+}
+
+async function handleQueuedSaveError(entry, error) {
+  if (entry.operation_id !== state.currentQueueOperationId) return;
+  const failedState = failureSaveState(error.status);
+  setSaveState(failedState);
+  showSaveFailure(failedState, error.userMessage);
+  console.error("Vorgemerkter Datensatz konnte nicht gespeichert werden.", error);
+}
+
+function scheduleQueueProcessing() {
+  window.setTimeout(() => {
+    saveQueueProcessor.process().catch((error) => console.error("Speicherwarteschlange konnte nicht verarbeitet werden.", error));
+  }, 0);
+}
+
+function newOperationId() {
+  return window.crypto.randomUUID();
 }
 
 function failureSaveState(status) {
@@ -794,7 +964,7 @@ function showSaveFailure(saveState, detail = null) {
 
 async function finalizeRecord() {
   const editingExistingRecord = state.mode === "edit" && state.editingRecord;
-  if (isSaveInProgress() || (!editingExistingRecord && state.finalizedCurrentDraft)) return;
+  if (state.currentQueueOperationId || isSaveInProgress() || (!editingExistingRecord && state.finalizedCurrentDraft)) return;
   if (editingExistingRecord && !hasUnsavedChanges()) return;
   const record = readRecord();
   const messages = validate(record);
@@ -804,62 +974,52 @@ async function finalizeRecord() {
     return;
   }
   if (state.backendMode) {
-    const url = editingExistingRecord
-      ? `/api/records/photos/${state.editingRecord.id}`
-      : "/api/records/photos";
-    const method = editingExistingRecord ? "PUT" : "POST";
-    const baseRevision = state.baseRevision;
     const workingRecord = readWorkingRecord();
-    const payload = { ...workingRecord, base_revision: baseRevision };
-    state.pendingSnapshot = JSON.stringify(workingRecord);
-    setSaveState(SAVE_STATES.SAVING);
+    const operationId = newOperationId();
+    const entry = createSaveQueueEntry({
+      operationId,
+      operation: editingExistingRecord ? "update" : "create",
+      recordId: editingExistingRecord ? state.editingRecord.id : null,
+      partition: state.format,
+      baseRevision: editingExistingRecord ? state.baseRevision : null,
+      snapshot: workingRecord,
+      status: editingExistingRecord ? "queued" : "reserving"
+    });
     try {
-      const response = await apiFetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (!response.ok) {
-        const detail = await response.json().catch(() => ({}));
-        const failedState = failureSaveState(response.status);
-        state.pendingSnapshot = null;
-        setSaveState(failedState);
-        showSaveFailure(failedState, detail.detail);
+      await saveQueueStore.put(entry);
+      state.currentQueueOperationId = operationId;
+      state.queuedSnapshot = JSON.stringify(entry.snapshot);
+      await refreshQueueStatus();
+      if (editingExistingRecord) {
+        setSaveState(SAVE_STATES.QUEUED);
+        scheduleQueueProcessing();
         return;
       }
-      const saved = await response.json();
-      state.editingRecord = saved.record;
-      state.baseRevision = saved.base_revision;
-      state.currentDraft = {
-        id: saved.record.id,
-        format: saved.record.signatur.format,
-        nummer: saved.record.signatur.nummer,
-        signature: saved.record.signatur
-      };
-      state.format = saved.record.signatur.format;
-      if (editingExistingRecord) {
-        state.serverSnapshot = state.pendingSnapshot;
-        state.finalizedCurrentDraft = false;
-      } else {
-        state.finalizedCurrentDraft = true;
+
+      setSaveState(SAVE_STATES.RESERVING);
+      const reserved = await saveQueueProcessor.reserve(operationId, reserveQueuedCreate);
+      const reservation = reserved.reservation;
+      if (state.currentQueueOperationId !== operationId) {
+        scheduleQueueProcessing();
+        return;
       }
-      state.pendingSnapshot = null;
-      downloadButton.disabled = true;
-      await refreshRecords().catch((error) => console.error("Datensatzliste konnte nach dem Speichern nicht aktualisiert werden.", error));
-      updateRecordNavigation();
+      state.currentDraft = {
+        id: reservation.record_id,
+        format: reservation.signature_data.format,
+        nummer: reservation.signature_data.nummer,
+        signature: reservation.signature_data
+      };
+      state.format = reservation.signature_data.format;
+      state.finalizedCurrentDraft = true;
       errors.innerHTML = "";
       updateSignatureOutput();
-      if (editingExistingRecord) {
-        setSaveState(hasUnsavedChanges() ? SAVE_STATES.DIRTY : SAVE_STATES.CLEAN);
-      } else {
-        setSaveState(SAVE_STATES.CLEAN);
-      }
+      setSaveState(SAVE_STATES.QUEUED);
+      scheduleQueueProcessing();
     } catch (error) {
-      state.pendingSnapshot = null;
       const failedState = failureSaveState(error.status);
       setSaveState(failedState);
-      showSaveFailure(failedState);
-      console.error("Datensatz konnte nicht gespeichert werden.", error);
+      showSaveFailure(failedState, error.userMessage);
+      console.error("Datensatz konnte nicht lokal vorgemerkt oder reserviert werden.", error);
     }
     return;
   }
@@ -900,8 +1060,8 @@ function loadLocalRecords() {
   }
 }
 
-function startNewRecord() {
-  if (!confirmDiscardUnsavedChanges()) return;
+function startNewRecord(options = {}) {
+  if (!options.skipConfirmation && !confirmDiscardUnsavedChanges()) return;
   const selectedFormat = state.format;
   form.reset();
   document.querySelector("#personen-list").innerHTML = "";
@@ -916,7 +1076,8 @@ function startNewRecord() {
   state.editingRecord = null;
   state.baseRevision = null;
   state.serverSnapshot = null;
-  state.pendingSnapshot = null;
+  state.queuedSnapshot = null;
+  state.currentQueueOperationId = null;
   state.maySaveEditingRecord = false;
   state.mode = "new";
   document.querySelector("#mode-new").classList.add("active");

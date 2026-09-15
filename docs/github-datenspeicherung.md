@@ -103,7 +103,7 @@ Die kommende persistente Speicherwarteschlange kann vor dem vollständigen Creat
 `POST /api/records/photos/reservations` eine Record-ID und Signatur verbindlich reservieren.
 Der Request enthält ausschließlich eine clientseitig erzeugte UUID als `operation_id` und
 die Signaturpartition A–F. Die Antwort liefert `operation_id`, `record_id`, `signature`,
-`partition` und `reserved_at`; eine Record-Revision gibt es zu diesem Zeitpunkt noch nicht.
+`signature_data`, `partition` und `reserved_at`; eine Record-Revision gibt es zu diesem Zeitpunkt noch nicht.
 
 Die Reservierung wird unter `reservations` im bestehenden
 `state/foto-papierabzuege.json` gespeichert. Ein Eintrag enthält zusätzlich die vollständigen
@@ -146,10 +146,46 @@ Der Foto-Pilot unterscheidet zentral folgende Speicherzustände:
 
 - `clean`: Der aktuelle Arbeitsstand entspricht ausschließlich dem zuletzt vom Backend bestätigten Stand.
 - `dirty`: Es liegen ungespeicherte Änderungen vor.
+- `reserving`: Der Create-Snapshot liegt lokal vor; das Backend reserviert gerade ID und Signatur.
+- `queued`: Der unveränderliche Snapshot liegt lokal vor und wartet auf die Übertragung.
 - `saving`: Der festgehaltene Snapshot wird gerade übertragen.
-- `auth_error`, `conflict`, `validation_error`, `error`: Der Save ist fehlgeschlagen; die lokalen Änderungen bleiben erhalten.
+- `auth_error`, `conflict`, `validation_error`, `error`: Der Save ist fehlgeschlagen; der Queue-Eintrag und die lokalen Änderungen bleiben erhalten.
 
-`queued` ist als künftiger Zustand vorgesehen und wird später durch die persistente Speicherwarteschlange ergänzt. Der Foto-Pilot wechselt derzeit noch nicht in diesen Zustand.
+## Persistente Speicherwarteschlange im Browser
+
+Der Foto-Pilot legt jeden produktiven Speichervorgang vor dem ersten Backend-Zugriff in
+IndexedDB ab. Verwendet werden die Datenbank `Erschliessungsumgebung`, Version `1`, und der
+Object Store `save_queue` mit `operation_id` als Schlüssel. `localStorage` wird für die Queue
+nicht verwendet.
+
+Jeder Eintrag ist fachneutral aufgebaut:
+
+```text
+operation_id, operation, record_id, signature, partition, base_revision,
+snapshot, created_at, updated_at, status, attempt_count, last_error
+```
+
+Der Snapshot wird beim Einreihen tief kopiert. Spätere Formulareingaben verändern daher
+nicht den bereits vorgemerkten Stand. Updates kommen mit Datensatz-ID und Basisrevision
+direkt in den Zustand `queued`. Creates werden zuerst als `reserving` persistiert; erst danach
+fordert der Browser die verbindliche Identität an und ergänzt `record_id` und `signature` im
+Queue-Eintrag. Vor dieser Antwort zeigt die Oberfläche keine vermeintlich endgültige Nummer.
+
+Der Worker verarbeitet `queued`-Einträge strikt nacheinander. Vor dem Request wechselt ein
+Eintrag zu `saving` und erhöht `attempt_count`. Nur eine zweifelsfrei erfolgreiche
+Backend-Antwort entfernt ihn. Bei HTTP-, Authentifizierungs-, Validierungs-, Konflikt- oder
+Netzwerkfehlern bleibt der Eintrag mit `last_error` erhalten; die Verarbeitung stoppt und es
+gibt in dieser Ausbaustufe keinen automatischen Retry.
+
+Ein vorgemerkter, seitdem unveränderter Formularstand darf verlassen werden. Die Rückmeldung
+eines Hintergrund-Saves aktualisiert das Formular nur, wenn dort weiterhin genau derselbe
+Queue-Vorgang aktiv ist. Eine Antwort für Foto A kann deshalb ein inzwischen geöffnetes Foto B
+nicht überschreiben. Ein globaler Hinweis zeigt unabhängig vom gerade geöffneten Datensatz die
+Zahl aller noch vorhandenen Queue-Einträge.
+
+Beim Neuladen öffnet die Anwendung IndexedDB und zeigt vorhandene Einträge an. Sie sendet
+weder `reserving`-, `saving`-, `error`- noch `queued`-Einträge blind erneut. Eine explizite,
+prüfbare Wiederaufnahme und Konfliktauflösung bleibt einem späteren Ausbauschritt vorbehalten.
 
 Ist die gespeicherte Fassung nicht mehr dieselbe, antwortet das Backend mit `409 Conflict`:
 
@@ -183,6 +219,7 @@ Alle Endpunkte verlangen eine gültige Session und Modulzugriff auf `foto_papier
 GET  /api/records/photos
 GET  /api/records/photos/{id}
 POST /api/records/photos
+POST /api/records/photos/reservations
 PUT  /api/records/photos/{id}
 ```
 

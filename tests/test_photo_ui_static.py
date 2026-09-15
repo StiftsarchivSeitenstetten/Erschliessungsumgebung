@@ -35,6 +35,19 @@ class PhotoUiStaticTest(unittest.TestCase):
         self.assertIn('new URLSearchParams(window.location.search).get("record")', script)
         self.assertIn("window.history.replaceState", script)
 
+    def test_persistent_save_queue_assets_and_status_are_present(self):
+        html = (ROOT / "app" / "index.html").read_text(encoding="utf-8")
+        store = (ROOT / "app" / "generic" / "save-queue-store.js").read_text(encoding="utf-8")
+        worker = (ROOT / "app" / "generic" / "save-queue.js").read_text(encoding="utf-8")
+        self.assertIn('id="queue-status"', html)
+        self.assertLess(html.index('src="generic/save-queue-store.js"'), html.index('src="app.js"'))
+        self.assertLess(html.index('src="generic/save-queue.js"'), html.index('src="app.js"'))
+        self.assertIn('DEFAULT_DATABASE_NAME = "Erschliessungsumgebung"', store)
+        self.assertIn('DEFAULT_STORE_NAME = "save_queue"', store)
+        self.assertNotIn("localStorage", store)
+        self.assertIn('entry.status === "queued"', worker)
+        self.assertIn("await store.remove", worker)
+
 
 if __name__ == "__main__":
     unittest.main()

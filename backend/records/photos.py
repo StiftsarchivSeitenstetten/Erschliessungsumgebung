@@ -228,6 +228,7 @@ def reservation_response(reservation: dict[str, Any]) -> dict[str, Any]:
         "operation_id": reservation["operation_id"],
         "record_id": reservation["record_id"],
         "signature": reservation["signature"],
+        "signature_data": dict(reservation["signature_data"]),
         "partition": reservation["partition"],
         "reserved_at": reservation["reserved_at"],
     }

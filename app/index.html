@@ -32,6 +32,7 @@
         <div class="warning-note">
           Im Produktivmodus vergibt das Backend ID und Signatur verbindlich beim Speichern.
         </div>
+        <p id="queue-status" class="queue-status" aria-live="polite">Lokale Speicherwarteschlange wird geladen …</p>
       </section>
 
       <form id="record-form" novalidate>
@@ -212,6 +213,8 @@
       </form>
     </main>
 
+    <script src="generic/save-queue-store.js"></script>
+    <script src="generic/save-queue.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
