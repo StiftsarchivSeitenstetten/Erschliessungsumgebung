@@ -304,7 +304,7 @@ class FotoCoreTest(unittest.TestCase):
     def test_new_record_resets_korrespondenz_checkbox_to_false(self):
         js = (ROOT / "app" / "app.js").read_text(encoding="utf-8")
         self.assertIn('document.querySelector("#korrespondenzstueck").checked', js)
-        self.assertIn("function startNewRecord()", js)
+        self.assertRegex(js, r"function startNewRecord\s*\([^)]*\)\s*\{")
         self.assertIn("form.reset();", js)
         self.assertNotIn("korrespondenzstueck: {", js)
 

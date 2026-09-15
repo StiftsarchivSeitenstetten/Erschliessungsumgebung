@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..github.errors import RepositoryConflictError, RepositoryNotFoundError
 from ..github.github_repository import GitHubDataRepository
@@ -14,10 +16,12 @@ from ..records.photos import (
     RecordPermissionError,
     RecordRevisionConflictError,
     RecordValidationError,
+    ReservationConflictError,
     create_photo_record,
     find_photo_by_signature,
     list_photo_records,
     read_photo_record,
+    reserve_photo_identity,
     update_photo_record,
 )
 from .deps import get_app_settings, require_authenticated_user, require_csrf, require_module_access
@@ -32,6 +36,16 @@ class PhotoRecordPayload(BaseModel):
     korrespondenzstueck: bool = False
     datierung: dict = Field(default_factory=dict)
     base_revision: str | None = None
+    operation_id: UUID | None = None
+    record_id: str | None = None
+    signature: str | None = None
+
+
+class PhotoReservationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: UUID
+    partition: str = Field(min_length=1, max_length=1)
 
 
 def get_data_repository(request: Request) -> DataRepository:
@@ -49,6 +63,25 @@ def get_data_repository(request: Request) -> DataRepository:
 
 def record_response(stored) -> dict:
     return {"record": stored.data, "base_revision": stored.revision}
+
+
+@router.post(
+    "/reservations",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_csrf), Depends(require_module_access(MODULE_FOTO_PAPIERABZUEGE))],
+)
+def reserve_photo(
+    payload: PhotoReservationPayload,
+    repository: DataRepository = Depends(get_data_repository),
+) -> dict:
+    try:
+        return reserve_photo_identity(repository, str(payload.operation_id), payload.partition)
+    except RecordValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors) from exc
+    except ReservationConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except RepositoryConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.get("", dependencies=[Depends(require_module_access(MODULE_FOTO_PAPIERABZUEGE))])
@@ -96,6 +129,8 @@ def create_photo(
     try:
         stored = create_photo_record(repository, payload.model_dump(), user)
         return record_response(stored)
+    except ReservationConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except RecordValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.errors) from exc
     except RepositoryConflictError as exc:

@@ -65,7 +65,13 @@ def configure_app(repository, *, readonly=False):
 
 
 def compare_legacy(repository, path, payload, state):
-    from backend.records.photos import build_new_record, normalize_state, read_photo_record, validate_canonical_record
+    from backend.records.photos import (
+        allocate_photo_identity,
+        build_new_record,
+        normalize_state,
+        read_photo_record,
+        validate_canonical_record,
+    )
     from scripts.foto_core import render_photo_markdown
 
     file = repository.read_file(path)
@@ -75,8 +81,9 @@ def compare_legacy(repository, path, payload, state):
     check(legacy_read.data == record and legacy_read.revision == file.revision, "Legacy-Lesen weicht ab.")
     check(parse_record_content(render_photo_markdown(record)) == record, "Legacy-Serialisierung veraendert kanonische Werte.")
     user = SimpleNamespace(username="foto-test-redaktion")
+    record_id, signature = allocate_photo_identity(normalize_state(state), payload["signatur"]["format"])
     with patch("backend.records.photos.utc_iso", return_value=record["technik"]["erstellt_am"]):
-        legacy = build_new_record(legacy_payload(payload), user, normalize_state(state))
+        legacy = build_new_record(legacy_payload(payload), user, record_id, signature)
     comparison = deepcopy(legacy)
     comparison["technik"]["geaendert_am"] = None
     comparison["technik"]["geaendert_von"] = None

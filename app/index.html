@@ -33,6 +33,12 @@
         <div class="warning-note">
           Im Produktivmodus vergibt das Backend ID und Signatur verbindlich beim Speichern.
         </div>
+        <p id="queue-status" class="queue-status" aria-live="polite">Lokale Speicherwarteschlange wird geladen …</p>
+        <div id="queue-recovery-actions" class="queue-recovery-actions" hidden>
+          <button type="button" id="retry-queue">Speicherung fortsetzen</button>
+          <button type="button" id="open-queued-snapshot">Lokalen Stand öffnen</button>
+          <button type="button" id="discard-queued-save" class="danger-button">Lokale Speicherung verwerfen</button>
+        </div>
       </section>
 
       <form id="record-form" novalidate>
@@ -167,8 +173,10 @@
             <button type="button" class="record-nav-button" data-direction="previous" disabled>← Vorheriger Datensatz</button>
             <button type="button" class="record-nav-button" data-direction="next" disabled>Nächster Datensatz →</button>
           </nav>
+          <p id="save-status" class="save-status" data-state="dirty" role="status" aria-live="polite">Ungespeicherte Änderungen</p>
           <div class="button-row">
             <button type="button" id="finalize" disabled>Datensatz speichern</button>
+            <button type="button" id="discard-changes" disabled>Änderungen verwerfen</button>
             <button type="button" id="new-record">Neuer Datensatz</button>
           </div>
         </section>
@@ -211,6 +219,8 @@
       </form>
     </main>
 
+    <script src="generic/save-queue-store.js"></script>
+    <script src="generic/save-queue.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

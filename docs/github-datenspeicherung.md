@@ -97,9 +97,121 @@ Der Ablauf ist optimistisch Git-basiert:
 
 Datensatz und State werden niemals in getrennten Commits geschrieben.
 
+## Verbindliche Reservierung für neue Foto-Datensätze
+
+Die kommende persistente Speicherwarteschlange kann vor dem vollständigen Create mit
+`POST /api/records/photos/reservations` eine Record-ID und Signatur verbindlich reservieren.
+Der Request enthält ausschließlich eine clientseitig erzeugte UUID als `operation_id` und
+die Signaturpartition A–F. Die Antwort liefert `operation_id`, `record_id`, `signature`,
+`signature_data`, `partition` und `reserved_at`; eine Record-Revision gibt es zu diesem Zeitpunkt noch nicht.
+
+Die Reservierung wird unter `reservations` im bestehenden
+`state/foto-papierabzuege.json` gespeichert. Ein Eintrag enthält zusätzlich die vollständigen
+Signaturdaten für den späteren Create:
+
+```json
+{
+  "operation_id": "11111111-1111-4111-8111-111111111111",
+  "record_id": "foto-010334",
+  "signature": "9.4.2.B.1047",
+  "partition": "B",
+  "reserved_at": "2026-09-15T09:42:00Z",
+  "signature_data": {
+    "bestand": "9.4",
+    "objektgruppe": "2",
+    "format": "B",
+    "nummer": 1047,
+    "anzeige": "9.4.2.B.1047",
+    "status": "vergeben"
+  }
+}
+```
+
+Eine `operation_id` bezeichnet genau einen Create-Vorgang. Wiederholte Requests liefern
+die persistierte Reservierung und erhöhen den State nicht erneut. ID-Zähler,
+Partitionszähler und Reservation werden gemeinsam in einem atomaren State-Commit
+geschrieben. Dadurch liefert auch ein Retry nach verlorener HTTP-Antwort dieselbe Identität.
+
+Reservierungen werden nicht freigegeben; Signaturlücken sind ausdrücklich zulässig. Der
+spätere vollständige Create muss `operation_id`, `record_id` und `signature` mitsenden,
+verwendet exakt die reservierte Identität und erhöht die Zähler nicht nochmals. Der bisherige
+direkte Create ohne Reservation bleibt während dieses Zwischenschritts verfügbar.
+
 ## Konflikterkennung bei Bearbeitung
 
 Beim Lesen eines bestehenden Datensatzes liefert die API eine `base_revision` mit. Beim Speichern per `PUT` muss der Client diese Revision mitsenden.
+Der Dirty State bezieht sich auf den zuletzt vom Backend bestätigten Datensatzstand und wird nach jedem erfolgreichen Save neu berechnet.
+
+Der Foto-Pilot unterscheidet zentral folgende Speicherzustände:
+
+- `clean`: Der aktuelle Arbeitsstand entspricht ausschließlich dem zuletzt vom Backend bestätigten Stand.
+- `dirty`: Es liegen ungespeicherte Änderungen vor.
+- `reserving`: Der Create-Snapshot liegt lokal vor; das Backend reserviert gerade ID und Signatur.
+- `queued`: Der unveränderliche Snapshot liegt lokal vor und wartet auf die Übertragung.
+- `saving`: Der festgehaltene Snapshot wird gerade übertragen.
+- `auth_error`, `conflict`, `validation_error`, `error`: Der Save ist fehlgeschlagen; der Queue-Eintrag und die lokalen Änderungen bleiben erhalten.
+
+## Persistente Speicherwarteschlange im Browser
+
+Der Foto-Pilot legt jeden produktiven Speichervorgang vor dem ersten Backend-Zugriff in
+IndexedDB ab. Verwendet werden die Datenbank `Erschliessungsumgebung`, Version `1`, und der
+Object Store `save_queue` mit `operation_id` als Schlüssel. `localStorage` wird für die Queue
+nicht verwendet.
+
+Jeder Eintrag ist fachneutral aufgebaut:
+
+```text
+operation_id, operation, record_id, signature, partition, base_revision,
+snapshot, created_at, updated_at, status, attempt_count, last_error
+```
+
+Der Snapshot wird beim Einreihen tief kopiert. Spätere Formulareingaben verändern daher
+nicht den bereits vorgemerkten Stand. Updates kommen mit Datensatz-ID und Basisrevision
+direkt in den Zustand `queued`. Creates werden zuerst als `reserving` persistiert; erst danach
+fordert der Browser die verbindliche Identität an und ergänzt `record_id` und `signature` im
+Queue-Eintrag. Vor dieser Antwort zeigt die Oberfläche keine vermeintlich endgültige Nummer.
+
+Der Worker verarbeitet `queued`-Einträge strikt nacheinander. Vor dem Request wechselt ein
+Eintrag zu `saving` und erhöht `attempt_count`. Nur eine zweifelsfrei erfolgreiche
+Backend-Antwort entfernt ihn. Bei HTTP-, Authentifizierungs-, Validierungs-, Konflikt- oder
+Netzwerkfehlern bleibt der Eintrag mit `last_error` erhalten; die Verarbeitung stoppt. Der
+erste problematische Eintrag blockiert dabei alle späteren Einträge, damit die fachliche
+Reihenfolge nicht stillschweigend verändert wird.
+
+Ein vorgemerkter, seitdem unveränderter Formularstand darf verlassen werden. Die Rückmeldung
+eines Hintergrund-Saves aktualisiert das Formular nur, wenn dort weiterhin genau derselbe
+Queue-Vorgang aktiv ist. Eine Antwort für Foto A kann deshalb ein inzwischen geöffnetes Foto B
+nicht überschreiben. Ein globaler Hinweis zeigt unabhängig vom gerade geöffneten Datensatz die
+Zahl aller noch vorhandenen Queue-Einträge.
+
+## Wiederaufnahme und Recovery
+
+Beim Neuladen öffnet die Anwendung IndexedDB, normalisiert ältere Fehlerzustände und zeigt
+den ersten blockierenden Status global an. Ein eindeutig noch nicht gestarteter `queued`-
+Eintrag wird automatisch fortgesetzt. Ein Create in `reserving` ohne Identität wiederholt
+ausschließlich die Reservierungsanfrage mit derselben `operation_id`. Hat der Eintrag bereits
+`record_id` und `signature`, wird keine neue Signatur reserviert.
+
+Für pausierte Vorgänge bietet die Oberfläche `Speicherung fortsetzen`, `Lokalen Stand öffnen`
+und – nach ausdrücklicher Warnung – `Lokale Speicherung verwerfen`. Ein Retry verwendet immer
+die vorhandene `operation_id`, Identität und den unveränderten Queue-Snapshot. Bei `401` oder
+`403` bleibt die Queue als `auth_error` pausiert; nach erneuter Anmeldung kann der Benutzer
+die Fortsetzung ausdrücklich auslösen.
+
+Reservierte Creates sind serverseitig idempotent: Existiert der mit der Reservation verknüpfte
+Record bereits, liefert derselbe Create ihn ohne weiteren Commit und ohne neue Signatur zurück.
+Dadurch ist auch eine verlorene Create-Antwort sicher auflösbar.
+
+Ein unklarer PUT wird nicht blind wiederholt. Der Client liest zuerst den aktuellen Record:
+
+- Entspricht dessen fachlicher Stand exakt dem Queue-Snapshot, gilt der Vorgang als bestätigt.
+- Ist die Serverrevision noch gleich der gespeicherten `base_revision`, darf derselbe PUT erneut laufen.
+- Weichen Revision und fachlicher Stand ab, bleibt der Eintrag als `conflict` blockiert.
+
+`409` und `validation_error` werden nicht automatisch erneut gesendet. Der lokale Snapshot kann
+geöffnet und bearbeitet werden; ein Force-Save oder automatischer Feld-Merge findet nicht statt.
+Ein Queue-Eintrag wird ausschließlich nach bestätigtem Backend-Erfolg, eindeutigem Read-back-
+Nachweis oder ausdrücklichem Verwerfen durch den Benutzer gelöscht.
 
 Ist die gespeicherte Fassung nicht mehr dieselbe, antwortet das Backend mit `409 Conflict`:
 
@@ -133,6 +245,7 @@ Alle Endpunkte verlangen eine gültige Session und Modulzugriff auf `foto_papier
 GET  /api/records/photos
 GET  /api/records/photos/{id}
 POST /api/records/photos
+POST /api/records/photos/reservations
 PUT  /api/records/photos/{id}
 ```
 
