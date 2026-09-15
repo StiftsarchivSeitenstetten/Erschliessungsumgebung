@@ -250,14 +250,17 @@ class GenericWriteApiTest(unittest.TestCase):
         payload = valid_payload()
         payload["daten"]["name"] = "Neu"
         payload["daten"]["place"]["name"] = "Linz"
-        payload["daten"]["beteiligte"] = [{"name": "Erste"}, {"name": "Zweite", "rolle": "absender"}]
+        payload["daten"]["beteiligte"] = [
+            {"name": "Erste"},
+            {"name": "Zweite", "rolle": {"id": "absender", "vocabulary_id": "rollen"}},
+        ]
         response = self.put("test-0001", payload, created["meta"]["revision"])
         self.assertEqual(response.status_code, 200, response.text)
         updated = parse_record_content(self.repo.files["data/test/test-0001.md"])
         self.assertEqual(updated["daten"]["name"], "Neu")
         self.assertEqual(updated["daten"]["place"]["name"], "Linz")
         self.assertEqual(len(updated["daten"]["beteiligte"]), 2)
-        self.assertEqual(updated["daten"]["beteiligte"][1]["rolle"], "absender")
+        self.assertEqual(updated["daten"]["beteiligte"][1]["rolle"], {"id": "absender", "vocabulary_id": "rollen"})
         self.assertEqual(updated["technik"]["erstellt_am"], original["technik"]["erstellt_am"])
         self.assertEqual(updated["technik"]["erstellt_von"], "anna")
         self.assertEqual(updated["technik"]["geaendert_von"], "anna")

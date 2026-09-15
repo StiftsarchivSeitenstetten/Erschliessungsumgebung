@@ -1,2 +1,11 @@
-- intern
-- oeffentlich
+id: publikationsstatus
+label: Publikationsstatus
+terms:
+  - id: intern
+    label: Intern
+    active: true
+    sort_order: 10
+  - id: oeffentlich
+    label: Öffentlich
+    active: true
+    sort_order: 20

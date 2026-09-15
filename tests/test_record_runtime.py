@@ -72,7 +72,10 @@ def write_runtime_schema(directory: Path) -> Path:
                             "required": ["name"],
                             "properties": {
                                 "name": {"type": "string"},
-                                "rolle": {"type": ["string", "null"]},
+                                "rolle": {"oneOf": [
+                                    {"$ref": "https://stiftsarchiv-seitenstetten.github.io/erschliessungsumgebung/schemas/core-datatypes.schema.json#/$defs/term_ref"},
+                                    {"type": "null"},
+                                ]},
                             },
                         },
                     },
@@ -108,10 +111,7 @@ def write_runtime_module(directory: Path, schema_path: Path) -> Path:
         {"id": "place", "path": "daten.place", "widget": "text", "label": "Ort", "order": 50},
         {"id": "date", "path": "daten.date", "widget": "date", "label": "Datum", "order": 60},
         {"id": "date_range", "path": "daten.date_range", "widget": "date_range", "label": "Zeitraum", "order": 70},
-        {"id": "term", "path": "daten.term", "widget": "vocabulary_select", "label": "Begriff", "order": 80, "vocabulary": "terms", "options": [
-            {"value": "brief", "label": "Brief"},
-            {"value": "foto", "label": "Foto"},
-        ]},
+        {"id": "term", "path": "daten.term", "widget": "vocabulary_select", "label": "Begriff", "order": 80, "vocabulary": "dokumenttypen"},
         {"id": "identifier", "path": "daten.identifier", "widget": "text", "label": "Kennung", "order": 90},
         {"id": "record", "path": "daten.record", "widget": "text", "label": "Datensatz", "order": 100},
         {"id": "asset", "path": "daten.asset", "widget": "text", "label": "Digitalisat", "order": 110},
@@ -127,10 +127,7 @@ def write_runtime_module(directory: Path, schema_path: Path) -> Path:
             "order": 130,
             "item_fields": [
                 {"id": "name", "path": "name", "widget": "text", "label": "Name", "order": 10},
-                {"id": "rolle", "path": "rolle", "widget": "vocabulary_select", "label": "Rolle", "order": 20, "vocabulary": "terms", "options": [
-                    {"value": "absender", "label": "Absender"},
-                    {"value": "empfaenger", "label": "Empfänger"},
-                ]},
+                {"id": "rolle", "path": "rolle", "widget": "vocabulary_select", "label": "Rolle", "order": 20, "vocabulary": "rollen"},
             ],
         },
     ]
@@ -165,6 +162,10 @@ def write_runtime_module(directory: Path, schema_path: Path) -> Path:
             {"label": "Geheim", "path": "daten.secret", "sortable": False},
         ]},
         "presets": {"enabled_fields": ["daten.name"], "disabled_fields": ["technik"]},
+        "vocabularies": {
+            "dokumenttypen": {"path": str(ROOT / "vocabularies" / "dokumenttypen.yaml")},
+            "rollen": {"path": str(ROOT / "vocabularies" / "rollen.yaml")},
+        },
     }
     path = directory / "runtime-test.yaml"
     path.write_text(yaml.safe_dump(module, allow_unicode=True, sort_keys=False), encoding="utf-8")
@@ -179,12 +180,12 @@ def valid_payload() -> dict:
             "place": {"name": "Seitenstetten", "coordinates": {"lat": 48.0, "lon": 14.0}},
             "date": {"year": 1900, "display": "um 1900", "certainty": "approximate"},
             "date_range": {"from": {"year": 1900}, "to": {"year": 1901}, "display": "1900/1901"},
-            "term": {"id": "brief", "vocabulary_id": "terms"},
+            "term": {"id": "brief", "vocabulary_id": "dokumenttypen"},
             "identifier": {"value": "ALT-1", "type": "altsignatur"},
             "record": {"record_id": "foto-000001", "module_id": "foto_papierabzuege", "label": "Referenz"},
             "asset": {"path": "digitalisate/test.jpg", "mime_type": "image/jpeg", "filename": "test.jpg"},
             "language": {"code": "de"},
-            "beteiligte": [{"name": "A"}, {"name": "B", "rolle": "empfaenger"}],
+            "beteiligte": [{"name": "A"}, {"name": "B", "rolle": {"id": "empfaenger", "vocabulary_id": "rollen"}}],
         }
     }
 
@@ -232,6 +233,7 @@ class RecordRuntimeTest(unittest.TestCase):
         self.assertEqual(empty["daten"]["name"], "")
         self.assertEqual(empty["daten"]["beteiligte"], [])
         self.assertEqual(empty["daten"]["term"]["id"], "brief")
+        self.assertEqual(empty["daten"]["term"]["vocabulary_id"], "dokumenttypen")
         self.assertEqual(empty["daten"]["language"]["code"], "de")
         self.assertEqual(empty["daten"]["date"], {})
         self.assertNotIn("readonly", empty["daten"])
@@ -275,6 +277,14 @@ class RecordRuntimeTest(unittest.TestCase):
         record["daten"]["agent"] = {"type": "person"}
         with self.assertRaises(RecordValidationError):
             self.runtime.validate(record)
+
+    def test_vocabulary_references_accept_inactive_and_reject_unknown_terms(self):
+        record = self.create_record()
+        record["daten"]["term"] = {"id": "telefax", "vocabulary_id": "dokumenttypen"}
+        self.runtime.validate_vocabulary_references(record)
+        record["daten"]["term"] = {"id": "nicht_vorhanden", "vocabulary_id": "dokumenttypen"}
+        with self.assertRaises(RecordValidationError):
+            self.runtime.validate_vocabulary_references(record)
 
     def test_photo_module_can_be_used_by_generic_runtime(self):
         from backend.modules import get_module

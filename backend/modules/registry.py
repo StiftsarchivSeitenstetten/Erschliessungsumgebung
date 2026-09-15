@@ -12,6 +12,7 @@ import jsonschema
 import yaml
 
 from ..config import ROOT
+from ..vocabularies import VocabularyError, load_vocabulary
 from .runtime import ModuleDefinition, ModuleField, ModuleSection
 
 
@@ -98,6 +99,10 @@ def validate_vocabulary(data: dict[str, Any], schema_path: Path = VOCABULARY_SCH
         jsonschema.validate(instance=data, schema=_load_schema(schema_path))
     except jsonschema.ValidationError as exc:
         raise ModuleConfigError(f"Ungueltiges Vokabular: {exc.message}") from exc
+    ids = [term["id"] for term in data.get("terms", [])]
+    duplicates = sorted({term_id for term_id in ids if ids.count(term_id) > 1})
+    if duplicates:
+        raise ModuleConfigError(f"Doppelte Term-ID(s): {', '.join(duplicates)}")
 
 
 def validate_core_schemas() -> None:
@@ -238,8 +243,41 @@ def _module_field(raw_field: dict[str, Any], section_id: str, rights: dict[str, 
         edit_roles=edit_roles,
         vocabulary=raw_field.get("vocabulary"),
         item_fields=item_fields,
-        options=tuple(raw_field.get("options") or ()),
+        options=() if raw_field["widget"] == "vocabulary_select" else tuple(raw_field.get("options") or ()),
     )
+
+
+def _walk_fields(fields: tuple[ModuleField, ...]):
+    for field in fields:
+        yield field
+        yield from _walk_fields(field.item_fields)
+
+
+def _vocabulary_references(raw: dict[str, Any], config_path: Path) -> dict[str, dict[str, str]]:
+    references = raw.get("vocabularies") or {}
+    resolved: dict[str, dict[str, str]] = {}
+    for vocabulary_id, reference in references.items():
+        if not isinstance(reference, dict) or not reference.get("path"):
+            continue
+        path = _resolve_path(config_path.parent, reference["path"])
+        if path is None:
+            raise ModuleConfigError(f"Vokabular {vocabulary_id!r} hat keinen Pfad.")
+        try:
+            load_vocabulary(path, vocabulary_id)
+        except VocabularyError as exc:
+            raise ModuleConfigError(str(exc)) from exc
+        resolved[vocabulary_id] = {"path": str(path)}
+    return resolved
+
+
+def _validate_vocabulary_fields(fields: tuple[ModuleField, ...], references: dict[str, Any]) -> None:
+    for field in _walk_fields(fields):
+        if field.widget != "vocabulary_select":
+            continue
+        if not field.vocabulary:
+            raise ModuleConfigError(f"vocabulary_select {field.path!r} benoetigt eine Vocabulary-ID.")
+        if field.vocabulary not in references:
+            raise ModuleConfigError(f"Unbekannte Vocabulary-ID {field.vocabulary!r} fuer Feld {field.path!r}.")
 
 
 def _sections_and_fields(raw: dict[str, Any], rights: dict[str, dict[str, Any]]) -> tuple[tuple[ModuleSection, ...], tuple[ModuleField, ...]]:
@@ -312,10 +350,11 @@ def load_module(path: Path) -> ModuleDefinition:
     module_id = _module_id(raw)
     access_key = _access_key(raw)
     signature = raw.get("signature") or raw.get("signature_strategy") or fachkonfiguration.get("signature") or {}
-    vocabularies = raw.get("vocabularies") or fachkonfiguration.get("vocabularies") or {}
+    vocabularies = _vocabulary_references(raw, path)
     field_rights = _field_rights(raw, fachkonfiguration)
     sections, fields = _sections_and_fields(raw, field_rights)
     fields = _enrich_fields_from_schema(fields, schema)
+    _validate_vocabulary_fields(fields, vocabularies)
 
     return ModuleDefinition(
         id=module_id,
@@ -352,6 +391,13 @@ def load_modules(paths: list[Path] | tuple[Path, ...]) -> tuple[ModuleDefinition
             if key in seen and seen[key] != index:
                 raise ModuleConfigError(f"Doppelte Modul-ID oder Zugriffkennung: {key}")
             seen[key] = index
+    vocabulary_paths: dict[str, str] = {}
+    for module in modules:
+        for vocabulary_id, reference in module.vocabularies.items():
+            path = reference["path"]
+            if vocabulary_id in vocabulary_paths and vocabulary_paths[vocabulary_id] != path:
+                raise ModuleConfigError(f"Vocabulary-ID {vocabulary_id!r} verweist auf unterschiedliche Dateien.")
+            vocabulary_paths[vocabulary_id] = path
     return modules
 
 

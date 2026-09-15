@@ -10,7 +10,7 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         html = (ROOT / "app" / "module" / "index.html").read_text(encoding="utf-8")
         script = (ROOT / "app" / "module" / "module.js").read_text(encoding="utf-8")
 
-        self.assertIn('src="module.js?v=preset-1"', html)
+        self.assertIn('src="module.js?v=vocabulary-2"', html)
         self.assertIn('href="/arbeitsbereiche?view=generic"', html)
         self.assertIn('id="save-record"', html)
         self.assertIn('id="new-record"', html)
@@ -83,6 +83,9 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         self.assertIn("Eintrag entfernen", script)
         self.assertIn("JSON.parse(text)", script)
         self.assertIn("parseNullableInteger", script)
+        self.assertIn("vocabularyFieldOptions", script)
+        self.assertIn("canonicalTermReference", script)
+        self.assertIn("unbekannter Begriff", (ROOT / "app" / "generic" / "vocabulary-client.js").read_text(encoding="utf-8"))
 
     def test_path_utils_offer_generic_dot_path_access_and_formatting(self):
         script = (ROOT / "app" / "generic" / "path-utils.js").read_text(encoding="utf-8")
@@ -116,6 +119,7 @@ class GenericFormRendererStaticTest(unittest.TestCase):
             ROOT / "app" / "generic" / "form-state.js",
             ROOT / "app" / "generic" / "form-renderer.js",
             ROOT / "app" / "generic" / "widget-registry.js",
+            ROOT / "app" / "generic" / "vocabulary-client.js",
             ROOT / "app" / "module" / "module.js",
         ):
             script = path.read_text(encoding="utf-8")
@@ -131,6 +135,15 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         self.assertNotIn('method: "PUT"', create)
         for forbidden in ("foto_papierabzuege", "dargestellte_personen", "beschriftung", "fotograf"):
             self.assertNotIn(forbidden, create)
+
+    def test_vocabulary_client_loads_generic_read_only_endpoint(self):
+        script = (ROOT / "app" / "generic" / "vocabulary-client.js").read_text(encoding="utf-8")
+        self.assertIn("/api/vocabularies/", script)
+        self.assertIn("field.vocabulary", script)
+        self.assertIn("term.active", script)
+        self.assertIn("vocabulary_id", script)
+        for forbidden in ("dokumenttyp", "brief", "absender", "foto_papierabzuege"):
+            self.assertNotIn(forbidden, script)
 
     def test_preset_component_is_descriptor_driven_without_photo_fields(self):
         script = (ROOT / "app" / "generic" / "preset-store.js").read_text(encoding="utf-8")

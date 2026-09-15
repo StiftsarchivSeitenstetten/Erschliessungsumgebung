@@ -12,6 +12,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class GenericNavigationTest(unittest.TestCase):
+    def test_vocabulary_state(self):
+        node = shutil.which("node") or str(
+            Path.home() / ".cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+        )
+        if not Path(node).exists():
+            self.skipTest("Node.js required")
+        subprocess.run([node, "tests/vocabulary_state.mjs"], cwd=ROOT, check=True, capture_output=True)
+
     def test_preset_state(self):
         node = shutil.which("node") or str(
             Path.home() / ".cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"

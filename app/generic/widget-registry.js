@@ -6,6 +6,7 @@ import {
   getPathValue,
   isEmptyValue
 } from "./path-utils.js";
+import { canonicalTermReference, vocabularyFieldOptions, vocabularyTermId } from "./vocabulary-client.js?v=vocabulary-2";
 
 function element(tag, attributes = {}, children = []) {
   const node = document.createElement(tag);
@@ -226,19 +227,22 @@ const dateRangeWidget = {
 
 const vocabularySelectWidget = {
   render(context) {
-    const currentId = context.value && typeof context.value === "object" ? context.value.id : context.value;
-    const field = context.field.options?.length ? context.field : { ...context.field, options: [{ value: currentId ?? "", label: formatStructuredValue(context.value) }] };
-    return selectWidget.render({ ...context, field, value: currentId });
+    const currentId = vocabularyTermId(context.value);
+    const resolved = vocabularyFieldOptions(context.field, context.value);
+    const field = { ...context.field, options: resolved.options };
+    const control = selectWidget.render({ ...context, field, value: currentId });
+    if (!resolved.issue) return control;
+    control.setAttribute("aria-invalid", "true");
+    return element("div", { className: "generic-vocabulary" }, [
+      control,
+      element("p", { className: "errors", textContent: resolved.issue }),
+    ]);
   },
   readValue(context, root) {
-    const selected = selectValueFromOptions(root.querySelector("[data-widget-control='main']").value, context.field);
-    if (context.originalValue && typeof context.originalValue === "object") {
-      return { ...context.originalValue, id: selected };
-    }
-    return selected;
+    return canonicalTermReference(context.field, root.querySelector("[data-widget-control='main']").value);
   },
   setValue(_context, root, value) {
-    const selected = value && typeof value === "object" ? value.id : value;
+    const selected = vocabularyTermId(value);
     root.querySelector("[data-widget-control='main']").value = encodeOptionValue(selected);
   }
 };

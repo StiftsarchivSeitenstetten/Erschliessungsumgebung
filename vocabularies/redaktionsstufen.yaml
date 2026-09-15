@@ -1,2 +1,11 @@
-- ehrenamtlich
-- redaktionell
+id: redaktionsstufen
+label: Redaktionsstufen
+terms:
+  - id: ehrenamtlich
+    label: Ehrenamtlich
+    active: true
+    sort_order: 10
+  - id: redaktionell
+    label: Redaktionell
+    active: true
+    sort_order: 20

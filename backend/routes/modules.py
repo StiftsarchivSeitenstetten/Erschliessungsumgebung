@@ -16,11 +16,13 @@ from ..records.generic_read import list_generic_records, list_values_for_role, r
 from ..records.generic_write import create_generic_record, update_generic_record
 from ..records.module_index import index_path, query_index, read_module_index
 from ..records.runtime import RecordPermissionError, RecordRuntime, RecordUnknownFieldError, RecordValidationError
+from ..vocabularies import VocabularyError, load_vocabulary
 from .deps import require_authenticated_user, require_csrf
 from .records import get_data_repository
 
 
 router = APIRouter(prefix="/api/modules", tags=["modules"])
+vocabulary_router = APIRouter(prefix="/api/vocabularies", tags=["vocabularies"])
 
 
 class GenericRecordRequest(BaseModel):
@@ -79,6 +81,25 @@ def module_catalog(user: User = Depends(require_authenticated_user)) -> list[dic
     ]
     modules.sort(key=lambda item: (item.get("order") if item.get("order") is not None else 1000, item["label"]))
     return modules
+
+
+@vocabulary_router.get("/{vocabulary_id}")
+def vocabulary_access(
+    vocabulary_id: str,
+    user: User = Depends(require_authenticated_user),
+) -> dict[str, object]:
+    referencing_modules = [
+        module
+        for module in list_modules()
+        if vocabulary_id in module.vocabularies and has_module_access(user, module.access_key)
+    ]
+    if not referencing_modules:
+        raise HTTPException(status_code=404, detail="Vokabular nicht gefunden.")
+    reference = referencing_modules[0].vocabularies[vocabulary_id]
+    try:
+        return load_vocabulary(reference["path"], vocabulary_id).descriptor()
+    except VocabularyError as exc:
+        raise HTTPException(status_code=500, detail="Vokabular ist ungueltig.") from exc
 
 
 @router.get("/{module_key}/records")

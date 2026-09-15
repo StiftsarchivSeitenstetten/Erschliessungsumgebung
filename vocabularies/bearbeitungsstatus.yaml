@@ -1,3 +1,15 @@
-- in_bearbeitung
-- pruefen
-- abgeschlossen
+id: bearbeitungsstatus
+label: Bearbeitungsstatus
+terms:
+  - id: in_bearbeitung
+    label: In Bearbeitung
+    active: true
+    sort_order: 10
+  - id: pruefen
+    label: Prüfen
+    active: true
+    sort_order: 20
+  - id: abgeschlossen
+    label: Abgeschlossen
+    active: true
+    sort_order: 30

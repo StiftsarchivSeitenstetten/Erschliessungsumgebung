@@ -30,6 +30,36 @@ function optionValues(field) {
   return new Set((field.options || []).map((option) => String(option.value)));
 }
 
+function validateField(field, value, path, errors) {
+  if (field.required && isEmptyRequired(value)) {
+    errors.push({ path, message: "Pflichtfeld ist leer." });
+  }
+  if (field.widget === "select" && field.options?.length) {
+    const selected = value && typeof value === "object" && "code" in value ? value.code : value;
+    if (selected !== null && selected !== undefined && selected !== "" && !optionValues(field).has(String(selected))) {
+      errors.push({ path, message: "Auswahl ist nicht im Descriptor definiert." });
+    }
+  }
+  if (field.widget === "vocabulary_select" && value !== null && value !== undefined) {
+    if (typeof value !== "object" || !value.id) {
+      errors.push({ path, message: "Vocabulary-Wert benötigt eine stabile Term-ID." });
+    } else if (value.vocabulary_id && value.vocabulary_id !== field.vocabulary) {
+      errors.push({ path, message: "Vocabulary-ID passt nicht zum Feld." });
+    } else if (!(field.vocabulary_terms || []).some(term => term.id === value.id)) {
+      errors.push({ path, message: `Unbekannte Term-ID: ${value.id}` });
+    }
+  }
+  if (field.widget === "repeater") {
+    if (value !== undefined && !Array.isArray(value)) {
+      errors.push({ path, message: "Wiederholfeld muss eine Liste sein." });
+    } else {
+      (value || []).forEach((item, index) => (field.item_fields || []).forEach(itemField => {
+        validateField(itemField, getPathValue(item, itemField.path), `${path}.${index}.${itemField.path}`, errors);
+      }));
+    }
+  }
+}
+
 export class FormState {
   constructor(moduleDescriptor, recordData = {}) {
     this.moduleDescriptor = moduleDescriptor;
@@ -76,18 +106,7 @@ export class FormState {
     const errors = [];
     editableFields(this.moduleDescriptor).forEach((field) => {
       const value = getPathValue(this.current, field.path);
-      if (field.required && isEmptyRequired(value)) {
-        errors.push({ path: field.path, message: "Pflichtfeld ist leer." });
-      }
-      if ((field.widget === "select" || field.widget === "vocabulary_select") && field.options?.length) {
-        const selected = field.widget === "vocabulary_select" && value && typeof value === "object" ? value.id : value;
-        if (selected !== null && selected !== undefined && selected !== "" && !optionValues(field).has(String(selected))) {
-          errors.push({ path: field.path, message: "Auswahl ist nicht im Descriptor definiert." });
-        }
-      }
-      if (field.widget === "repeater" && value !== undefined && !Array.isArray(value)) {
-        errors.push({ path: field.path, message: "Wiederholfeld muss eine Liste sein." });
-      }
+      validateField(field, value, field.path, errors);
     });
     return errors;
   }

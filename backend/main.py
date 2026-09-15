@@ -21,6 +21,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth.router)
     app.include_router(modules.router)
+    app.include_router(modules.vocabulary_router)
     app.include_router(records.router)
 
     app.mount("/app", StaticFiles(directory=settings.app_dir, html=True), name="app")

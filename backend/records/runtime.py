@@ -15,6 +15,7 @@ from jsonschema import RefResolver
 from ..config import ROOT
 from ..modules import ModuleDefinition, get_path_value, path_exists, set_path_value
 from ..modules.access import SERVER_MANAGED_FIELDS, is_server_managed_field
+from ..vocabularies import VocabularyTermNotFound, load_vocabulary
 
 
 TRANSPORT_FIELDS = frozenset({"base_revision", "revision"})
@@ -54,7 +55,12 @@ class RecordRuntime:
         for field in self.module.fields:
             if is_server_managed_field(field.path) or (role is not None and not field.can_edit(role)):
                 continue
-            value = self._empty_value(self._schema_for_path(field.path), field)
+            if field.widget == "vocabulary_select" and field.vocabulary:
+                vocabulary = load_vocabulary(self.module.vocabularies[field.vocabulary]["path"], field.vocabulary)
+                active = vocabulary.active_terms()
+                value = {"id": active[0].id, "vocabulary_id": vocabulary.id} if active else MISSING
+            else:
+                value = self._empty_value(self._schema_for_path(field.path), field)
             if value is not MISSING:
                 set_path_value(record, field.path, value)
         return record
@@ -92,6 +98,36 @@ class RecordRuntime:
                 for error in errors
             ]
             raise RecordValidationError(messages)
+
+    def validate_vocabulary_references(self, record: dict[str, Any]) -> None:
+        errors: list[str] = []
+
+        def validate_field(field, value, path: str) -> None:
+            if field.widget == "vocabulary_select" and value is not None:
+                if not isinstance(value, dict) or not isinstance(value.get("id"), str) or not value["id"]:
+                    errors.append(f"{path}: Vocabulary-Wert muss ein term_ref mit stabiler ID sein.")
+                    return
+                if value.get("vocabulary_id") not in (None, field.vocabulary):
+                    errors.append(f"{path}: Vocabulary-ID passt nicht zum konfigurierten Vokabular.")
+                    return
+                vocabulary = load_vocabulary(self.module.vocabularies[field.vocabulary]["path"], field.vocabulary)
+                try:
+                    vocabulary.resolve(value["id"])
+                except VocabularyTermNotFound:
+                    errors.append(f"{path}: Unbekannte Term-ID {value['id']!r}.")
+            if field.widget == "repeater" and isinstance(value, list):
+                for index, item in enumerate(value):
+                    if not isinstance(item, dict):
+                        continue
+                    for item_field in field.item_fields:
+                        if path_exists(item, item_field.path):
+                            validate_field(item_field, get_path_value(item, item_field.path), f"{path}.{index}.{item_field.path}")
+
+        for field in self.module.fields:
+            if path_exists(record, field.path):
+                validate_field(field, get_path_value(record, field.path), field.path)
+        if errors:
+            raise RecordValidationError(errors)
 
     @cached_property
     def schema(self) -> dict[str, Any]:
@@ -176,6 +212,7 @@ class RecordRuntime:
             set_path_value(record, path, deepcopy(value))
         self._apply_create_metadata(record, user)
         self.validate(record)
+        self.validate_vocabulary_references(record)
         return record
 
     def prepare_update(self, existing: dict[str, Any], payload: dict[str, Any], user: Any) -> dict[str, Any]:
@@ -185,6 +222,7 @@ class RecordRuntime:
             set_path_value(updated, path, deepcopy(get_path_value(changes, path)))
         self._apply_update_metadata(updated, user)
         self.validate(updated)
+        self.validate_vocabulary_references(updated)
         return updated
 
     def _apply_create_metadata(self, record: dict[str, Any], user: Any) -> None:

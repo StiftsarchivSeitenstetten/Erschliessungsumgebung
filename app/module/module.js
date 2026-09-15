@@ -1,9 +1,10 @@
-import { FormRenderer } from "../generic/form-renderer.js?v=create-1";
+import { FormRenderer } from "../generic/form-renderer.js?v=vocabulary-2";
 import { FormState } from "../generic/form-state.js";
 import { ResultState, renderRecordList } from "../generic/record-list.js?v=create-1";
 import { RecordCreate } from "../generic/record-create.js?v=create-1";
 import { RecordUpdate } from "../generic/record-update.js?v=update-2";
 import { PresetStore, presettableFields } from "../generic/preset-store.js?v=preset-1";
+import { VocabularyClient } from "../generic/vocabulary-client.js?v=vocabulary-2";
 
 const params = new URLSearchParams(window.location.search);
 const moduleKey = params.get("module");
@@ -24,6 +25,7 @@ let currentCreate = null;
 let csrfCookieName = null;
 let saveInProgress = false;
 let presetStore = null;
+const vocabularyClient = new VocabularyClient();
 
 function currentPreset() {
   return presetStore?.load() || { values: {} };
@@ -203,6 +205,7 @@ async function init() {
   if (!moduleKey) throw new Error("Kein Modul ausgewählt.");
   csrfCookieName = (await apiFetch("/api/auth/me")).csrf_cookie_name;
   currentDescriptor = await apiFetch(`/api/modules/${encodeURIComponent(moduleKey)}`);
+  await vocabularyClient.hydrateDescriptor(currentDescriptor);
   presetStore = new PresetStore(currentDescriptor, currentDescriptor.user);
   state.sort = currentDescriptor.list?.default_sort || currentDescriptor.search?.default_sort;
   $("#module-title").textContent = currentDescriptor.label;

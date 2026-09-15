@@ -1,0 +1,15 @@
+id: rollen
+label: Rollen
+terms:
+  - id: absender
+    label: Absender
+    active: true
+    sort_order: 10
+  - id: empfaenger
+    label: Empfänger
+    active: true
+    sort_order: 20
+  - id: erwaehnt
+    label: Erwähnte Person
+    active: false
+    sort_order: 30

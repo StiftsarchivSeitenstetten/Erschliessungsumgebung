@@ -1,0 +1,30 @@
+id: dokumenttypen
+label: Dokumenttypen
+description: Kleines Architekturvokabular für einen späteren Autographen-Piloten.
+terms:
+  - id: brief
+    label: Brief
+    active: true
+    aliases: [Schreiben]
+    sort_order: 10
+  - id: postkarte
+    label: Postkarte
+    active: true
+    sort_order: 20
+  - id: telegramm
+    label: Telegramm
+    active: true
+    sort_order: 30
+  - id: manuskript
+    label: Manuskript
+    active: true
+    sort_order: 40
+  - id: sonstiges
+    label: Sonstiges
+    active: true
+    sort_order: 50
+  - id: telefax
+    label: Telefax
+    active: false
+    description: Nur zur Prüfung bereits verwendeter inaktiver Begriffe.
+    sort_order: 60

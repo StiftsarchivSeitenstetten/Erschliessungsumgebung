@@ -185,6 +185,6 @@ class ModuleDefinition:
             ],
             "search": search,
             "list": listing,
-            "vocabularies": self.vocabularies,
+            "vocabularies": sorted(self.vocabularies),
             "ui_profiles": self.ui_profiles,
         }

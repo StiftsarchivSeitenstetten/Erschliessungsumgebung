@@ -10,6 +10,7 @@ repo_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repo_root))
 
 from backend.modules import list_modules, validate_core_schemas
+from backend.vocabularies import load_vocabulary
 from foto_core import load_records, validate_collection
 
 
@@ -17,6 +18,8 @@ def main() -> int:
     try:
         validate_core_schemas()
         modules = list_modules()
+        vocabulary_paths = sorted((repo_root / "vocabularies").glob("*.yaml"))
+        vocabularies = [load_vocabulary(path, path.stem) for path in vocabulary_paths]
     except Exception as exc:
         print(f"Modulkonfiguration ungueltig: {exc}", file=sys.stderr)
         return 1
@@ -27,7 +30,7 @@ def main() -> int:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
         return 1
-    print(f"OK: {len(records)} Foto-Datensaetze validiert; {len(modules)} Modulkonfiguration(en) validiert")
+    print(f"OK: {len(records)} Foto-Datensaetze validiert; {len(modules)} Modulkonfiguration(en) und {len(vocabularies)} Vokabular(e) validiert")
     return 0
 
 

@@ -236,6 +236,30 @@ class AuthBackendTest(unittest.TestCase):
         response = self.client.get("/api/modules/foto_papierabzuege")
         self.assertEqual(response.status_code, 403)
 
+    def test_vocabulary_endpoint_requires_access_to_referencing_module(self):
+        self.create_user(username="rita", role="redaktion", ui_profile="redaktion")
+        with SessionLocal() as db:
+            user = db.scalar(select(User).where(User.username == "rita"))
+            user.module_access.append(ModuleAccess(module_key="runtime_test"))
+            db.commit()
+        self.assertEqual(self.login("rita").status_code, 200)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            module = load_module(write_runtime_module(root, write_runtime_schema(root)))
+            with patch("backend.routes.modules.list_modules", return_value=(module,)):
+                response = self.client.get("/api/vocabularies/dokumenttypen")
+                unknown = self.client.get("/api/vocabularies/unbekannt")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(unknown.status_code, 404)
+        self.assertEqual(response.json()["terms"][0]["id"], "brief")
+        self.assertTrue(response.json()["terms"][0]["active"])
+
+        self.client.post("/api/auth/logout", headers={"X-CSRF-Token": csrf_from_client(self.client)})
+        self.create_user(username="ohne-zugriff", email="ohne@example.test", modules=[])
+        self.assertEqual(self.login("ohne-zugriff").status_code, 200)
+        with patch("backend.routes.modules.list_modules", return_value=(module,)):
+            self.assertEqual(self.client.get("/api/vocabularies/dokumenttypen").status_code, 404)
+
     def test_record_edit_permissions(self):
         ehrenamt_id = self.create_user(username="anna", email="anna@example.test", role="ehrenamtlich")
         redaktion_id = self.create_user(username="rita", email="rita@example.test", role="redaktion", ui_profile="redaktion")

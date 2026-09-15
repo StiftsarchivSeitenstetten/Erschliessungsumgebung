@@ -77,6 +77,7 @@ def architecture_test_config() -> dict:
                     {"value": "de", "label": "Deutsch"},
                     {"value": "la", "label": "Latein"},
                 ]},
+                {"id": "dokumenttyp", "path": "daten.dokumenttyp", "widget": "vocabulary_select", "vocabulary": "dokumenttypen", "label": "Dokumenttyp", "order": 65},
                 {"id": "erstellt_am", "path": "technik.erstellt_am", "widget": "text", "label": "Erstellt am", "order": 70},
             ],
         }]
@@ -89,13 +90,17 @@ def architecture_test_config() -> dict:
             "daten.beteiligte": {"view": ["ehrenamtlich", "redaktion", "admin"], "edit": ["redaktion", "admin"]},
             "daten.zeitraum": {"view": ["ehrenamtlich", "redaktion", "admin"], "edit": ["redaktion", "admin"]},
             "daten.language": {"view": ["ehrenamtlich", "redaktion", "admin"], "edit": ["ehrenamtlich", "redaktion", "admin"]},
+            "daten.dokumenttyp": {"view": ["ehrenamtlich", "redaktion", "admin"], "edit": ["ehrenamtlich", "redaktion", "admin"]},
             "technik.erstellt_am": {"view": ["admin"], "edit": ["admin"]},
         }
     }
     data["search"] = {"fulltext": ["daten.name"], "filters": [{"path": "daten.zeitraum", "label": "Zeitraum", "widget": "date_range"}]}
     data["list"] = {"columns": [{"label": "Name", "path": "daten.name", "sortable": True}]}
     data["presets"] = {"enabled_fields": ["daten.name", "daten.beteiligte", "daten.zeitraum", "daten.language"], "disabled_fields": ["technik"]}
-    data["vocabularies"] = {"rollen": {"path": "../../vocabularies/redaktionsstufen.yaml"}}
+    data["vocabularies"] = {
+        "rollen": {"path": str(ROOT / "vocabularies" / "rollen.yaml")},
+        "dokumenttypen": {"path": str(ROOT / "vocabularies" / "dokumenttypen.yaml")},
+    }
     data["ui_profiles"] = {"standard": {"label": "Standard"}}
     data.pop("formats", None)
     data.pop("form_fields", None)
@@ -179,6 +184,9 @@ class ModuleRegistryTest(unittest.TestCase):
         repeater = module.get_field("beteiligte")
         self.assertEqual(repeater.widget, "repeater")
         self.assertEqual(repeater.item_fields[1].widget, "vocabulary_select")
+        self.assertEqual(repeater.item_fields[1].vocabulary, "rollen")
+        self.assertEqual(module.get_field("dokumenttyp").vocabulary, "dokumenttypen")
+        self.assertEqual(module.descriptor_for_role("redaktion")["vocabularies"], ["dokumenttypen", "rollen"])
 
     def test_descriptor_marks_required_fields_and_declared_options(self):
         module = get_module("foto_papierabzuege")

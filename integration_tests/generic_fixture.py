@@ -9,6 +9,7 @@ from backend.modules import load_module
 MODULE_KEY = "generic_integration_test"
 DATA_DIR = "data/integration-test"
 STATE_PATH = "state/integration-test.json"
+APP_ROOT = Path(__file__).resolve().parents[1]
 
 
 def make_module(directory: Path):
@@ -39,6 +40,8 @@ def make_module(directory: Path):
                         "required": ["name"], "properties": {"name": {"type": "string"}},
                     }},
                     "zeitraum": {"$ref": "https://stiftsarchiv-seitenstetten.github.io/erschliessungsumgebung/schemas/core-datatypes.schema.json#/$defs/date_range"},
+                    "dokumenttyp": {"$ref": "https://stiftsarchiv-seitenstetten.github.io/erschliessungsumgebung/schemas/core-datatypes.schema.json#/$defs/term_ref"},
+                    "funktion": {"$ref": "https://stiftsarchiv-seitenstetten.github.io/erschliessungsumgebung/schemas/core-datatypes.schema.json#/$defs/term_ref"},
                 },
             },
             "technik": {
@@ -60,6 +63,10 @@ def make_module(directory: Path):
          "item_fields": [{"path": "name", "widget": "text", "label": "Name", "order": 0}]},
         {"path": "daten.zeitraum", "widget": "date_range", "label": "Testzeitraum", "order": 30, "presettable": True},
         {"path": "daten.intern", "widget": "text", "label": "Redaktioneller Testwert", "order": 40},
+        {"path": "daten.dokumenttyp", "widget": "vocabulary_select", "vocabulary": "dokumenttypen",
+         "label": "Dokumenttyp", "order": 50, "presettable": True},
+        {"path": "daten.funktion", "widget": "vocabulary_select", "vocabulary": "rollen",
+         "label": "Rolle", "order": 60},
     ]
     rights = {field["path"]: {"view": roles, "edit": roles} for field in fields}
     rights["signatur.anzeige"]["edit"] = []
@@ -77,7 +84,11 @@ def make_module(directory: Path):
         "form": {"sections": [{"id": "test", "label": "Integrationstest", "order": 0, "fields": fields}]},
         "access": {"fields": rights}, "search": {"fulltext": ["daten.text"], "filters": []},
         "list": {"columns": [{"label": "Testtext", "path": "daten.text"}]},
-        "presets": {"enabled_fields": ["daten.text", "daten.personen", "daten.zeitraum"], "disabled_fields": []},
+        "presets": {"enabled_fields": ["daten.text", "daten.personen", "daten.zeitraum", "daten.dokumenttyp"], "disabled_fields": []},
+        "vocabularies": {
+            "dokumenttypen": {"path": str(APP_ROOT / "vocabularies" / "dokumenttypen.yaml")},
+            "rollen": {"path": str(APP_ROOT / "vocabularies" / "rollen.yaml")},
+        },
     }
     module_path = directory / "integration.yaml"
     module_path.write_text(json.dumps(config), encoding="utf-8")
@@ -90,4 +101,6 @@ def sample_payload():
         "personen": [{"name": "Testperson Eins"}, {"name": "Testperson Zwei"}],
         "zeitraum": {"from": {"year": 1900}, "to": {"year": 1901}, "display": "1900-1901"},
         "intern": "Nur redaktionell sichtbarer Integrationstestwert",
+        "dokumenttyp": {"id": "brief", "vocabulary_id": "dokumenttypen"},
+        "funktion": {"id": "absender", "vocabulary_id": "rollen"},
     }}
