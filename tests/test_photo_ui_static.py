@@ -73,6 +73,10 @@ class PhotoUiStaticTest(unittest.TestCase):
         self.assertIn('type="radio" name="format"', script)
         for field in ("datierung-von", "datierung-bis", "datierung-hinweis"):
             self.assertIn(f'id="{field}"', html)
+        self.assertIn(
+            '<p class="help-text" hidden>Archivis-Exportwert: <strong id="archivis-date">-</strong></p>',
+            html,
+        )
         self.assertIn("refreshSignatureSuggestion", script)
         self.assertIn("signatureManuallyEdited", script)
         self.assertIn('signature_partition=', script)
