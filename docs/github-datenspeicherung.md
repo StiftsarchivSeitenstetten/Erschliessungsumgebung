@@ -102,6 +102,15 @@ Datensatz und State werden niemals in getrennten Commits geschrieben.
 Beim Lesen eines bestehenden Datensatzes liefert die API eine `base_revision` mit. Beim Speichern per `PUT` muss der Client diese Revision mitsenden.
 Der Dirty State bezieht sich auf den zuletzt vom Backend bestätigten Datensatzstand und wird nach jedem erfolgreichen Save neu berechnet.
 
+Der Foto-Pilot unterscheidet zentral folgende Speicherzustände:
+
+- `clean`: Der aktuelle Arbeitsstand entspricht ausschließlich dem zuletzt vom Backend bestätigten Stand.
+- `dirty`: Es liegen ungespeicherte Änderungen vor.
+- `saving`: Der festgehaltene Snapshot wird gerade übertragen.
+- `auth_error`, `conflict`, `validation_error`, `error`: Der Save ist fehlgeschlagen; die lokalen Änderungen bleiben erhalten.
+
+`queued` ist als künftiger Zustand vorgesehen und wird später durch die persistente Speicherwarteschlange ergänzt. Der Foto-Pilot wechselt derzeit noch nicht in diesen Zustand.
+
 Ist die gespeicherte Fassung nicht mehr dieselbe, antwortet das Backend mit `409 Conflict`:
 
 ```text

@@ -2,6 +2,38 @@ const PRESET_KEY = "erschliessung.papierabzuege.activePreset.v2";
 const PROFILE_KEY = "erschliessung.papierabzuege.profile";
 const LOCAL_RECORDS_KEY = "erschliessung.papierabzuege.localRecords";
 const REQUIRED_MODULE = "foto_papierabzuege";
+const SAVE_STATES = Object.freeze({
+  CLEAN: "clean",
+  DIRTY: "dirty",
+  QUEUED: "queued",
+  SAVING: "saving",
+  AUTH_ERROR: "auth_error",
+  CONFLICT: "conflict",
+  VALIDATION_ERROR: "validation_error",
+  ERROR: "error"
+});
+const SAVE_STATE_MESSAGES = Object.freeze({
+  [SAVE_STATES.CLEAN]: "Gespeichert",
+  [SAVE_STATES.DIRTY]: "Ungespeicherte Änderungen",
+  [SAVE_STATES.QUEUED]: "Für Speicherung vorgemerkt",
+  [SAVE_STATES.SAVING]: "Wird gespeichert …",
+  [SAVE_STATES.AUTH_ERROR]: "Anmeldung erforderlich – Änderungen nicht gespeichert",
+  [SAVE_STATES.CONFLICT]: "Speicherkonflikt – Änderungen nicht gespeichert",
+  [SAVE_STATES.VALIDATION_ERROR]: "Datensatz kann so nicht gespeichert werden",
+  [SAVE_STATES.ERROR]: "Speichern fehlgeschlagen – Änderungen bleiben erhalten"
+});
+const SAVE_FAILURE_MESSAGES = Object.freeze({
+  [SAVE_STATES.AUTH_ERROR]: "Anmeldung erforderlich. Ihre Änderungen bleiben erhalten.",
+  [SAVE_STATES.CONFLICT]: "Der Datensatz wurde inzwischen anderweitig geändert. Ihre Änderungen bleiben erhalten.",
+  [SAVE_STATES.VALIDATION_ERROR]: "Der Datensatz enthält Angaben, die nicht gespeichert werden können.",
+  [SAVE_STATES.ERROR]: "Speichern derzeit nicht möglich. Ihre Änderungen bleiben erhalten."
+});
+const FAILURE_SAVE_STATES = new Set([
+  SAVE_STATES.AUTH_ERROR,
+  SAVE_STATES.CONFLICT,
+  SAVE_STATES.VALIDATION_ERROR,
+  SAVE_STATES.ERROR
+]);
 const USER_PROFILE_MAP = {
   "ehrenamt-standard": "standard",
   "ehrenamt-barrierearm": "barrierearm",
@@ -24,7 +56,7 @@ const state = {
   baseRevision: null,
   serverSnapshot: null,
   pendingSnapshot: null,
-  saving: false,
+  saveState: SAVE_STATES.DIRTY,
   maySaveEditingRecord: false
 };
 
@@ -35,6 +67,7 @@ const generateButton = document.querySelector("#generate");
 const downloadButton = document.querySelector("#download");
 const finalizeButton = document.querySelector("#finalize");
 const discardButton = document.querySelector("#discard-changes");
+const saveStatus = document.querySelector("#save-status");
 const numberOutput = document.querySelector("#number-output");
 const signatureOutput = document.querySelector("#signature-output");
 const archivisDateOutput = document.querySelector("#archivis-date");
@@ -87,7 +120,9 @@ async function loadCurrentUser() {
   const response = await fetch("/api/auth/me", { credentials: "same-origin" });
   if (response.status === 401) {
     window.location.href = "/login/";
-    throw new Error("Nicht angemeldet");
+    const error = new Error("Nicht angemeldet");
+    error.status = response.status;
+    throw error;
   }
   if (!response.ok) throw new Error("Benutzer konnte nicht geladen werden.");
   const user = await response.json();
@@ -120,9 +155,11 @@ async function apiFetch(url, options = {}) {
     ...options,
     headers
   });
-  if (response.status === 401) {
+  if (response.status === 401 && (!options.method || options.method === "GET")) {
     window.location.href = "/login/";
-    throw new Error("Nicht angemeldet");
+    const error = new Error("Nicht angemeldet");
+    error.status = response.status;
+    throw error;
   }
   return response;
 }
@@ -305,13 +342,12 @@ function applyLoadedRecord(record, baseRevision) {
   fillFormFromRecord(record);
   state.serverSnapshot = formSnapshot();
   state.pendingSnapshot = null;
-  state.saving = false;
   updateSignatureOutput();
   updateArchivisDate();
   updateRecordNavigation();
   const maySave = !(state.user.role === "ehrenamtlich" && record.redaktion?.stufe === "redaktionell");
   state.maySaveEditingRecord = maySave;
-  updateDirtyState();
+  setSaveState(SAVE_STATES.CLEAN);
   errors.innerHTML = maySave
     ? "<p>Datensatz geladen.</p>"
     : "<p>Dieser redaktionelle Datensatz kann mit deiner Rolle gelesen, aber nicht gespeichert werden.</p>";
@@ -382,19 +418,42 @@ function hasUnsavedChanges() {
   return formSnapshot() !== state.serverSnapshot;
 }
 
-function updateDirtyState() {
-  const dirty = hasUnsavedChanges();
+function isSaveInProgress() {
+  return state.saveState === SAVE_STATES.SAVING || state.saveState === SAVE_STATES.QUEUED;
+}
+
+function updateSaveControls(dirty = hasUnsavedChanges()) {
   form.dataset.dirty = dirty ? "true" : "false";
   if (state.mode === "edit" && state.editingRecord) {
-    finalizeButton.disabled = state.saving || !state.maySaveEditingRecord || !dirty;
-    discardButton.disabled = state.saving || !dirty;
+    finalizeButton.disabled = isSaveInProgress() || !state.maySaveEditingRecord || !dirty;
+    discardButton.disabled = isSaveInProgress() || !dirty;
   } else {
     discardButton.disabled = true;
   }
 }
 
+function setSaveState(nextState) {
+  if (!Object.values(SAVE_STATES).includes(nextState)) throw new Error(`Unbekannter Speicherzustand: ${nextState}`);
+  if (FAILURE_SAVE_STATES.has(state.saveState) && state.saveState !== nextState) errors.innerHTML = "";
+  state.saveState = nextState;
+  form.dataset.saveState = nextState;
+  saveStatus.dataset.state = nextState;
+  saveStatus.textContent = SAVE_STATE_MESSAGES[nextState];
+  updateSaveControls();
+}
+
+function updateDirtyState() {
+  if (!(state.mode === "edit" && state.editingRecord)) {
+    setSaveState(SAVE_STATES.DIRTY);
+    return;
+  }
+  const dirty = hasUnsavedChanges();
+  if (isSaveInProgress()) updateSaveControls(dirty);
+  else setSaveState(dirty ? SAVE_STATES.DIRTY : SAVE_STATES.CLEAN);
+}
+
 function discardChanges() {
-  if (!(state.mode === "edit" && state.editingRecord) || state.saving) return;
+  if (!(state.mode === "edit" && state.editingRecord) || isSaveInProgress()) return;
   fillFormFromRecord(state.editingRecord);
   updateSignatureOutput();
   updateArchivisDate();
@@ -690,7 +749,10 @@ function generateRecord() {
   const record = readRecord();
   const messages = validate(record);
   showErrors(messages);
-  if (messages.length) return;
+  if (messages.length) {
+    setSaveState(SAVE_STATES.VALIDATION_ERROR);
+    return;
+  }
   state.generatedMarkdown = toMarkdown(record);
   state.generatedFilename = `${record.id}.md`;
   preview.value = state.generatedMarkdown;
@@ -712,14 +774,35 @@ function readProductivePayload(baseRevision = state.baseRevision) {
   return { ...readWorkingRecord(), base_revision: baseRevision };
 }
 
+function failureSaveState(status) {
+  if (status === 401 || status === 403) return SAVE_STATES.AUTH_ERROR;
+  if (status === 409) return SAVE_STATES.CONFLICT;
+  if (status === 422) return SAVE_STATES.VALIDATION_ERROR;
+  return SAVE_STATES.ERROR;
+}
+
+function showSaveFailure(saveState, detail = null) {
+  const messages = [SAVE_FAILURE_MESSAGES[saveState]];
+  if (
+    (saveState === SAVE_STATES.CONFLICT || saveState === SAVE_STATES.VALIDATION_ERROR) &&
+    detail
+  ) {
+    messages.push(...(Array.isArray(detail) ? detail : [detail]));
+  }
+  showErrors(messages);
+}
+
 async function finalizeRecord() {
   const editingExistingRecord = state.mode === "edit" && state.editingRecord;
-  if (state.saving || (!editingExistingRecord && state.finalizedCurrentDraft)) return;
+  if (isSaveInProgress() || (!editingExistingRecord && state.finalizedCurrentDraft)) return;
   if (editingExistingRecord && !hasUnsavedChanges()) return;
   const record = readRecord();
   const messages = validate(record);
   showErrors(messages);
-  if (messages.length) return;
+  if (messages.length) {
+    setSaveState(SAVE_STATES.VALIDATION_ERROR);
+    return;
+  }
   if (state.backendMode) {
     const url = editingExistingRecord
       ? `/api/records/photos/${state.editingRecord.id}`
@@ -729,8 +812,7 @@ async function finalizeRecord() {
     const workingRecord = readWorkingRecord();
     const payload = { ...workingRecord, base_revision: baseRevision };
     state.pendingSnapshot = JSON.stringify(workingRecord);
-    state.saving = true;
-    updateDirtyState();
+    setSaveState(SAVE_STATES.SAVING);
     try {
       const response = await apiFetch(url, {
         method,
@@ -739,8 +821,10 @@ async function finalizeRecord() {
       });
       if (!response.ok) {
         const detail = await response.json().catch(() => ({}));
-        const message = Array.isArray(detail.detail) ? detail.detail.join("; ") : detail.detail || "Datensatz konnte nicht gespeichert werden.";
-        showErrors([message]);
+        const failedState = failureSaveState(response.status);
+        state.pendingSnapshot = null;
+        setSaveState(failedState);
+        showSaveFailure(failedState, detail.detail);
         return;
       }
       const saved = await response.json();
@@ -759,17 +843,23 @@ async function finalizeRecord() {
       } else {
         state.finalizedCurrentDraft = true;
       }
-      downloadButton.disabled = true;
-      await refreshRecords();
-      updateRecordNavigation();
-      errors.innerHTML = `<p>Datensatz ${saved.record.signatur.anzeige} wurde gespeichert.</p>`;
-      updateSignatureOutput();
-    } catch (error) {
-      showErrors([error.message || "Datensatz konnte nicht gespeichert werden."]);
-    } finally {
       state.pendingSnapshot = null;
-      state.saving = false;
-      updateDirtyState();
+      downloadButton.disabled = true;
+      await refreshRecords().catch((error) => console.error("Datensatzliste konnte nach dem Speichern nicht aktualisiert werden.", error));
+      updateRecordNavigation();
+      errors.innerHTML = "";
+      updateSignatureOutput();
+      if (editingExistingRecord) {
+        setSaveState(hasUnsavedChanges() ? SAVE_STATES.DIRTY : SAVE_STATES.CLEAN);
+      } else {
+        setSaveState(SAVE_STATES.CLEAN);
+      }
+    } catch (error) {
+      state.pendingSnapshot = null;
+      const failedState = failureSaveState(error.status);
+      setSaveState(failedState);
+      showSaveFailure(failedState);
+      console.error("Datensatz konnte nicht gespeichert werden.", error);
     }
     return;
   }
@@ -827,7 +917,6 @@ function startNewRecord() {
   state.baseRevision = null;
   state.serverSnapshot = null;
   state.pendingSnapshot = null;
-  state.saving = false;
   state.maySaveEditingRecord = false;
   state.mode = "new";
   document.querySelector("#mode-new").classList.add("active");
@@ -843,6 +932,7 @@ function startNewRecord() {
   finalizeButton.disabled = true;
   errors.innerHTML = "";
   form.dataset.dirty = "false";
+  setSaveState(SAVE_STATES.DIRTY);
   const url = new URL(window.location.href);
   url.searchParams.delete("record");
   window.history.replaceState({}, "", url);

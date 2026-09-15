@@ -26,6 +26,9 @@ class PhotoUiStaticTest(unittest.TestCase):
         self.assertIn("Ungespeicherte Änderungen verwerfen", script)
         self.assertIn('id="discard-changes"', html)
         self.assertIn("function discardChanges()", script)
+        self.assertIn('id="save-status"', html)
+        self.assertIn("const SAVE_STATES", script)
+        self.assertIn("function setSaveState(nextState)", script)
 
     def test_direct_record_url_parameter_is_supported(self):
         script = (ROOT / "app" / "app.js").read_text(encoding="utf-8")
