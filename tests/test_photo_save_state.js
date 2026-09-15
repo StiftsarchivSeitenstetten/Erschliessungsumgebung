@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 require("../app/generic/save-queue.js");
+require("../app/generic/date-text.js");
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 class Element {
@@ -34,7 +35,8 @@ const selectors = [
   "#preset-field-list", "#current-user", "#record-browser", "#record-search", "#record-list", "#record-nav-top",
   "#record-nav-bottom", "#personen-list", "#beschriftung", "#titel", "#beschreibung", "#herkunft", "#sammler",
   "#fotograf", "#rechteinhaber", "#orte", "#schlagworte", "#altsignaturen", "#interne-bemerkung",
-  "#korrespondenzstueck", "#datierung-einfach", "#datierung-anmerkung", "#original-datum", "#mode-new", "#mode-edit"
+  "#korrespondenzstueck", "#datierung-von", "#datierung-bis", "#datierung-hinweis", "#date-warnings", "#original-datum",
+  "#legacy-status-panel", "#mode-new", "#mode-edit"
 ];
 const elements = Object.fromEntries(selectors.map((selector) => [selector, new Element(selector)]));
 elements["#record-form"].reset = () => {
@@ -118,6 +120,35 @@ async function runSaveStateTests() {
   state.user = { role: "redaktion", ui_profile: "redaktion", csrf_cookie_name: "csrf" };
   state.records = [testRecord("A"), testRecord("Other", "foto-000002", 2)];
   refreshRecords = async () => {};
+
+  state.mode = "new";
+  state.format = "A";
+  apiFetch = async (url) => ({ ok: true, async json() { return {
+    identity_suggestion: { "signatur.anzeige": url.includes("partition=B") ? "9.4.2.B.4" : "9.4.2.A.8" }
+  }; } });
+  await refreshSignatureSuggestion("A");
+  assert.equal(signatureOutput.value, "9.4.2.A.8", "a new record gets the central suggestion");
+  state.format = "B";
+  await refreshSignatureSuggestion("B");
+  assert.equal(signatureOutput.value, "9.4.2.B.4", "format changes refresh an untouched suggestion");
+  signatureOutput.value = "Manuelle Signatur";
+  state.signatureManuallyEdited = true;
+  state.format = "A";
+  await refreshSignatureSuggestion("A");
+  assert.equal(signatureOutput.value, "Manuelle Signatur", "manual overrides survive later format changes");
+
+  elements["#datierung-von"].value = "1900";
+  elements["#datierung-bis"].value = "";
+  assert.deepEqual(reviewVisibleDate().warnings, [], "a point date needs no end date");
+  assert.equal(readDatierung().jahr, 1900);
+  elements["#datierung-bis"].value = "1901";
+  assert.deepEqual(reviewVisibleDate().warnings, [], "a chronological range is accepted");
+  assert.equal(readDatierung().bis_jahr, 1901);
+  elements["#datierung-bis"].value = "1890";
+  assert.match(reviewVisibleDate({ show: true }).warnings[0], /liegt nach/, "reverse ranges produce a save-time warning");
+  elements["#datierung-von"].value = "";
+  elements["#datierung-bis"].value = "";
+
   assert.equal(failureSaveState(401), SAVE_STATES.AUTH_ERROR);
   assert.equal(failureSaveState(403), SAVE_STATES.AUTH_ERROR);
   assert.equal(failureSaveState(409), SAVE_STATES.CONFLICT);
@@ -127,6 +158,9 @@ async function runSaveStateTests() {
   const events = [];
   configureQueue(events);
   applyLoadedRecord(testRecord("A"), "rev-a");
+  assert.equal(Object.prototype.hasOwnProperty.call(readDatierung(), "bis_jahr"), false, "opening an old point date does not add range fields");
+  await refreshSignatureSuggestion("B");
+  assert.equal(signatureOutput.value, "9.4.2.A.1", "existing record signatures are never replaced by suggestions");
   elements["#titel"].value = "B";
   updateDirtyState();
   let updatePayload;
@@ -194,8 +228,8 @@ async function runSaveStateTests() {
   assert.equal(elements["#korrespondenzstueck"].checked, false, "a new record resets the correspondence checkbox");
   state.format = "A"; formatInput.checked = true; elements["#beschriftung"].value = "New photo";
   updateSignatureOutput();
-  assert.equal(numberOutput.textContent, "-");
-  assert.match(signatureOutput.textContent, /reserviert/);
+  assert.equal(numberOutput.textContent, "–");
+  assert.match(signatureOutput.value, /Signaturvorschlag/);
   let createPayload;
   apiFetch = async (url, options) => {
     if (url.endsWith("/reservations")) {
@@ -213,7 +247,7 @@ async function runSaveStateTests() {
   await finalizeRecord();
   assert.equal(state.saveState, SAVE_STATES.QUEUED);
   assert.equal(state.currentDraft.id, "foto-000010");
-  assert.equal(signatureOutput.textContent, "9.4.2.A.10", "reserved identity becomes visible immediately");
+  assert.equal(signatureOutput.value, "9.4.2.A.10", "reserved identity becomes visible immediately");
   assert.equal(hasUnsecuredChanges(), false);
   const createEntry = await saveQueueStore.get("operation-5");
   assert.equal(createEntry.record_id, "foto-000010");
@@ -343,7 +377,7 @@ return runSaveStateTests();
 `;
 
 const runTests = new Function(
-  "assert", "elements", "document", "window", "localStorage", "fetch", "console", "MemoryStore", "createSaveQueueEntry", "createSaveQueueProcessor", "formatInput", source + test
+  "assert", "elements", "document", "window", "localStorage", "fetch", "console", "MemoryStore", "createSaveQueueEntry", "createSaveQueueProcessor", "formatInput", "DateTextFields", source + test
 );
-runTests(assert, elements, document, window, localStorage, async () => { throw new Error("unexpected fetch"); }, { error() {} }, MemoryStore, createSaveQueueEntry, createSaveQueueProcessor, formatInput)
+runTests(assert, elements, document, window, localStorage, async () => { throw new Error("unexpected fetch"); }, { error() {} }, MemoryStore, createSaveQueueEntry, createSaveQueueProcessor, formatInput, globalThis.DateTextFields)
   .catch((error) => { console.error(error); process.exitCode = 1; });

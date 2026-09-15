@@ -21,7 +21,7 @@ from backend.database import Base, SessionLocal, engine
 from backend.github.repository import InMemoryGitRepository
 from backend.main import create_app
 from backend.modules import get_module, list_modules
-from backend.permissions import MODULE_AUTOGRAPHEN_9_6
+from backend.permissions import MODULE_AUTOGRAPHEN_9_6, MODULE_FOTO_PAPIERABZUEGE
 from backend.records.generic_read import parse_record_content
 from backend.records.generic_write import create_generic_record, update_generic_record
 from backend.records.module_index import dump_index, make_index, query_index, read_module_index
@@ -55,6 +55,7 @@ def sample_payload(*, internal=True, ranged=False):
             "altsignatur": "Autogr. 42",
         },
         "datierung": {"from": {"year": 1875, "month": 4, "day": 12}},
+        "korrespondenzstueck": True,
     }
     if ranged:
         payload["datierung"]["to"] = {"year": 1876}
@@ -103,7 +104,8 @@ class AutographModuleTest(unittest.TestCase):
         self.assertEqual(self.module.create_strategy["identity_assignment"], "on_create")
         self.assertTrue(self.module.create_strategy["show_identity_suggestion"])
         self.assertEqual(self.module.presettable_fields, ("erschliessung.altsignatur",))
-        self.assertEqual(len(self.module.sections), 7)
+        self.assertEqual(len(self.module.sections), 8)
+        self.assertEqual(self.module.get_field_by_path("korrespondenzstueck").widget, "checkbox")
         repeater = self.module.get_field_by_path("erschliessung.beteiligte")
         self.assertEqual(repeater.widget, "repeater")
         self.assertEqual([field.path for field in repeater.item_fields], ["agent.type", "agent.name", "rolle", "notiz"])
@@ -129,6 +131,7 @@ class AutographModuleTest(unittest.TestCase):
         self.assertEqual(len(full.data["erschliessung"]["beteiligte"]), 2)
         self.assertEqual(full.data["datierung"]["from"], {"year": 1875, "month": 4, "day": 12})
         self.assertEqual(full.data["datierung"]["to"], {"year": 1876})
+        self.assertTrue(full.data["korrespondenzstueck"])
         self.assertEqual(full.data["erschliessung"]["interne_bemerkung"], "Nur intern.")
         open_end = sample_payload()
         open_end["datierung"]["to"] = None
@@ -251,6 +254,23 @@ class AutographApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 201, response.text)
         self.assertEqual(response.json()["record"]["signatur"]["anzeige"], "9.6.1")
         self.assertEqual(json.loads(self.repository.files[self.module.storage["state"]["path"]])["next_signature_number"]["A"], 2)
+
+    def test_photo_signature_suggestion_uses_selected_partition_without_reserving(self):
+        photo = get_module(MODULE_FOTO_PAPIERABZUEGE)
+        state = {"next_record_id": 12, "next_signature_number": {"A": 8, "B": 4, "C": 3, "D": 2, "E": 1, "F": 1}}
+        self.repository.files[photo.storage["state"]["path"]] = json.dumps(state)
+        with SessionLocal() as db:
+            create_user(
+                db, username="photo-suggestion", display_name="Photo", email=None,
+                role="redaktion", ui_profile="redaktion", modules=[MODULE_FOTO_PAPIERABZUEGE], password="SehrGeheim123",
+            )
+            db.commit()
+        self.client.post("/api/auth/login", json={"login": "photo-suggestion", "password": "SehrGeheim123"})
+        before = self.repository.files[photo.storage["state"]["path"]]
+        response = self.client.get(f"/api/modules/{MODULE_FOTO_PAPIERABZUEGE}?signature_partition=B")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["identity_suggestion"]["signatur.anzeige"], "9.4.2.B.4")
+        self.assertEqual(self.repository.files[photo.storage["state"]["path"]], before)
 
     def test_autograph_write_requires_explicit_module_allowlist(self):
         self.app.state.generic_write_modules = set()

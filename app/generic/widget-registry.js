@@ -7,6 +7,9 @@ import {
   isEmptyValue
 } from "./path-utils.js";
 import { canonicalTermReference, vocabularyFieldOptions, vocabularyTermId } from "./vocabulary-client.js?v=vocabulary-2";
+import "./date-text.js";
+
+const dateText = globalThis.DateTextFields;
 
 function element(tag, attributes = {}, children = []) {
   const node = document.createElement(tag);
@@ -195,35 +198,84 @@ const dateWidget = {
   }
 };
 
+function dateTextInput(context, part, label, value) {
+  const id = `${context.inputId}-${part}`;
+  return element("div", { className: "generic-date-text-field" }, [
+    element("label", { for: id, textContent: label }),
+    element("input", {
+      id,
+      type: "text",
+      inputmode: "numeric",
+      "data-date-text": part,
+      value: dateText.format(value),
+      disabled: !editable(context)
+    })
+  ]);
+}
+
+function rangeDate(original, key, parsed) {
+  const originalDate = original?.[key];
+  return dateText.withKeys(parsed, originalDate, "english");
+}
+
 const dateRangeWidget = {
   render(context) {
     if (context.mode === "read") return element("output", { id: context.inputId, textContent: formatDateRangeValue(context.value) });
+    const noteId = `${context.inputId}-note`;
     return element("fieldset", { id: context.inputId, className: "generic-date-range" }, [
-      element("legend", { textContent: "Zeitraum" }),
-      ...renderDateInputs(context, "from", context.value?.from || context.value?.von || {}),
-      ...renderDateInputs(context, "to", context.value?.to || context.value?.bis || {}),
-      element("input", { type: "text", "data-range-part": "display", value: context.value?.display ?? "", disabled: !editable(context) }),
-      element("input", { type: "text", "data-range-part": "certainty", value: context.value?.certainty ?? "", disabled: !editable(context) }),
-      element("input", { type: "text", "data-range-part": "note", value: context.value?.hinweis ?? context.value?.note ?? "", disabled: !editable(context) })
+      element("legend", { className: "visually-hidden", textContent: "Datierung" }),
+      dateTextInput(context, "from", "Von", context.value?.from || context.value?.von),
+      dateTextInput(context, "to", "Bis", context.value?.to || context.value?.bis),
+      element("div", { className: "generic-date-text-field generic-date-note" }, [
+        element("label", { for: noteId, textContent: "Hinweis" }),
+        element("input", { id: noteId, type: "text", "data-date-text": "note", value: context.value?.hinweis ?? context.value?.note ?? "", disabled: !editable(context) })
+      ]),
+      element("p", { className: "warnings generic-date-warnings", "data-date-warnings": "", role: "status", hidden: true })
     ]);
   },
   readValue(context, root) {
     const original = context.originalValue || {};
     const value = {...original};
-    for (const [part, key] of [["from", "von" in original ? "von" : "from"], ["to", "bis" in original ? "bis" : "to"]]) {
-      const date = readDateInputs(root, part, original[key]);
-      if (date !== undefined) value[key] = date;
-    }
-    for (const [part, key] of [["display", "display"], ["certainty", "certainty"], ["note", "note" in original ? "note" : "hinweis"]]) {
-      retainOptionalPart(value, original, key, root.querySelector(`[data-range-part='${part}']`).value);
-    }
-    return Object.keys(value).length ? value : cloneValue(context.originalValue);
+    const fromKey = "von" in original ? "von" : "from";
+    const toKey = "bis" in original ? "bis" : "to";
+    const review = dateText.review(
+      root.querySelector("[data-date-text='from']").value,
+      root.querySelector("[data-date-text='to']").value
+    );
+    const fromDate = rangeDate(original, fromKey, review.from);
+    const toDate = rangeDate(original, toKey, review.to);
+    if (fromDate || Object.prototype.hasOwnProperty.call(original, fromKey)) value[fromKey] = fromDate;
+    if (toDate || Object.prototype.hasOwnProperty.call(original, toKey)) value[toKey] = toDate;
+    const noteKey = "note" in original ? "note" : "hinweis";
+    const note = root.querySelector("[data-date-text='note']").value.trim();
+    if (note || Object.prototype.hasOwnProperty.call(original, noteKey)) value[noteKey] = note || null;
+    if (!value[fromKey] && !value[toKey] && !value[noteKey]) return null;
+    return value;
   },
   setValue(context, root, value) {
     context.value = value;
     root.replaceWith(dateRangeWidget.render(context));
   }
 };
+
+export function reviewDateTextFields(root, { show = false } = {}) {
+  const results = Array.from(root.querySelectorAll(".generic-date-range")).map(fieldset => {
+    const result = dateText.review(
+      fieldset.querySelector("[data-date-text='from']").value,
+      fieldset.querySelector("[data-date-text='to']").value
+    );
+    const output = fieldset.querySelector("[data-date-warnings]");
+    if (show && output) {
+      output.hidden = result.warnings.length === 0;
+      output.textContent = result.warnings.join(" ");
+    }
+    return result;
+  });
+  return {
+    warnings: results.flatMap(result => result.warnings),
+    blocking: results.some(result => result.blocking)
+  };
+}
 
 const vocabularySelectWidget = {
   render(context) {

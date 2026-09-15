@@ -7,9 +7,11 @@ import { createIndexedDbSaveQueueStore } from "../generic/module-save-queue-stor
 import { createSaveQueueProcessor, queueEntryMatchesContext, queueRecordKey, queueStatusMessage } from "../generic/module-save-queue.js?v=queue-isolation-1";
 import { PresetStore, presettableFields } from "../generic/preset-store.js?v=preset-1";
 import { VocabularyClient } from "../generic/vocabulary-client.js?v=vocabulary-2";
+import { reviewDateTextFields } from "../generic/widget-registry.js?v=vocabulary-2";
 
 const params = new URLSearchParams(window.location.search);
 const moduleKey = params.get("module");
+const debugMode = params.get("debug") === "1";
 const $ = selector => document.querySelector(selector);
 const preview = $("#record-preview");
 const payloadPreview = $("#payload-preview");
@@ -93,6 +95,8 @@ function updateQueueStatus(entries = []) {
   }
   const first = entries[0];
   const workerRunning = Boolean(saveQueueProcessor?.isRunning());
+  const needsRecovery = Boolean(queueInitializationError || first && !["queued", "reserving", "saving"].includes(first.status));
+  $("#queue-panel").hidden = !needsRecovery;
   $("#open-queue-entry").disabled = !first;
   $("#discard-queue-entry").disabled = !first || workerRunning;
   $("#retry-queue").disabled = !first || workerRunning || ["conflict", "validation_error"].includes(first.status);
@@ -127,10 +131,10 @@ async function handleQueueChange(entry, entries) {
   const context = entry ? queueContexts.get(entry.operation_id) : null;
   if (context) context.status = entry.status;
   if (!entry || !queueEntryMatchesCurrent(entry)) return;
-  if (entry.status === "queued") $("#save-status").textContent = "Lokal gesichert – Übertragung ausstehend.";
-  if (entry.status === "saving") $("#save-status").textContent = "Wird übertragen …";
+  if (entry.status === "queued") $("#save-status").textContent = "Speichern …";
+  if (entry.status === "saving") $("#save-status").textContent = "Speichern …";
   if (["auth_error", "conflict", "validation_error", "error"].includes(entry.status)) {
-    $("#save-status").textContent = "Nicht als serverseitig gespeichert bestätigt.";
+    $("#save-status").textContent = "Speicherfehler";
     $("#module-error").textContent = queueFailureMessage(entry);
   }
 }
@@ -207,7 +211,7 @@ async function handleQueueSuccess(entry, data) {
       state.creating = false;
       currentUpdate = new RecordUpdate(currentDescriptor.module, data.record_id, currentFormState, data.meta.revision);
       currentCreate = null;
-      $("#save-record").textContent = "Speichern";
+      $("#save-record").textContent = "Datensatz speichern";
       updateUrl();
     } else {
       context.update.revision = data.meta.revision;
@@ -217,7 +221,7 @@ async function handleQueueSuccess(entry, data) {
     updatePayloadPreview();
     $("#save-status").textContent = context.formState.isDirty()
       ? "Zwischenstand gespeichert; weitere Änderungen sind noch nicht gespeichert."
-      : "Gespeichert.";
+      : "Gespeichert";
   }
 }
 
@@ -230,7 +234,7 @@ async function handleQueueError(entry, error, details) {
     return;
   }
   if (queueEntryMatchesCurrent(entry)) {
-    $("#save-status").textContent = "Nicht als serverseitig gespeichert bestätigt.";
+    $("#save-status").textContent = "Speicherfehler";
     $("#module-error").textContent = queueFailureMessage(entry);
   }
   console.error("Vorgemerkter Datensatz konnte nicht gespeichert werden.", error);
@@ -284,14 +288,14 @@ async function openQueuedSnapshot(entry, push = true) {
     currentUpdate = null;
     state.recordId = entry.record_id;
     state.creating = true;
-    $("#save-record").textContent = "Datensatz anlegen";
+    $("#save-record").textContent = "Datensatz speichern";
   } else {
     currentUpdate = new RecordUpdate(currentDescriptor.module, entry.record_id, currentFormState, entry.base_revision);
     currentCreate = null;
     state.recordId = entry.record_id;
     state.lastRecordId = entry.record_id;
     state.creating = false;
-    $("#save-record").textContent = "Speichern";
+    $("#save-record").textContent = "Datensatz speichern";
   }
   queueContexts.set(entry.operation_id, {
     operationId: entry.operation_id,
@@ -374,7 +378,7 @@ async function openRecord(moduleDescriptor, recordId, push = true) {
   currentFormState = new FormState(moduleDescriptor, data.record);
   currentUpdate = new RecordUpdate(moduleDescriptor.module, recordId, currentFormState, data.meta.revision);
   currentCreate = null;
-  $("#save-status").textContent = "";
+  $("#save-status").textContent = "Gespeichert";
   state.recordId = recordId;
   state.lastRecordId = recordId;
   state.creating = false;
@@ -383,7 +387,7 @@ async function openRecord(moduleDescriptor, recordId, push = true) {
   payloadPreview.textContent = "";
   toggleEdit.textContent = "Edit-Modus aktivieren";
   discardChanges.disabled = true;
-  $("#save-record").textContent = "Speichern";
+  $("#save-record").textContent = "Datensatz speichern";
   renderCurrentRecord();
   showView();
   updateSaveButton();
@@ -401,10 +405,10 @@ async function startCreate(push = true) {
   mode = "edit";
   renderer = new FormRenderer({ mode });
   payloadPreview.textContent = "";
-  $("#save-status").textContent = "";
+  $("#save-status").textContent = "Änderungen noch nicht gespeichert";
   toggleEdit.textContent = "Read-Modus anzeigen";
   discardChanges.disabled = true;
-  $("#save-record").textContent = "Datensatz anlegen";
+  $("#save-record").textContent = "Datensatz speichern";
   renderCurrentRecord();
   renderer.readIntoState(preview, currentFormState);
   currentFormState.reset(currentFormState.current);
@@ -421,7 +425,7 @@ function renderCurrentRecord() {
 function updatePayloadPreview() {
   syncStateFromForm();
   if (!currentFormState) return;
-  payloadPreview.textContent = JSON.stringify({ dirty: currentFormState.isDirty(), changed_paths: currentFormState.changedPaths(),
+  if (debugMode) payloadPreview.textContent = JSON.stringify({ dirty: currentFormState.isDirty(), changed_paths: currentFormState.changedPaths(),
     validation_errors: currentFormState.validate(), payload: currentFormState.buildPayload() }, null, 2);
   discardChanges.disabled = !currentFormState.hasUnpersistedChanges();
   updateSaveButton();
@@ -476,6 +480,8 @@ async function init() {
   await initializeSaveQueue();
   csrfCookieName = (await apiFetch("/api/auth/me")).csrf_cookie_name;
   currentDescriptor = await apiFetch(`/api/modules/${encodeURIComponent(moduleKey)}`);
+  $("#show-payload").hidden = !debugMode;
+  $("#payload-panel").hidden = !debugMode;
   await vocabularyClient.hydrateDescriptor(currentDescriptor);
   presetStore = new PresetStore(currentDescriptor, currentDescriptor.user);
   state.sort = currentDescriptor.list?.default_sort || currentDescriptor.search?.default_sort;
@@ -605,12 +611,22 @@ discardChanges.addEventListener("click", () => {
   updatePayloadPreview();
 });
 for (const event of ["input", "change", "click"]) preview.addEventListener(event, () => {
+  const dateReview = reviewDateTextFields(preview);
   updatePayloadPreview();
+  if (dateReview.blocking && mode === "edit" && (currentCreate || currentUpdate)) {
+    $("#save-record").disabled = false;
+    discardChanges.disabled = false;
+  }
 });
 $("#save-record").addEventListener("click", async () => {
   if (saveInProgress) return;
   $("#module-error").textContent = "";
   try {
+    const dateReview = reviewDateTextFields(preview, { show: true });
+    if (dateReview.blocking) {
+      $("#save-status").textContent = "Änderungen noch nicht gespeichert";
+      return;
+    }
     syncStateFromForm();
     const operation = currentCreate || currentUpdate;
     if (!operation?.canSave(mode) || currentRecordHasQueueEntry() || currentQueueContext()) return;
@@ -658,12 +674,10 @@ $("#save-record").addEventListener("click", async () => {
       currentFormState.cancelSave();
       throw new Error(`Lokale Vormerkung fehlgeschlagen. Es wurde nichts an den Server gesendet. ${error.message || ""}`.trim());
     }
-    $("#save-status").textContent = identityAssignment === "reserve_before_create" && wasCreate
-      ? "Lokal gesichert – Identitätsreservation ausstehend."
-      : "Lokal gesichert – Übertragung ausstehend.";
+    $("#save-status").textContent = "Speichern …";
     scheduleQueueProcessing();
   } catch (error) {
-    $("#save-status").textContent = "Nicht als gespeichert bestätigt.";
+    $("#save-status").textContent = "Speicherfehler";
     $("#module-error").textContent = error.message || "Netzwerkfehler. Ihre Änderungen bleiben erhalten.";
   } finally {
     saveInProgress = false;

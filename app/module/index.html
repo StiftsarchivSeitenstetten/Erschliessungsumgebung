@@ -19,9 +19,9 @@
       </div>
     </header>
     <main class="generic-shell">
-      <section class="status-band" aria-label="Speicherwarteschlange">
+      <section id="queue-panel" class="status-band queue-panel" aria-label="Speicherwiederherstellung" hidden>
         <div>
-          <h2>Speicherwarteschlange</h2>
+          <h2>Speicherung fehlgeschlagen</h2>
           <p id="queue-status" role="status" data-count="0">Speicherwarteschlange wird geöffnet …</p>
         </div>
         <div class="preview-actions">
@@ -52,19 +52,19 @@
         <button id="next-record" type="button" class="secondary" disabled>Nächster</button>
         <span id="record-position" role="status"></span>
       </nav>
-      <section class="status-band">
+      <section class="record-toolbar">
         <div>
-          <h2>Datensatz</h2>
           <p id="save-status" role="status"></p>
         </div>
         <div class="preview-actions">
           <button id="toggle-edit" type="button" class="secondary">Edit-Modus aktivieren</button>
           <button id="discard-changes" type="button" class="secondary" disabled>Änderungen verwerfen</button>
-          <button id="show-payload" type="button">Payload anzeigen</button>
-          <button id="save-record" type="button" disabled>Speichern</button>
+          <button id="show-payload" type="button" hidden>Payload anzeigen</button>
+          <button id="save-record" type="button" disabled>Datensatz speichern</button>
         </div>
       </section>
-      <section class="status-band" aria-labelledby="preset-heading">
+      <section id="record-preview" class="form-section" aria-live="polite"></section>
+      <section class="preset-panel" aria-labelledby="preset-heading">
         <div>
           <h2 id="preset-heading">Vorbelegungen</h2>
           <p id="preset-status" role="status">Keine Vorbelegungen gespeichert.</p>
@@ -75,8 +75,7 @@
           <button id="delete-preset" type="button" class="secondary" disabled>Vorbelegungen löschen</button>
         </div>
       </section>
-      <section id="record-preview" class="form-section" aria-live="polite"></section>
-      <section class="form-section">
+      <section id="payload-panel" class="form-section" hidden>
         <h2>Entwicklungs-Payload</h2>
         <pre id="payload-preview" class="payload-preview" aria-live="polite"></pre>
       </section>

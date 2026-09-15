@@ -196,6 +196,14 @@ class FotoCoreTest(unittest.TestCase):
         record["datierung"]["anmerkung"] = "Datierung auf dem Foto notiert."
         self.assertEqual(validate_record_schema(record), [])
 
+    def test_datierung_accepts_optional_structured_end_without_migrating_old_records(self):
+        record = deepcopy(load_records(ROOT / "data" / "fotos")[0].data)
+        original = deepcopy(record["datierung"])
+        self.assertEqual(validate_record_schema(record), [])
+        record["datierung"].update({"bis_jahr": 1981, "bis_monat": 2, "bis_tag": None})
+        self.assertEqual(validate_record_schema(record), [])
+        self.assertNotIn("bis_jahr", original)
+
     def test_persons_with_and_without_hinweis_are_schema_valid(self):
         record = load_records(ROOT / "data" / "fotos")[0].data
         record["erschliessung"]["dargestellte_personen"] = [

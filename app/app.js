@@ -15,10 +15,10 @@ const SAVE_STATES = Object.freeze({
 });
 const SAVE_STATE_MESSAGES = Object.freeze({
   [SAVE_STATES.CLEAN]: "Gespeichert",
-  [SAVE_STATES.DIRTY]: "Ungespeicherte Änderungen",
-  [SAVE_STATES.RESERVING]: "Signatur wird reserviert …",
-  [SAVE_STATES.QUEUED]: "Für Speicherung vorgemerkt",
-  [SAVE_STATES.SAVING]: "Wird gespeichert …",
+  [SAVE_STATES.DIRTY]: "Änderungen noch nicht gespeichert",
+  [SAVE_STATES.RESERVING]: "Speichern …",
+  [SAVE_STATES.QUEUED]: "Speichern …",
+  [SAVE_STATES.SAVING]: "Speichern …",
   [SAVE_STATES.AUTH_ERROR]: "Anmeldung erforderlich – Änderungen nicht gespeichert",
   [SAVE_STATES.CONFLICT]: "Speicherkonflikt – Änderungen nicht gespeichert",
   [SAVE_STATES.VALIDATION_ERROR]: "Datensatz kann so nicht gespeichert werden",
@@ -60,6 +60,9 @@ const state = {
   queuedSnapshot: null,
   currentQueueOperationId: null,
   queueRecoveryRunning: false,
+  signatureSuggestion: null,
+  signatureManuallyEdited: false,
+  signatureSuggestionRequest: 0,
   saveState: SAVE_STATES.DIRTY,
   maySaveEditingRecord: false
 };
@@ -79,6 +82,8 @@ const openQueuedSnapshotButton = document.querySelector("#open-queued-snapshot")
 const discardQueuedSaveButton = document.querySelector("#discard-queued-save");
 const numberOutput = document.querySelector("#number-output");
 const signatureOutput = document.querySelector("#signature-output");
+const legacyStatusPanel = document.querySelector("#legacy-status-panel");
+const dateWarnings = document.querySelector("#date-warnings");
 const archivisDateOutput = document.querySelector("#archivis-date");
 const presetStatus = document.querySelector("#preset-status");
 const presetEditor = document.querySelector("#preset-editor");
@@ -214,7 +219,11 @@ function bindEvents() {
   document.querySelectorAll("input[name='format']").forEach((input) => {
     input.addEventListener("change", () => {
       state.format = input.value;
-      updateSignatureOutput();
+      if (!(state.mode === "edit" && state.editingRecord) && !state.signatureManuallyEdited) {
+        refreshSignatureSuggestion(input.value);
+      } else {
+        updateSignatureOutput();
+      }
     });
   });
 
@@ -222,7 +231,13 @@ function bindEvents() {
     button.addEventListener("click", () => setProfile(button.dataset.profile));
   });
 
-  document.querySelector("#datierung-einfach").addEventListener("input", updateArchivisDate);
+  document.querySelector("#datierung-von").addEventListener("input", updateArchivisDate);
+  document.querySelector("#datierung-bis").addEventListener("input", updateArchivisDate);
+  signatureOutput.addEventListener("input", () => {
+    if (state.mode === "new" && state.signatureSuggestion && signatureOutput.value !== state.signatureSuggestion.anzeige) {
+      state.signatureManuallyEdited = true;
+    }
+  });
 
   document.querySelector("#generate").addEventListener("click", generateRecord);
   finalizeButton.addEventListener("click", finalizeRecord);
@@ -349,6 +364,7 @@ async function openExistingRecord(recordId, { preserveDirty = true } = {}) {
 }
 
 function applyLoadedRecord(record, baseRevision) {
+  state.signatureSuggestionRequest += 1;
   state.mode = "edit";
   state.editingRecord = record;
   state.baseRevision = baseRevision;
@@ -359,6 +375,8 @@ function applyLoadedRecord(record, baseRevision) {
     signature: record.signatur
   };
   state.format = record.signatur.format;
+  state.signatureSuggestion = null;
+  state.signatureManuallyEdited = false;
   state.finalizedCurrentDraft = false;
   form.reset();
   document.querySelector("#personen-list").innerHTML = "";
@@ -425,8 +443,13 @@ function fillFormFromRecord(record) {
   const persons = e.dargestellte_personen?.length ? e.dargestellte_personen : [{ name: "", hinweis: "" }];
   persons.forEach((person) => addPersonRow(person));
   document.querySelector("#korrespondenzstueck").checked = Boolean(record.korrespondenzstueck);
-  document.querySelector("#datierung-einfach").value = formatSimpleDate(record.datierung || {});
-  document.querySelector("#datierung-anmerkung").value = record.datierung?.anmerkung || "";
+  document.querySelector("#datierung-von").value = DateTextFields.format(record.datierung || {});
+  document.querySelector("#datierung-bis").value = DateTextFields.format({
+    jahr: record.datierung?.bis_jahr,
+    monat: record.datierung?.bis_monat,
+    tag: record.datierung?.bis_tag
+  });
+  document.querySelector("#datierung-hinweis").value = record.datierung?.anmerkung || "";
   document.querySelector("#original-datum").value = record.datierung?.original || "";
   const input = document.querySelector(`input[name='format'][value='${record.signatur.format}']`);
   if (input) input.checked = true;
@@ -556,6 +579,37 @@ function buildSignature(format, number, status = "vorgeschlagen") {
   };
 }
 
+async function refreshSignatureSuggestion(format) {
+  if (state.mode === "edit" && state.editingRecord || state.signatureManuallyEdited) return;
+  const request = ++state.signatureSuggestionRequest;
+  state.signatureSuggestion = null;
+  numberOutput.textContent = "–";
+  signatureOutput.value = "Vorschlag wird geladen …";
+  signatureOutput.readOnly = true;
+  try {
+    const response = await apiFetch(`/api/modules/${REQUIRED_MODULE}?signature_partition=${encodeURIComponent(format)}`);
+    if (!response.ok) throw new Error("Kein Signaturvorschlag verfügbar");
+    const data = await response.json();
+    if (request !== state.signatureSuggestionRequest || state.format !== format) return;
+    const suggestion = data.identity_suggestion;
+    if (!suggestion?.["signatur.anzeige"]) {
+      signatureOutput.value = "Kein Signaturvorschlag verfügbar";
+      return;
+    }
+    state.signatureSuggestion = {
+      format,
+      nummer: suggestion["signatur.nummer"] ?? null,
+      anzeige: suggestion["signatur.anzeige"]
+    };
+    numberOutput.textContent = state.signatureSuggestion.nummer === null ? "–" : String(state.signatureSuggestion.nummer);
+    signatureOutput.value = state.signatureSuggestion.anzeige;
+  } catch {
+    if (request === state.signatureSuggestionRequest) signatureOutput.value = "Kein Signaturvorschlag verfügbar";
+  } finally {
+    if (request === state.signatureSuggestionRequest) signatureOutput.readOnly = false;
+  }
+}
+
 function parseIntegerField(id) {
   const value = document.querySelector(`#${id}`).value.trim();
   if (!value) return null;
@@ -629,19 +683,34 @@ function readPersons() {
 }
 
 function readDatierung() {
-  const parsed = parseSimpleDate(document.querySelector("#datierung-einfach").value);
-  return {
-    jahr: parsed.jahr,
-    monat: parsed.monat,
-    tag: parsed.tag,
-    anmerkung: document.querySelector("#datierung-anmerkung").value.trim() || null,
-    original: document.querySelector("#original-datum").value.trim() || null,
-    original_typ: document.querySelector("#original-datum").value.trim() ? "importierte_arbeitsdaten" : null
+  const review = DateTextFields.review(
+    document.querySelector("#datierung-von").value,
+    document.querySelector("#datierung-bis").value
+  );
+  const original = state.editingRecord?.datierung || {};
+  const from = DateTextFields.withKeys(review.from, original, "german") || {};
+  const oldTo = { jahr: original.bis_jahr, monat: original.bis_monat, tag: original.bis_tag };
+  const to = DateTextFields.withKeys(review.to, oldTo, "german");
+  const originalText = document.querySelector("#original-datum").value.trim();
+  const value = {
+    ...original,
+    jahr: from.jahr ?? null,
+    monat: from.monat ?? null,
+    tag: from.tag ?? null,
+    anmerkung: document.querySelector("#datierung-hinweis").value.trim() || null,
+    original: originalText || null,
+    original_typ: originalText ? (original.original_typ || "importierte_arbeitsdaten") : null
   };
+  if (to || Object.prototype.hasOwnProperty.call(original, "bis_jahr")) {
+    value.bis_jahr = to?.jahr ?? null;
+    value.bis_monat = to?.monat ?? null;
+    value.bis_tag = to?.tag ?? null;
+  }
+  return value;
 }
 
 function readRecord() {
-  const draft = state.format ? currentDraftForFormat(state.format) : null;
+  const draft = state.currentDraft || (!state.backendMode && state.format ? currentDraftForFormat(state.format) : null);
   return {
     id: draft?.id || null,
     schema_version: 1,
@@ -685,7 +754,7 @@ function isFieldEditable(field) {
 
 function validate(record) {
   const messages = [];
-  if (!record.signatur) messages.push("Bitte ein Format wählen.");
+  if (!state.format) messages.push("Bitte ein Format wählen.");
   if (
     Number.isNaN(record.datierung.jahr) ||
     Number.isNaN(record.datierung.monat) ||
@@ -706,6 +775,11 @@ function validate(record) {
     ) {
       messages.push("Der Tag passt nicht zum angegebenen Monat und Jahr.");
     }
+  }
+  if (record.datierung.bis_jahr !== null && (record.datierung.bis_jahr < 1 || record.datierung.bis_jahr > 9999)) {
+    messages.push("Das Bis-Jahr muss zwischen 1 und 9999 liegen.");
+  } else if (record.datierung.bis_monat !== null && (record.datierung.bis_monat < 1 || record.datierung.bis_monat > 12)) {
+    messages.push("Der Bis-Monat muss zwischen 1 und 12 liegen.");
   }
   if (!record.erschliessung.beschriftung && !record.erschliessung.beschreibung) {
     messages.push("Bitte mindestens Beschriftung oder Beschreibung erfassen.");
@@ -736,6 +810,13 @@ function yamlDatierung(datierung) {
     `  tag: ${datierung.tag ?? "null"}`,
     `  anmerkung: ${yamlScalar(datierung.anmerkung)}`
   ];
+  if (Object.prototype.hasOwnProperty.call(datierung, "bis_jahr")) {
+    lines.splice(4, 0,
+      `  bis_jahr: ${datierung.bis_jahr ?? "null"}`,
+      `  bis_monat: ${datierung.bis_monat ?? "null"}`,
+      `  bis_tag: ${datierung.bis_tag ?? "null"}`
+    );
+  }
   if (datierung.original) lines.push(`  original: ${yamlScalar(datierung.original)}`);
   if (datierung.original_typ) lines.push(`  original_typ: ${yamlScalar(datierung.original_typ)}`);
   return lines.join("\n");
@@ -759,22 +840,30 @@ function showErrors(messages) {
 function updateSignatureOutput() {
   if (state.mode === "edit" && state.editingRecord) {
     numberOutput.textContent = String(state.editingRecord.signatur.nummer);
-    signatureOutput.textContent = state.editingRecord.signatur.anzeige;
+    signatureOutput.value = state.editingRecord.signatur.anzeige;
+    signatureOutput.readOnly = true;
     return;
   }
   if (state.finalizedCurrentDraft && state.currentDraft) {
     numberOutput.textContent = String(state.currentDraft.nummer);
-    signatureOutput.textContent = state.currentDraft.signature.anzeige;
+    signatureOutput.value = state.currentDraft.signature.anzeige;
+    signatureOutput.readOnly = true;
     return;
   }
+  signatureOutput.readOnly = false;
   if (!state.format) {
     numberOutput.textContent = "-";
-    signatureOutput.textContent = "Bitte Format wählen";
+    signatureOutput.value = "Bitte Format wählen";
     finalizeButton.disabled = true;
     return;
   }
-  numberOutput.textContent = "-";
-  signatureOutput.textContent = "Wird beim Speichern verbindlich reserviert";
+  if (state.signatureSuggestion && !state.signatureManuallyEdited) {
+    numberOutput.textContent = state.signatureSuggestion.nummer === null ? "–" : String(state.signatureSuggestion.nummer);
+    signatureOutput.value = state.signatureSuggestion.anzeige;
+  } else if (!state.signatureManuallyEdited) {
+    numberOutput.textContent = "–";
+    signatureOutput.value = "Kein Signaturvorschlag verfügbar";
+  }
   finalizeButton.disabled = state.finalizedCurrentDraft;
 }
 
@@ -783,7 +872,23 @@ function updateArchivisDate() {
   archivisDateOutput.textContent = value || "-";
 }
 
+function reviewVisibleDate({ show = false } = {}) {
+  const result = DateTextFields.review(
+    document.querySelector("#datierung-von").value,
+    document.querySelector("#datierung-bis").value
+  );
+  if (show) {
+    dateWarnings.hidden = result.warnings.length === 0;
+    dateWarnings.innerHTML = result.warnings.length
+      ? `<p>Hinweis zur Datierung:</p><ul>${result.warnings.map(message => `<li>${message}</li>`).join("")}</ul>`
+      : "";
+  }
+  return result;
+}
+
 function generateRecord() {
+  const dateReview = reviewVisibleDate({ show: true });
+  if (dateReview.blocking) return;
   const record = readRecord();
   const messages = validate(record);
   showErrors(messages);
@@ -852,6 +957,7 @@ async function refreshQueueStatus(entries = null) {
   const paused = Boolean(first && !["queued", "reserving"].includes(first.status) && !activelySaving);
   queueStatus.dataset.count = String(count);
   queueStatus.dataset.paused = paused ? "true" : "false";
+  legacyStatusPanel.dataset.recovery = paused ? "true" : "false";
   if (!first) {
     queueStatus.textContent = "Alle vorgemerkten Datensätze übertragen";
   } else if (first.status === "auth_error") {
@@ -956,6 +1062,7 @@ function queueEntrySaveState(entry) {
 
 function applyReservationToCurrentEntry(entry, reservation) {
   if (entry.operation_id !== state.currentQueueOperationId) return;
+  state.signatureSuggestionRequest += 1;
   state.currentDraft = {
     id: reservation.record_id,
     format: reservation.signature_data.format,
@@ -1255,6 +1362,11 @@ async function finalizeRecord() {
   const editingExistingRecord = state.mode === "edit" && state.editingRecord;
   if (state.currentQueueOperationId || isSaveInProgress() || (!editingExistingRecord && state.finalizedCurrentDraft)) return;
   if (editingExistingRecord && !hasUnsavedChanges()) return;
+  const dateReview = reviewVisibleDate({ show: true });
+  if (dateReview.blocking) {
+    setSaveState(SAVE_STATES.VALIDATION_ERROR);
+    return;
+  }
   const record = readRecord();
   const messages = validate(record);
   showErrors(messages);
@@ -1292,6 +1404,7 @@ async function finalizeRecord() {
         scheduleQueueProcessing();
         return;
       }
+      state.signatureSuggestionRequest += 1;
       state.currentDraft = {
         id: reservation.record_id,
         format: reservation.signature_data.format,
@@ -1352,6 +1465,7 @@ function loadLocalRecords() {
 function startNewRecord(options = {}) {
   if (!options.skipConfirmation && !confirmDiscardUnsavedChanges()) return;
   const selectedFormat = state.format;
+  state.signatureSuggestionRequest += 1;
   form.reset();
   document.querySelector("#personen-list").innerHTML = "";
   addPersonRow();
@@ -1362,6 +1476,8 @@ function startNewRecord(options = {}) {
   }
   state.generatedMarkdown = "";
   state.currentDraft = null;
+  state.signatureSuggestion = null;
+  state.signatureManuallyEdited = false;
   state.editingRecord = null;
   state.baseRevision = null;
   state.serverSnapshot = null;
@@ -1388,6 +1504,7 @@ function startNewRecord(options = {}) {
   window.history.replaceState({}, "", url);
   applyPreset({ onlyEmpty: false });
   updateSignatureOutput();
+  if (state.format) refreshSignatureSuggestion(state.format);
   updateArchivisDate();
 }
 
@@ -1481,7 +1598,7 @@ function readCurrentValuesAsPreset({ includeEmpty }) {
     if (!definition) return;
     if (definition.kind === "date") {
       const value = readDatierung();
-      if (includeEmpty || value.jahr || value.monat || value.tag || value.anmerkung || value.original) values[field] = value;
+      if (includeEmpty || value.jahr || value.monat || value.tag || value.bis_jahr || value.bis_monat || value.bis_tag || value.anmerkung || value.original) values[field] = value;
     } else if (definition.kind === "persons") {
       const value = readPersons();
       if (includeEmpty || value.length) values[field] = value;
@@ -1522,11 +1639,14 @@ function applyPreset({ onlyEmpty }) {
 }
 
 function applyDatePreset(value, onlyEmpty) {
-  const dateValue = formatSimpleDate(value || {});
-  const dateInput = document.querySelector("#datierung-einfach");
-  const noteInput = document.querySelector("#datierung-anmerkung");
+  const dateValue = DateTextFields.format(value || {});
+  const toValue = DateTextFields.format({ jahr: value?.bis_jahr, monat: value?.bis_monat, tag: value?.bis_tag });
+  const dateInput = document.querySelector("#datierung-von");
+  const toInput = document.querySelector("#datierung-bis");
+  const noteInput = document.querySelector("#datierung-hinweis");
   const originalInput = document.querySelector("#original-datum");
   if (!onlyEmpty || !dateInput.value.trim()) dateInput.value = dateValue;
+  if (!onlyEmpty || !toInput.value.trim()) toInput.value = toValue;
   if (!onlyEmpty || !noteInput.value.trim()) noteInput.value = value?.anmerkung ?? "";
   if (!onlyEmpty || !originalInput.value.trim()) originalInput.value = value?.original ?? "";
   updateArchivisDate();

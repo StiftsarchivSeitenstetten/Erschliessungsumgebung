@@ -54,6 +54,7 @@ export class FormRenderer {
       className: "generic-field",
       "data-field-id": field.id,
       "data-field-path": field.path,
+      "data-widget": field.widget,
       "data-editable": field.editable ? "true" : "false",
       "data-presettable": field.presettable ? "true" : "false"
     });

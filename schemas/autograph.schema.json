@@ -57,6 +57,7 @@
         { "type": "null" }
       ]
     },
+    "korrespondenzstueck": { "type": "boolean", "default": false },
     "redaktion": { "type": "object", "additionalProperties": false },
     "bearbeitung": { "type": "object", "additionalProperties": false },
     "publikation": { "type": "object", "additionalProperties": false },

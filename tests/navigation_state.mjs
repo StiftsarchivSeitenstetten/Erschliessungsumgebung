@@ -47,11 +47,11 @@ function dateRoot(parts) {
   return {querySelector: selector => ({value:parts[selector.match(/='([^']+)'/)[1]] || ""})};
 }
 const original = {from:{year:1900},to:{year:1901},display:"1900-1901"};
-const fields = {"from.year":"1900", "to.year":"1901", display:"1900-1901"};
+const fields = {from:"1900", to:"1901", note:""};
 const context = {field:{},originalValue:original};
 assert.deepEqual(registry.readValue('date_range',context,dateRoot(fields)),original);
 const form = new FormState({fields:[{path:'range',visible:true,editable:true}]},{range:original});
-form.setValue('range',registry.readValue('date_range',context,dateRoot({...fields,'from.year':'1902'})));
+form.setValue('range',registry.readValue('date_range',context,dateRoot({...fields,from:'1902'})));
 assert.equal(form.isDirty(),true);
 form.discardChanges();
 form.setValue('range',registry.readValue('date_range',context,dateRoot(fields)));

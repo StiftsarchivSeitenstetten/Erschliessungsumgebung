@@ -33,8 +33,12 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         self.assertNotIn('method: "PATCH"', script)
         self.assertNotIn('method: "DELETE"', script)
         self.assertIn("Payload anzeigen", html)
+        self.assertIn('id="show-payload" type="button" hidden', html)
         self.assertIn("Änderungen verwerfen", html)
-        self.assertIn('disabled>Speichern</button>', html)
+        self.assertIn('disabled>Datensatz speichern</button>', html)
+        self.assertIn('id="queue-panel"', html)
+        self.assertIn('id="payload-panel" class="form-section" hidden', html)
+        self.assertLess(html.index('id="record-preview"'), html.index('class="preset-panel"'))
         self.assertNotIn("nur lokal erzeugt und nicht versendet", html)
 
     def test_form_renderer_uses_descriptor_metadata_without_photo_fields(self):

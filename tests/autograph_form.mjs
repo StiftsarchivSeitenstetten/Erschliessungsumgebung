@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { FormRenderer } from "../app/generic/form-renderer.js";
+import { reviewDateTextFields } from "../app/generic/widget-registry.js";
 import { FormState } from "../app/generic/form-state.js";
 import { PresetStore } from "../app/generic/preset-store.js";
 
@@ -59,6 +60,7 @@ const descriptor = {
   sections: [
     { id: "beteiligte", label: "Beteiligte", order: 10, fields: ["beteiligte"] },
     { id: "datierung", label: "Datierung", order: 20, fields: ["datierung"] },
+    { id: "merkmale", label: "Merkmale", order: 25, fields: ["korrespondenzstueck"] },
     { id: "weitere", label: "Weitere Angaben", order: 30, fields: ["altsignatur"] },
   ],
   fields: [
@@ -73,6 +75,7 @@ const descriptor = {
         { ...all, id: "notiz", path: "notiz", label: "Notiz", widget: "text" },
       ] },
     { ...all, id: "datierung", path: "datierung", label: "Datierung", widget: "date_range", section: "datierung", order: 10 },
+    { ...all, id: "korrespondenzstueck", path: "korrespondenzstueck", label: "Korrespondenzstück", widget: "checkbox", section: "merkmale", order: 10 },
     { ...all, id: "altsignatur", path: "erschliessung.altsignatur", label: "Altsignatur", widget: "text", section: "weitere", order: 10, presettable: true },
   ],
 };
@@ -97,11 +100,19 @@ groups[0].children.find(node => node.textContent === "Eintrag entfernen").events
 renderer.readIntoState(root, state);
 assert.deepEqual(state.getValue("erschliessung.beteiligte").map(item => item.agent.name), ["Stift Seitenstetten"]);
 
-root.querySelector("[data-date-part='from.year']").value = "1875";
-root.querySelector("[data-date-part='to.year']").value = "1876";
+root.querySelector("[data-date-text='from']").value = "1875";
+root.querySelector("[data-date-text='to']").value = "1876";
+root.querySelector("[data-date-text='note']").value = "unsicher";
+root.querySelector("[data-field-id='korrespondenzstueck']").querySelector("[data-widget-control='main']").checked = true;
 renderer.readIntoState(root, state);
 assert.deepEqual(state.getValue("datierung").from, { year: 1875 });
 assert.deepEqual(state.getValue("datierung").to, { year: 1876 });
+assert.equal(state.getValue("datierung").hinweis, "unsicher");
+assert.equal(state.getValue("korrespondenzstueck"), true);
+assert.deepEqual(reviewDateTextFields(root).warnings, []);
+root.querySelector("[data-date-text='from']").value = "1900";
+root.querySelector("[data-date-text='to']").value = "1890";
+assert.match(reviewDateTextFields(root, { show: true }).warnings[0], /liegt nach/);
 
 class MemoryStorage {
   constructor() { this.data = new Map(); }

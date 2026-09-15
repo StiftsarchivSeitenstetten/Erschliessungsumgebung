@@ -149,6 +149,10 @@ main {
   align-items: start;
 }
 
+body:not(.barrierearm) .status-band[data-recovery="false"] {
+  display: none;
+}
+
 .warning-note {
   border-left: 6px solid var(--focus);
   padding-left: 14px;
@@ -357,6 +361,11 @@ label,
   font-size: 1.55rem;
 }
 
+.signature-output input {
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
 .field-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -366,7 +375,7 @@ label,
 
 .date-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 18px;
   margin-top: 16px;
 }
@@ -419,7 +428,7 @@ textarea {
 
 .person-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 13fr) minmax(0, 7fr) auto;
   gap: 12px;
   align-items: end;
   padding: 14px;
@@ -480,6 +489,17 @@ textarea {
   margin: 0;
   padding-left: 24px;
 }
+
+.warnings {
+  margin: 14px 0;
+  border-left: 6px solid #b36b00;
+  padding-left: 14px;
+  color: #704000;
+  font-weight: 700;
+}
+
+.warnings p { margin-bottom: 4px; }
+.warnings ul { margin-top: 0; }
 
 .preview-grid {
   margin-top: 18px;

@@ -25,7 +25,7 @@
     </header>
 
     <main>
-      <section class="status-band" aria-labelledby="module-heading">
+      <section id="legacy-status-panel" class="status-band" data-recovery="false" aria-labelledby="module-heading">
         <div>
           <h2 id="module-heading">Papierabzug-Modul aktiv</h2>
           <p>Die Objektgruppe ist fest auf <strong>9.4.2</strong> gesetzt. Album, Negativ und Dia werden in diesem Modul nicht ausgewählt.</p>
@@ -74,7 +74,8 @@
             </div>
             <div>
               <span class="label">Signatur</span>
-              <strong id="signature-output">Bitte Format wählen</strong>
+              <input id="signature-output" type="text" value="" aria-describedby="signature-help">
+              <span id="signature-help" class="help-text">Unverbindlicher Vorschlag; die endgültige Signatur vergibt der Server beim Speichern.</span>
             </div>
           </div>
         </section>
@@ -150,19 +151,24 @@
           <h2 id="date-heading">Datierung</h2>
           <div class="date-grid">
             <div class="field" data-field-wrapper="datierung">
-              <label for="datierung-einfach">Datierung</label>
-              <input id="datierung-einfach" name="datierung-einfach" type="text" inputmode="numeric" aria-describedby="datierung-help">
+              <label for="datierung-von">Von</label>
+              <input id="datierung-von" name="datierung-von" type="text" inputmode="numeric" aria-describedby="datierung-help">
               <p id="datierung-help" class="help-text">Möglich sind 1966, 07.1980 oder 25.12.1980.</p>
             </div>
             <div class="field" data-field-wrapper="datierung">
-              <label for="datierung-anmerkung">Anmerkung zur Datierung</label>
-              <textarea id="datierung-anmerkung" name="datierung-anmerkung" rows="3"></textarea>
+              <label for="datierung-bis">Bis</label>
+              <input id="datierung-bis" name="datierung-bis" type="text" inputmode="numeric">
+            </div>
+            <div class="field" data-field-wrapper="datierung">
+              <label for="datierung-hinweis">Hinweis</label>
+              <input id="datierung-hinweis" name="datierung-hinweis" type="text">
             </div>
             <div class="field technical-date-field" data-field-wrapper="datierung" hidden>
               <label for="original-datum">Originaldatum aus Altdaten</label>
               <input id="original-datum" name="original-datum" type="text">
             </div>
           </div>
+          <div id="date-warnings" class="warnings" role="status" hidden></div>
           <p class="help-text">Archivis-Exportwert: <strong id="archivis-date">-</strong></p>
         </section>
 
@@ -221,6 +227,7 @@
 
     <script src="generic/save-queue-store.js"></script>
     <script src="generic/save-queue.js"></script>
+    <script src="generic/date-text.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

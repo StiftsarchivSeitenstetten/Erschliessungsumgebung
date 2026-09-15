@@ -6,7 +6,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..config import ROOT
@@ -444,6 +444,7 @@ def update_module_record(
 @router.get("/{module_key}")
 def module_access(
     module_key: str,
+    signature_partition: str | None = Query(default=None, min_length=1, max_length=20),
     user: User = Depends(require_authenticated_user),
     repository: DataRepository = Depends(get_data_repository),
 ) -> dict[str, object]:
@@ -451,8 +452,16 @@ def module_access(
     runtime = RecordRuntime(module, repository)
     empty_record = runtime.empty_record(user.role)
     identity_suggestion: dict[str, Any] | None = None
-    if module.create_strategy.get("show_identity_suggestion"):
-        suggested_values = suggest_server_values(module, empty_record, ModuleState(repository, module))
+    partitions = module.signature_strategy.get("partitions") or []
+    if signature_partition is not None:
+        partition_path = module.signature_strategy.get("partition_field", "signatur.format")
+        set_path_value(empty_record, partition_path, signature_partition)
+    can_suggest = signature_partition is not None or len(partitions) <= 1
+    if module.create_strategy.get("show_identity_suggestion") and can_suggest:
+        try:
+            suggested_values = suggest_server_values(module, empty_record, ModuleState(repository, module))
+        except RecordValidationError as exc:
+            raise HTTPException(status_code=422, detail=exc.errors) from exc
         identity_suggestion = {}
         for path, value in suggested_values.items():
             try:

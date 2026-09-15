@@ -65,6 +65,20 @@ class PhotoUiStaticTest(unittest.TestCase):
         self.assertIn('next.status !== "queued"', worker)
         self.assertIn("await store.remove", worker)
 
+    def test_photo_capture_controls_use_accessible_buttons_and_three_part_dates(self):
+        html = (ROOT / "app" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "app" / "app.js").read_text(encoding="utf-8")
+        style = (ROOT / "app" / "style.css").read_text(encoding="utf-8")
+        self.assertIn('role="radiogroup"', html)
+        self.assertIn('type="radio" name="format"', script)
+        for field in ("datierung-von", "datierung-bis", "datierung-hinweis"):
+            self.assertIn(f'id="{field}"', html)
+        self.assertIn("refreshSignatureSuggestion", script)
+        self.assertIn("signatureManuallyEdited", script)
+        self.assertIn('signature_partition=', script)
+        self.assertIn("minmax(0, 13fr) minmax(0, 7fr)", style)
+        self.assertIn('body:not(.barrierearm) .status-band[data-recovery="false"]', style)
+
 
 if __name__ == "__main__":
     unittest.main()
