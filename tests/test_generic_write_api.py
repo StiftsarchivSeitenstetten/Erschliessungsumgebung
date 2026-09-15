@@ -69,6 +69,7 @@ class GenericWriteApiTest(unittest.TestCase):
         self.app.state.generic_writes_enabled = True
         self.app.state.generic_server_values_provider = self.server_values
         self.client = TestClient(self.app)
+        self.operation_counter = 0
 
     def tearDown(self):
         self.module_patch.stop()
@@ -112,6 +113,9 @@ class GenericWriteApiTest(unittest.TestCase):
         return {"X-CSRF-Token": self.client.cookies.get(me["csrf_cookie_name"])}
 
     def post(self, record=None, module="runtime_test", **transport):
+        if "operation_id" not in transport:
+            self.operation_counter += 1
+            transport["operation_id"] = f"test-create-{self.operation_counter}"
         return self.client.post(
             f"/api/modules/{module}/records",
             json={"record": valid_payload() if record is None else record, **transport},
@@ -164,6 +168,45 @@ class GenericWriteApiTest(unittest.TestCase):
         self.assertEqual(self.repo.commits[0]["files"], ["data/test/test-0001.md", "state/runtime-test.json"])
         self.assertEqual(stored["signatur"]["anzeige"], "T.1")
 
+    def test_on_create_is_idempotent_across_backend_restart(self):
+        self.login()
+        first = self.post(operation_id="persistent-create")
+        self.assertEqual(first.status_code, 201, first.text)
+        self.assertEqual(first.json()["operation_id"], "persistent-create")
+        first_record_id = first.json()["record_id"]
+        first_revision = first.json()["meta"]["revision"]
+        commits = len(self.repo.commits)
+        state = json.loads(self.repo.files["state/runtime-test.json"])
+        self.assertEqual(state["next_record_id"], 2)
+        self.assertEqual(state["next_signature_number"]["A"], 2)
+        self.assertEqual(state["create_operations"]["persistent-create"]["record_id"], first_record_id)
+
+        restarted = create_app()
+        restarted.state.data_repository = self.repo
+        restarted.state.generic_writes_enabled = True
+        restarted.state.generic_server_values_provider = self.server_values
+        with TestClient(restarted) as client:
+            login = client.post("/api/auth/login", json={"login": "anna", "password": "SehrGeheim123"})
+            self.assertEqual(login.status_code, 200, login.text)
+            me = client.get("/api/auth/me").json()
+            headers = {"X-CSRF-Token": client.cookies.get(me["csrf_cookie_name"])}
+            repeated = client.post(
+                "/api/modules/runtime_test/records",
+                json={"operation_id": "persistent-create", "record": valid_payload()},
+                headers=headers,
+            )
+            self.assertEqual(repeated.status_code, 201, repeated.text)
+            self.assertEqual(repeated.json()["record_id"], first_record_id)
+            self.assertEqual(repeated.json()["meta"]["revision"], first_revision)
+
+        self.assertEqual(len(self.repo.commits), commits)
+        self.assertEqual(json.loads(self.repo.files["state/runtime-test.json"]), state)
+        changed = valid_payload()
+        changed["daten"]["name"] = "Andere Operation"
+        rejected = self.post(changed, operation_id="persistent-create")
+        self.assertEqual(rejected.status_code, 422)
+        self.assertEqual(len(self.repo.commits), commits)
+
     def test_reservation_is_idempotent_and_final_create_reuses_identity(self):
         self.login(modules=["runtime_reserve"])
         first = self.reserve("operation-1")
@@ -191,8 +234,17 @@ class GenericWriteApiTest(unittest.TestCase):
         )
         self.assertEqual(created.status_code, 201, created.text)
         self.assertEqual(created.json()["record_id"], "reserve-0001")
-        self.assertEqual(json.loads(self.repo.files["state/runtime-reserve.json"]), state_after_reservation)
+        state_after_create = json.loads(self.repo.files["state/runtime-reserve.json"])
+        self.assertEqual(state_after_create["next_record_id"], state_after_reservation["next_record_id"])
+        self.assertEqual(state_after_create["next_signature_number"], state_after_reservation["next_signature_number"])
+        self.assertEqual(state_after_create["create_operations"]["operation-1"]["record_id"], "reserve-0001")
         self.assertEqual(created.json()["meta"]["revision"], self.repo.read_file("data/reserve/reserve-0001.md").revision)
+
+        commits_after_create = len(self.repo.commits)
+        repeated_create = self.post(module="runtime_reserve", operation_id="operation-1", identity=identity)
+        self.assertEqual(repeated_create.status_code, 201, repeated_create.text)
+        self.assertEqual(repeated_create.json()["record_id"], "reserve-0001")
+        self.assertEqual(len(self.repo.commits), commits_after_create)
 
         payload = valid_payload()
         payload["daten"]["name"] = "Nach Create"
@@ -254,6 +306,10 @@ class GenericWriteApiTest(unittest.TestCase):
 
         self.app.state.generic_server_values_provider = None
         self.login(username="rita", role="redaktion")
+        missing_operation = self.client.post(
+            "/api/modules/runtime_test/records", json={"record": valid_payload()}, headers=self.csrf_headers(),
+        )
+        self.assertEqual(missing_operation.status_code, 422)
         self.assertEqual(self.post().status_code, 201)
         self.assertEqual(len(self.repo.commits), 1)
 

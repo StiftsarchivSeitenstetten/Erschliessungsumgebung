@@ -24,6 +24,11 @@
           <h2>Speicherwarteschlange</h2>
           <p id="queue-status" role="status" data-count="0">Speicherwarteschlange wird geöffnet …</p>
         </div>
+        <div class="preview-actions">
+          <button id="retry-queue" type="button" disabled>Speicherung erneut versuchen</button>
+          <button id="open-queue-entry" type="button" class="secondary" disabled>Lokalen Stand öffnen</button>
+          <button id="discard-queue-entry" type="button" class="secondary" disabled>Lokale Speicherung verwerfen</button>
+        </div>
       </section>
       <section id="list-panel" class="form-section">
         <h2>Datensätze</h2>
@@ -86,6 +91,6 @@
         <button value="discard">Änderungen verwerfen</button>
       </form>
     </dialog>
-    <script type="module" src="module.js?v=create-queue-1"></script>
+    <script type="module" src="module.js?v=recovery-1"></script>
   </body>
 </html>

@@ -48,7 +48,12 @@ class GenericIntegrationSafetyTest(unittest.TestCase):
             data = json.loads(report.read_text())
             self.assertEqual(data["result"], "passed")
             self.assertEqual([record["id"] for record in data["records"]], ["integration-0001", "integration-0002"])
-            self.assertEqual(data["final_state"], {"next_record_id": 3, "next_signature_number": {"T": 3}})
+            self.assertEqual(data["final_state"]["next_record_id"], 3)
+            self.assertEqual(data["final_state"]["next_signature_number"], {"T": 3})
+            self.assertEqual(
+                sorted(data["final_state"]["create_operations"]),
+                ["generic-live-create-1", "generic-live-create-2"],
+            )
             self.assertEqual(data["rejected"]["stale_revision"], 409)
 
     def test_live_runner_requires_explicit_opt_in(self):

@@ -135,7 +135,7 @@ class GenericRecordsApiTest(unittest.TestCase):
         csrf = self.client.cookies.get(me["csrf_cookie_name"])
         response = self.client.post(
             "/api/modules/foto_papierabzuege/records",
-            json={"record": {}},
+            json={"operation_id": "disabled-create", "record": {}},
             headers={"X-CSRF-Token": csrf},
         )
         self.assertEqual(response.status_code, 503)

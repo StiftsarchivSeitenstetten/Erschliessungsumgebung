@@ -26,12 +26,18 @@ router = APIRouter(prefix="/api/modules", tags=["modules"])
 vocabulary_router = APIRouter(prefix="/api/vocabularies", tags=["vocabularies"])
 
 
-class GenericRecordRequest(BaseModel):
+class GenericUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     record: dict[str, Any] = Field(default_factory=dict)
     base_revision: str | None = None
-    operation_id: str | None = None
+
+
+class GenericCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: str
+    record: dict[str, Any] = Field(default_factory=dict)
     identity: dict[str, Any] | None = None
 
 
@@ -180,14 +186,12 @@ def get_module_record(
 )
 def create_module_record(
     module_key: str,
-    payload: GenericRecordRequest,
+    payload: GenericCreateRequest,
     request: Request,
     user: User = Depends(require_authenticated_user),
 ) -> dict[str, object]:
     module = load_authorized_module(module_key, user)
     require_generic_write_enabled(request)
-    if payload.base_revision is not None:
-        raise HTTPException(status_code=422, detail="base_revision ist nur fuer PUT vorgesehen.")
     provider = getattr(request.app.state, "generic_server_values_provider", None)
     try:
         defaults = provider(module, user, payload.record) if provider else {}
@@ -197,7 +201,7 @@ def create_module_record(
         )
     except (RecordPermissionError, RecordValidationError, RepositoryError) as exc:
         raise_write_error(exc)
-    return write_response(stored, module, user)
+    return {**write_response(stored, module, user), "operation_id": payload.operation_id}
 
 
 @router.post(
@@ -234,14 +238,12 @@ def reserve_module_identity(
 def update_module_record(
     module_key: str,
     record_id: str,
-    payload: GenericRecordRequest,
+    payload: GenericUpdateRequest,
     request: Request,
     user: User = Depends(require_authenticated_user),
 ) -> dict[str, object]:
     module = load_authorized_module(module_key, user)
     require_generic_write_enabled(request)
-    if payload.operation_id is not None or payload.identity is not None:
-        raise HTTPException(status_code=422, detail="operation_id und identity sind nur fuer POST vorgesehen.")
     try:
         stored = update_generic_record(get_data_repository(request), module, record_id, payload.record, payload.base_revision or "", user)
     except (RecordPermissionError, RecordValidationError, RepositoryError) as exc:

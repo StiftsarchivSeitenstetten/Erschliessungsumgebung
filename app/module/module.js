@@ -1,10 +1,10 @@
 import { FormRenderer } from "../generic/form-renderer.js?v=vocabulary-2";
-import { FormState } from "../generic/form-state.js?v=create-queue-1";
+import { FormState } from "../generic/form-state.js?v=recovery-1";
 import { ResultState, renderRecordList } from "../generic/record-list.js?v=create-1";
-import { RecordCreate, reserveQueuedRecordIdentity, sendQueuedRecordCreate } from "../generic/record-create.js?v=create-queue-1";
-import { RecordUpdate, sendQueuedRecordUpdate } from "../generic/record-update.js?v=put-queue-1";
+import { RecordCreate, reserveQueuedRecordIdentity, sendQueuedRecordCreate } from "../generic/record-create.js?v=recovery-1";
+import { RecordUpdate, classifyQueuedUpdateReadBack, readQueuedRecordUpdate, sendQueuedRecordUpdate } from "../generic/record-update.js?v=recovery-1";
 import { createIndexedDbSaveQueueStore } from "../generic/save-queue-store.js?v=put-queue-1";
-import { createSaveQueueProcessor, queueEntryMatchesContext, queueRecordKey, queueStatusMessage } from "../generic/save-queue.js?v=create-queue-1";
+import { createSaveQueueProcessor, queueEntryMatchesContext, queueRecordKey, queueStatusMessage } from "../generic/save-queue.js?v=recovery-1";
 import { PresetStore, presettableFields } from "../generic/preset-store.js?v=preset-1";
 import { VocabularyClient } from "../generic/vocabulary-client.js?v=vocabulary-2";
 
@@ -31,6 +31,7 @@ let saveQueueStore = null;
 let saveQueueProcessor = null;
 let queueInitializationError = null;
 let activeQueueRecordKeys = new Set();
+let queueEntries = [];
 const queueContexts = new Map();
 const vocabularyClient = new VocabularyClient();
 
@@ -46,7 +47,7 @@ function currentRecordHasQueueEntry() {
 function currentQueueContext() {
   return [...queueContexts.values()].find(context => (
     context.formState === currentFormState &&
-    (context.update === currentUpdate || context.create === currentCreate)
+    ((context.update && context.update === currentUpdate) || (context.create && context.create === currentCreate))
   )) || null;
 }
 
@@ -81,6 +82,7 @@ function updateSaveButton() {
 }
 
 function updateQueueStatus(entries = []) {
+  queueEntries = entries;
   const queueStatus = $("#queue-status");
   activeQueueRecordKeys = new Set(entries.map(entry => queueRecordKey(entry.module_id, entry.record_id)));
   queueStatus.dataset.count = String(entries.length);
@@ -89,6 +91,11 @@ function updateQueueStatus(entries = []) {
   } else {
     queueStatus.textContent = queueStatusMessage(entries, saveQueueProcessor?.isRunning());
   }
+  const first = entries[0];
+  const workerRunning = Boolean(saveQueueProcessor?.isRunning());
+  $("#open-queue-entry").disabled = !first;
+  $("#discard-queue-entry").disabled = !first || workerRunning;
+  $("#retry-queue").disabled = !first || workerRunning || ["conflict", "validation_error"].includes(first.status);
   updateSaveButton();
 }
 
@@ -107,6 +114,7 @@ function queueFailureMessage(entry) {
   if (entry.status === "auth_error") return "Anmeldung abgelaufen. Der lokal gesicherte Speichervorgang bleibt erhalten.";
   if (entry.status === "conflict") return "Der Serverstand wurde geändert. Der lokale Queue-Snapshot bleibt erhalten.";
   if (entry.status === "validation_error") return "Speichern wurde abgelehnt. Der lokale Queue-Snapshot bleibt erhalten.";
+  if (entry.last_error?.uncertain) return "Ergebnis der letzten Übertragung ungeklärt. Vor einem erneuten PUT erfolgt ein Read-back.";
   return "Übertragung fehlgeschlagen. Der lokale Queue-Snapshot bleibt erhalten.";
 }
 
@@ -148,6 +156,31 @@ async function sendQueuedCreate(entry) {
 
 async function reserveQueuedIdentity(entry) {
   return reserveQueuedRecordIdentity(entry, csrfToken());
+}
+
+async function queueJson(url) {
+  let response;
+  try {
+    response = await fetch(url, {credentials: "same-origin"});
+  } catch {
+    throw new Error("Netzwerkfehler beim Recovery-Read-back.");
+  }
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    const error = new Error(typeof data.detail === "string" ? data.detail : `HTTP ${response.status}`);
+    error.status = response.status;
+    error.userMessage = error.message;
+    throw error;
+  }
+  return response.json();
+}
+
+async function resolveQueuedUpdate(entry) {
+  const descriptor = currentDescriptor?.module === entry.module_id
+    ? currentDescriptor
+    : await queueJson(`/api/modules/${encodeURIComponent(entry.module_id)}`);
+  const data = await readQueuedRecordUpdate(entry);
+  return classifyQueuedUpdateReadBack(entry, data, descriptor);
 }
 
 async function handleQueueReserved(entry, reservation) {
@@ -211,18 +244,71 @@ async function initializeSaveQueue() {
       sendUpdate: sendQueuedUpdate,
       sendCreate: sendQueuedCreate,
       reserveIdentity: reserveQueuedIdentity,
+      resolveUpdate: resolveQueuedUpdate,
       onChange: handleQueueChange,
       onReserved: handleQueueReserved,
       onSuccess: handleQueueSuccess,
       onError: handleQueueError,
       lockManager: window.navigator?.locks || null
     });
-    updateQueueStatus(await saveQueueStore.list());
+    await saveQueueProcessor.initializeRecovery();
   } catch (error) {
     queueInitializationError = error;
     updateQueueStatus([]);
     console.error("Lokale Speicherwarteschlange konnte nicht geöffnet werden.", error);
   }
+}
+
+async function openQueuedSnapshot(entry, push = true) {
+  if (entry.module_id !== currentDescriptor.module) {
+    location.href = `/app/module/?module=${encodeURIComponent(entry.module_id)}&queue=${encodeURIComponent(entry.operation_id)}`;
+    return;
+  }
+  let baseline = currentDescriptor.empty_record || {};
+  if (entry.operation === "update") {
+    try {
+      baseline = (await readQueuedRecordUpdate(entry)).record;
+    } catch (error) {
+      if (error.status !== 409) throw error;
+      baseline = {};
+    }
+  }
+  currentFormState = new FormState(currentDescriptor, baseline);
+  currentFormState.loadWorkingSnapshot(entry.snapshot);
+  if (entry.identity) currentFormState.applyServerValues(entry.identity);
+  currentFormState.beginSave();
+  if (entry.operation === "create") {
+    currentCreate = new RecordCreate(currentDescriptor.module, currentFormState);
+    currentCreate.recordId = entry.record_id;
+    currentUpdate = null;
+    state.recordId = entry.record_id;
+    state.creating = true;
+    $("#save-record").textContent = "Datensatz anlegen";
+  } else {
+    currentUpdate = new RecordUpdate(currentDescriptor.module, entry.record_id, currentFormState, entry.base_revision);
+    currentCreate = null;
+    state.recordId = entry.record_id;
+    state.lastRecordId = entry.record_id;
+    state.creating = false;
+    $("#save-record").textContent = "Speichern";
+  }
+  queueContexts.set(entry.operation_id, {
+    operationId: entry.operation_id,
+    formState: currentFormState,
+    update: currentUpdate,
+    create: currentCreate,
+    identityAssignment: entry.identity_assignment,
+    identityReserved: Boolean(entry.identity),
+    status: entry.status
+  });
+  mode = "edit";
+  renderer = new FormRenderer({mode});
+  toggleEdit.textContent = "Read-Modus anzeigen";
+  $("#save-status").textContent = `Lokaler Queue-Snapshot geöffnet (${entry.status}).`;
+  renderCurrentRecord();
+  showView();
+  updatePayloadPreview();
+  if (push) updateUrl();
 }
 
 function scheduleQueueProcessing() {
@@ -405,8 +491,12 @@ async function init() {
   $("#fulltext-controls").hidden = !currentDescriptor.search?.fulltext?.length;
   const recordId = params.get("record");
   await loadResults(queryFromUrl(), false);
-  if (params.get("new") === "1") await startCreate(false);
+  const queuedOperationId = params.get("queue");
+  const queuedEntry = queuedOperationId ? await saveQueueStore?.get(queuedOperationId) : null;
+  if (queuedEntry && queuedEntry.module_id === currentDescriptor.module) await openQueuedSnapshot(queuedEntry, false);
+  else if (params.get("new") === "1") await startCreate(false);
   else if (recordId) await openRecord(currentDescriptor, recordId, false);
+  scheduleQueueProcessing();
 }
 $("#new-record").addEventListener("click", () => run(() => startCreate()));
 $("#search-form").addEventListener("submit", async event => {
@@ -580,4 +670,22 @@ $("#save-record").addEventListener("click", async () => {
   }
 });
 $("#show-payload").addEventListener("click", updatePayloadPreview);
+$("#retry-queue").addEventListener("click", () => run(async () => {
+  const retried = await saveQueueProcessor?.retryFirst();
+  if (!retried) $("#module-error").textContent = "Dieser Queue-Zustand kann nicht blind wiederholt werden. Öffnen Sie den lokalen Stand.";
+}));
+$("#open-queue-entry").addEventListener("click", () => run(async () => {
+  const entry = queueEntries[0];
+  if (entry && await allowNavigation()) await openQueuedSnapshot(entry);
+}));
+$("#discard-queue-entry").addEventListener("click", () => run(async () => {
+  const entry = queueEntries[0];
+  if (!entry || !window.confirm("Lokale Speicherung wirklich verwerfen? Der gespeicherte Snapshot geht dabei unwiderruflich verloren.")) return;
+  const context = queueContexts.get(entry.operation_id);
+  if (context?.formState === currentFormState) currentFormState.cancelSave();
+  queueContexts.delete(entry.operation_id);
+  await saveQueueProcessor.discard(entry.operation_id);
+  $("#save-status").textContent = "Lokale Speicherung verworfen; es wurde keine Backend-Operation ausgelöst.";
+  scheduleQueueProcessing();
+}));
 run(init);

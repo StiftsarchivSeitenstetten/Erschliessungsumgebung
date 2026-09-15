@@ -67,3 +67,33 @@ export async function sendQueuedRecordUpdate(entry, csrfToken, request = (url, o
   }
   return data;
 }
+
+export async function readQueuedRecordUpdate(entry, request = (url, options) => fetch(url, options)) {
+  const response = await request(`/api/modules/${encodeURIComponent(entry.module_id)}/records/${encodeURIComponent(entry.record_id)}`, {
+    method: "GET", credentials: "same-origin"
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    const detail = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail || "");
+    const error = new Error(detail || `HTTP ${response.status}`);
+    error.status = response.status === 404 ? 409 : response.status;
+    error.userMessage = response.status === 404 ? "Datensatz wurde serverseitig entfernt." : detail;
+    throw error;
+  }
+  const data = await response.json();
+  if (data.module !== entry.module_id || data.record_id !== entry.record_id || !data.record || !data.meta?.revision) {
+    throw new Error("Read-back-Antwort unvollständig. Der Queue-Eintrag bleibt erhalten.");
+  }
+  return data;
+}
+
+export function classifyQueuedUpdateReadBack(entry, data, moduleDescriptor) {
+  if (editableSnapshotsEqual(moduleDescriptor, entry.snapshot, data.record)) {
+    return {outcome: "applied", result: data};
+  }
+  if (data.meta.revision === entry.base_revision) {
+    return {outcome: "not_applied", result: data};
+  }
+  return {outcome: "conflict", result: data};
+}
+import { editableSnapshotsEqual } from "./form-state.js";

@@ -47,6 +47,7 @@ class GenericNavigationTest(unittest.TestCase):
             self.skipTest("Node.js required")
         subprocess.run([node, "tests/record_create.mjs"], cwd=ROOT, check=True, capture_output=True)
         subprocess.run([node, "tests/create_queue.mjs"], cwd=ROOT, check=True, capture_output=True)
+        subprocess.run([node, "tests/recovery_queue.mjs"], cwd=ROOT, check=True, capture_output=True)
         source = (ROOT / "app/generic/record-create.js").read_text()
         self.assertIn('method: "POST"', source)
         for forbidden in ("foto_papierabzuege", "beschriftung", "fotograf", "signatur.format"):
@@ -89,6 +90,9 @@ class GenericNavigationTest(unittest.TestCase):
         self.assertIn("saveQueueProcessor.enqueueCreate", script)
         self.assertIn("currentCreateAwaitingReservation()", script)
         self.assertIn("scheduleQueueProcessing()", script)
+        self.assertIn("saveQueueProcessor?.retryFirst()", script)
+        self.assertIn("openQueuedSnapshot", script)
+        self.assertIn("saveQueueProcessor.discard", script)
         self.assertIn('new FormState(currentDescriptor, currentDescriptor.empty_record || {})', script)
         self.assertIn("currentFormState.reset(currentFormState.current)", script)
         self.assertIn("currentCreate || currentUpdate", script)

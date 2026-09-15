@@ -149,13 +149,17 @@ def api_checks(repository, photo_module, test_module, report):
         else:
             raise RuntimeError("Test-ID bereits vorhanden.")
         app.state.generic_writes_enabled = True
-        created = ok(client.post(url, json={"record": payload}, headers=headers), 201)
+        created = ok(client.post(url, json={"operation_id": f"index-live-create-{new_id}", "record": payload}, headers=headers), 201)
         check(created["record_id"] == new_id, "Falsche Test-ID.")
         check(set(repository.commits[-1]["files"]) == {repository.new_record_path, STATE_PATH, index_path(test_module)}, "Create nicht atomar mit State/Index.")
         after_create_state = repository.read_file(STATE_PATH)
         expected_state = deepcopy(initial_state)
         expected_state["next_record_id"] += 1
         expected_state["next_signature_number"]["T"] += 1
+        expected_state.setdefault("create_operations", {})[f"index-live-create-{new_id}"] = {
+            "request": {"record": deepcopy(payload), "identity": None},
+            "record_id": new_id,
+        }
         check(json.loads(after_create_state.content) == expected_state, "State-Zaehler falsch.")
         payload["daten"]["text"] = "Indexintegration aktualisiert"
         updated = ok(client.put(url + "/" + new_id, json={"record": payload, "base_revision": created["meta"]["revision"]}, headers=headers))

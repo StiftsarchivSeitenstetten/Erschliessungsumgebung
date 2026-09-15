@@ -12,7 +12,7 @@ const descriptor = {fields: [
 
 function fixture(request) {
   const form = new FormState(descriptor, {});
-  return new RecordCreate("other-module", form, request);
+  return new RecordCreate("other-module", form, request, "direct-operation");
 }
 
 const response = {
@@ -35,7 +35,7 @@ const created = await creator.save("edit", "csrf-test");
 assert.equal(calls[0].url, "/api/modules/other-module/records");
 assert.equal(calls[0].options.method, "POST");
 assert.equal(calls[0].options.headers["X-CSRF-Token"], "csrf-test");
-assert.deepEqual(JSON.parse(calls[0].options.body), {record: {daten: {text: "new value"}}});
+assert.deepEqual(JSON.parse(calls[0].options.body), {operation_id: "direct-operation", record: {daten: {text: "new value"}}});
 assert.equal(JSON.parse(calls[0].options.body).base_revision, undefined);
 assert.equal(created.record_id, "other-0001");
 assert.equal(creator.recordId, "other-0001");
@@ -131,7 +131,7 @@ let createRequest;
 const queuedCreated = await sendQueuedRecordCreate(reservedEntry, "csrf-create", async (url, options) => {
   createRequest = {url, options};
   return {ok: true, status: 201, json: async () => ({
-    module: "other-module", record_id: "other-0002",
+    module: "other-module", operation_id: "operation-1", record_id: "other-0002",
     record: {...reservedEntry.snapshot, ...reservedEntry.identity}, meta: {revision: "revision-c"}
   })};
 });

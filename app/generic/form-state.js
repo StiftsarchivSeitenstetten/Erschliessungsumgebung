@@ -18,6 +18,18 @@ function editableFields(moduleDescriptor) {
   ));
 }
 
+export function buildEditableSnapshot(moduleDescriptor, recordData = {}) {
+  const snapshot = {};
+  editableFields(moduleDescriptor).forEach((field) => {
+    setPathValue(snapshot, field.path, cloneValue(getPathValue(recordData, field.path)));
+  });
+  return snapshot;
+}
+
+export function editableSnapshotsEqual(moduleDescriptor, left, right) {
+  return valuesEqual(buildEditableSnapshot(moduleDescriptor, left), buildEditableSnapshot(moduleDescriptor, right));
+}
+
 function isEmptyRequired(value) {
   return value === undefined;
 }
@@ -104,11 +116,13 @@ export class FormState {
   }
 
   buildPayload(recordData = this.workingRecord) {
-    const payload = {};
+    return buildEditableSnapshot(this.moduleDescriptor, recordData);
+  }
+
+  loadWorkingSnapshot(snapshot) {
     editableFields(this.moduleDescriptor).forEach((field) => {
-      setPathValue(payload, field.path, cloneValue(getPathValue(recordData, field.path)));
+      setPathValue(this.workingRecord, field.path, cloneValue(getPathValue(snapshot, field.path)));
     });
-    return payload;
   }
 
   beginSave() {

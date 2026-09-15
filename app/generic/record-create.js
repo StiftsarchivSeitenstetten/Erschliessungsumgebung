@@ -1,6 +1,6 @@
 export class RecordCreate {
-  constructor(moduleKey, formState, request = (url, options) => fetch(url, options)) {
-    Object.assign(this, {moduleKey, formState, request});
+  constructor(moduleKey, formState, request = (url, options) => fetch(url, options), operationId = globalThis.crypto.randomUUID()) {
+    Object.assign(this, {moduleKey, formState, request, operationId});
     this.saving = false;
     this.recordId = null;
     this.revision = null;
@@ -12,7 +12,7 @@ export class RecordCreate {
 
   async save(mode, csrfToken) {
     if (!this.canSave(mode)) return null;
-    const body = JSON.stringify({record: this.formState.beginSave()});
+    const body = JSON.stringify({operation_id: this.operationId, record: this.formState.beginSave()});
     this.saving = true;
     try {
       let response;
@@ -82,7 +82,7 @@ export async function sendQueuedRecordCreate(entry, csrfToken, request = (url, o
     body: JSON.stringify({record: entry.snapshot, operation_id: entry.operation_id, identity: entry.identity})
   });
   const data = await checkedJson(response);
-  if (data.module !== entry.module_id || !data.record_id || !data.record || !data.meta?.revision) {
+  if (data.module !== entry.module_id || data.operation_id !== entry.operation_id || !data.record_id || !data.record || !data.meta?.revision) {
     throw new Error("Serverantwort unvollständig. Der Queue-Eintrag bleibt erhalten.");
   }
   if (entry.record_id && data.record_id !== entry.record_id) {

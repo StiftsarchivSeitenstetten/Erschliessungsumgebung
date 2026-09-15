@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from copy import deepcopy
 from typing import Any
 
 import yaml
@@ -47,12 +48,27 @@ def create_generic_record(
     operation_id: str | None = None,
     reserved_identity: Mapping[str, Any] | None = None,
 ) -> GenericStoredRecord:
+    if operation_id is not None:
+        validate_operation_id(operation_id)
     head = repository.get_branch_head()
     state = ModuleState(repository, module)
+    RecordRuntime(module).filter_for_edit(payload, user.role)
+    request_identity = dict(reserved_identity) if reserved_identity is not None else None
+    create_request = {"record": deepcopy(payload), "identity": request_identity}
+    existing_operation = state.create_operation(operation_id) if operation_id is not None else None
+    if existing_operation is not None:
+        if existing_operation.get("request") != create_request:
+            raise RecordValidationError(["operation_id wurde bereits fuer einen anderen Create-Request verwendet."])
+        existing_record_id = existing_operation.get("record_id")
+        if not isinstance(existing_record_id, str) or not existing_record_id:
+            raise RecordValidationError(["Gespeicherte Create-Operation ist ungueltig."])
+        stored = parse_record_file(repository.read_file(record_path(module, existing_record_id)))
+        if stored.record_id != existing_record_id:
+            raise RecordValidationError(["Gespeicherte Create-Operation verweist auf einen ungueltigen Datensatz."])
+        return stored
     values = dict(server_values or {})
     identity_assignment = module.create_strategy.get("identity_assignment", "on_create")
     if identity_assignment == "reserve_before_create":
-        validate_operation_id(operation_id or "")
         reservation = reservation_from_state(state, module, operation_id or "", payload)
         if reservation is None:
             raise RecordValidationError(["Fuer diesen Create fehlt eine bestaetigte Identitaetsreservation."])
@@ -81,6 +97,11 @@ def create_generic_record(
         raise RepositoryConflictError(f"Datensatz existiert bereits: {record_id}")
 
     content = render_record_content(record)
+    if operation_id is not None:
+        state.set_create_operation(operation_id, {
+            "request": create_request,
+            "record_id": record_id,
+        })
     files = {path: content, state.path: state.content()}
     files.update(index_write_files(repository, module, record, content, create=True))
     repository.commit_files(

@@ -123,9 +123,9 @@ def exercise(repository, report, partition="A"):
         headers = login("redaktion")
         url = f"/api/modules/{MODULE_KEY}/records"
         payload = sample_payload(partition)
-        ok(client.post(url, json={"record": payload}, headers=headers), 503)
+        ok(client.post(url, json={"operation_id": f"photo-write-disabled-{record_id}", "record": payload}, headers=headers), 503)
         app.state.generic_writes_enabled = True
-        created = ok(client.post(url, json={"record": payload}, headers=headers), 201)
+        created = ok(client.post(url, json={"operation_id": f"photo-live-create-{record_id}", "record": payload}, headers=headers), 201)
         check(created["record_id"] == record_id, "Falsche ID.")
         check(set(repository.commits[-1]["files"]) == {path, STATE_PATH, index_path(module)}, "Record, State und Index nicht gemeinsam committed.")
         record = compare_legacy(repository, path, payload, state)
@@ -134,6 +134,10 @@ def exercise(repository, report, partition="A"):
         expected_state = deepcopy(state)
         expected_state["next_record_id"] += 1
         expected_state["next_signature_number"][partition] += 1
+        expected_state.setdefault("create_operations", {})[f"photo-live-create-{record_id}"] = {
+            "request": {"record": deepcopy(payload), "identity": None},
+            "record_id": record_id,
+        }
         check(json.loads(repository.read_file(STATE_PATH).content) == expected_state, "Foto-State falsch fortgeschrieben.")
         report["legacy_create_difference"] = "Only geaendert_am/von: generic null at create, legacy already populated. YAML key order has no semantic effect."
 

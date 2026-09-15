@@ -65,3 +65,20 @@ class ModuleState:
         if not isinstance(reservations, dict):
             raise RecordValidationError(["Identitaetsreservationen im Modul-State sind ungueltig."])
         reservations[operation_id] = deepcopy(reservation)
+
+    def create_operation(self, operation_id: str) -> dict[str, Any] | None:
+        operations = self.data.get("create_operations") or {}
+        if not isinstance(operations, dict):
+            raise RecordValidationError(["Create-Operationen im Modul-State sind ungueltig."])
+        operation = operations.get(operation_id)
+        if operation is None:
+            return None
+        if not isinstance(operation, dict):
+            raise RecordValidationError(["Create-Operation im Modul-State ist ungueltig."])
+        return deepcopy(operation)
+
+    def set_create_operation(self, operation_id: str, operation: dict[str, Any]) -> None:
+        operations = self.data.setdefault("create_operations", {})
+        if not isinstance(operations, dict):
+            raise RecordValidationError(["Create-Operationen im Modul-State sind ungueltig."])
+        operations[operation_id] = deepcopy(operation)

@@ -148,7 +148,7 @@ def exercise(repository, module, report):
         headers = login("redaktion")
         url = f"/api/modules/{MODULE_KEY}/records"
         payload = sample_payload()
-        ok(client.post(url, json={"record": payload}, headers=headers), 503)
+        ok(client.post(url, json={"operation_id": "generic-write-disabled-check", "record": payload}, headers=headers), 503)
         app.state.generic_writes_enabled = True
 
         try:
@@ -170,7 +170,7 @@ def exercise(repository, module, report):
         next_number = initial_state["next_signature_number"]["T"]
 
         def create(offset):
-            result = ok(client.post(url, json={"record": payload}, headers=headers), 201)
+            result = ok(client.post(url, json={"operation_id": f"generic-live-create-{next_id + offset}", "record": payload}, headers=headers), 201)
             record_id = f"integration-{next_id + offset:04d}"
             path = f"{DATA_DIR}/{record_id}.md"
             check(result["record_id"] == record_id, "Falsche serverseitige ID.")
@@ -186,6 +186,13 @@ def exercise(repository, module, report):
             expected = deepcopy(initial_state)
             expected["next_record_id"] += offset + 1
             expected["next_signature_number"]["T"] += offset + 1
+            operations = expected.setdefault("create_operations", {})
+            for operation_offset in range(offset + 1):
+                operation_record_id = f"integration-{next_id + operation_offset:04d}"
+                operations[f"generic-live-create-{next_id + operation_offset}"] = {
+                    "request": {"record": deepcopy(payload), "identity": None},
+                    "record_id": operation_record_id,
+                }
             check(state == expected, "State nach Create falsch.")
             check(set(repository.commits[-1]["files"]) == {path, STATE_PATH}, "Record/State nicht gemeinsam committed.")
             report.setdefault("records", []).append({"id": record_id, "signatur": record["signatur"]["anzeige"], "path": path})
@@ -194,7 +201,8 @@ def exercise(repository, module, report):
         created, original, path = create(0)
         record_url = f"{url}/{created['record_id']}"
         readback = ok(client.get(record_url))
-        check(readback == created, "Read-back stimmt nicht mit Create-Response ueberein.")
+        check({key: value for key, value in created.items() if key != "operation_id"} == readback,
+              "Read-back stimmt nicht mit Create-Response ueberein.")
         check(readback["record"] == RecordRuntime(module).filter_for_view(original, "redaktion"), "Read-back stimmt nicht mit YAML ueberein.")
         check(readback["meta"]["revision"] == repository.read_file(path).revision, "Revision stimmt nicht mit Git-Blob ueberein.")
         headers = login("ehrenamtlich")
@@ -226,6 +234,8 @@ def exercise(repository, module, report):
             before_head = repository.get_branch_head()
             before_state = repository.read_file(STATE_PATH)
             before_record = repository.read_file(path)
+            if method == "POST":
+                body = {"operation_id": f"generic-rejected-{label}", **body}
             ok(client.request(method, target, json=body, headers=headers), expected)
             check(repository.get_branch_head() == before_head, f"Commit bei Fehlerfall {label}.")
             check(repository.read_file(STATE_PATH) == before_state, f"State bei Fehlerfall {label}.")
