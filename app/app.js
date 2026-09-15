@@ -22,7 +22,10 @@ const state = {
   mode: "new",
   editingRecord: null,
   baseRevision: null,
-  loadedSnapshot: null
+  serverSnapshot: null,
+  pendingSnapshot: null,
+  saving: false,
+  maySaveEditingRecord: false
 };
 
 const form = document.querySelector("#record-form");
@@ -31,6 +34,7 @@ const preview = document.querySelector("#preview");
 const generateButton = document.querySelector("#generate");
 const downloadButton = document.querySelector("#download");
 const finalizeButton = document.querySelector("#finalize");
+const discardButton = document.querySelector("#discard-changes");
 const numberOutput = document.querySelector("#number-output");
 const signatureOutput = document.querySelector("#signature-output");
 const archivisDateOutput = document.querySelector("#archivis-date");
@@ -171,9 +175,13 @@ function bindEvents() {
 
   document.querySelector("#generate").addEventListener("click", generateRecord);
   finalizeButton.addEventListener("click", finalizeRecord);
+  discardButton.addEventListener("click", discardChanges);
   document.querySelector("#new-record").addEventListener("click", startNewRecord);
   document.querySelector("#reset-session").addEventListener("click", resetLocalSessionRecords);
-  document.querySelector("#add-person").addEventListener("click", () => addPersonRow());
+  document.querySelector("#add-person").addEventListener("click", () => {
+    addPersonRow();
+    updateDirtyState();
+  });
   document.querySelector("#logout").addEventListener("click", logout);
   document.querySelector("#mode-new").addEventListener("click", () => setMode("new"));
   document.querySelector("#mode-edit").addEventListener("click", () => setMode("edit"));
@@ -295,12 +303,15 @@ function applyLoadedRecord(record, baseRevision) {
   form.reset();
   document.querySelector("#personen-list").innerHTML = "";
   fillFormFromRecord(record);
-  state.loadedSnapshot = formSnapshot();
+  state.serverSnapshot = formSnapshot();
+  state.pendingSnapshot = null;
+  state.saving = false;
   updateSignatureOutput();
   updateArchivisDate();
   updateRecordNavigation();
   const maySave = !(state.user.role === "ehrenamtlich" && record.redaktion?.stufe === "redaktionell");
-  finalizeButton.disabled = !maySave;
+  state.maySaveEditingRecord = maySave;
+  updateDirtyState();
   errors.innerHTML = maySave
     ? "<p>Datensatz geladen.</p>"
     : "<p>Dieser redaktionelle Datensatz kann mit deiner Rolle gelesen, aber nicht gespeichert werden.</p>";
@@ -363,16 +374,32 @@ function fillFormFromRecord(record) {
 
 function formSnapshot() {
   if (!(state.mode === "edit" && state.editingRecord)) return null;
-  return JSON.stringify(readProductivePayload());
+  return JSON.stringify(readWorkingRecord());
 }
 
 function hasUnsavedChanges() {
-  if (!(state.mode === "edit" && state.editingRecord) || state.loadedSnapshot === null) return false;
-  return formSnapshot() !== state.loadedSnapshot;
+  if (!(state.mode === "edit" && state.editingRecord) || state.serverSnapshot === null) return false;
+  return formSnapshot() !== state.serverSnapshot;
 }
 
 function updateDirtyState() {
-  form.dataset.dirty = hasUnsavedChanges() ? "true" : "false";
+  const dirty = hasUnsavedChanges();
+  form.dataset.dirty = dirty ? "true" : "false";
+  if (state.mode === "edit" && state.editingRecord) {
+    finalizeButton.disabled = state.saving || !state.maySaveEditingRecord || !dirty;
+    discardButton.disabled = state.saving || !dirty;
+  } else {
+    discardButton.disabled = true;
+  }
+}
+
+function discardChanges() {
+  if (!(state.mode === "edit" && state.editingRecord) || state.saving) return;
+  fillFormFromRecord(state.editingRecord);
+  updateSignatureOutput();
+  updateArchivisDate();
+  updateDirtyState();
+  errors.innerHTML = "<p>Ungespeicherte Änderungen wurden verworfen.</p>";
 }
 
 function confirmDiscardUnsavedChanges() {
@@ -484,6 +511,7 @@ function addPersonRow(person = { name: "", hinweis: "" }) {
   row.querySelector(".remove-person").addEventListener("click", () => {
     row.remove();
     if (!list.querySelector(".person-row")) addPersonRow();
+    updateDirtyState();
   });
   list.append(row);
 }
@@ -670,58 +698,79 @@ function generateRecord() {
   finalizeButton.disabled = state.finalizedCurrentDraft;
 }
 
-function readProductivePayload() {
+function readWorkingRecord() {
   const record = readRecord();
   return {
     format: state.format,
     erschliessung: record.erschliessung,
     korrespondenzstueck: record.korrespondenzstueck,
-    datierung: record.datierung,
-    base_revision: state.baseRevision
+    datierung: record.datierung
   };
 }
 
+function readProductivePayload(baseRevision = state.baseRevision) {
+  return { ...readWorkingRecord(), base_revision: baseRevision };
+}
+
 async function finalizeRecord() {
-  if (state.finalizedCurrentDraft) return;
+  const editingExistingRecord = state.mode === "edit" && state.editingRecord;
+  if (state.saving || (!editingExistingRecord && state.finalizedCurrentDraft)) return;
+  if (editingExistingRecord && !hasUnsavedChanges()) return;
   const record = readRecord();
   const messages = validate(record);
   showErrors(messages);
   if (messages.length) return;
   if (state.backendMode) {
-    const url = state.mode === "edit" && state.editingRecord
+    const url = editingExistingRecord
       ? `/api/records/photos/${state.editingRecord.id}`
       : "/api/records/photos";
-    const method = state.mode === "edit" && state.editingRecord ? "PUT" : "POST";
-    const response = await apiFetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(readProductivePayload())
-    });
-    if (!response.ok) {
-      const detail = await response.json().catch(() => ({}));
-      const message = Array.isArray(detail.detail) ? detail.detail.join("; ") : detail.detail || "Datensatz konnte nicht gespeichert werden.";
-      showErrors([message]);
-      return;
-    }
-    const saved = await response.json();
-    state.editingRecord = saved.record;
-    state.baseRevision = saved.base_revision;
-    state.currentDraft = {
-      id: saved.record.id,
-      format: saved.record.signatur.format,
-      nummer: saved.record.signatur.nummer,
-      signature: saved.record.signatur
-    };
-    state.format = saved.record.signatur.format;
-    state.finalizedCurrentDraft = true;
-    finalizeButton.disabled = true;
-    downloadButton.disabled = true;
-    await refreshRecords();
-    state.loadedSnapshot = formSnapshot();
+    const method = editingExistingRecord ? "PUT" : "POST";
+    const baseRevision = state.baseRevision;
+    const workingRecord = readWorkingRecord();
+    const payload = { ...workingRecord, base_revision: baseRevision };
+    state.pendingSnapshot = JSON.stringify(workingRecord);
+    state.saving = true;
     updateDirtyState();
-    updateRecordNavigation();
-    errors.innerHTML = `<p>Datensatz ${saved.record.signatur.anzeige} wurde gespeichert.</p>`;
-    updateSignatureOutput();
+    try {
+      const response = await apiFetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({}));
+        const message = Array.isArray(detail.detail) ? detail.detail.join("; ") : detail.detail || "Datensatz konnte nicht gespeichert werden.";
+        showErrors([message]);
+        return;
+      }
+      const saved = await response.json();
+      state.editingRecord = saved.record;
+      state.baseRevision = saved.base_revision;
+      state.currentDraft = {
+        id: saved.record.id,
+        format: saved.record.signatur.format,
+        nummer: saved.record.signatur.nummer,
+        signature: saved.record.signatur
+      };
+      state.format = saved.record.signatur.format;
+      if (editingExistingRecord) {
+        state.serverSnapshot = state.pendingSnapshot;
+        state.finalizedCurrentDraft = false;
+      } else {
+        state.finalizedCurrentDraft = true;
+      }
+      downloadButton.disabled = true;
+      await refreshRecords();
+      updateRecordNavigation();
+      errors.innerHTML = `<p>Datensatz ${saved.record.signatur.anzeige} wurde gespeichert.</p>`;
+      updateSignatureOutput();
+    } catch (error) {
+      showErrors([error.message || "Datensatz konnte nicht gespeichert werden."]);
+    } finally {
+      state.pendingSnapshot = null;
+      state.saving = false;
+      updateDirtyState();
+    }
     return;
   }
   record.signatur = buildSignature(record.signatur.format, record.signatur.nummer, "vergeben");
@@ -776,7 +825,10 @@ function startNewRecord() {
   state.currentDraft = null;
   state.editingRecord = null;
   state.baseRevision = null;
-  state.loadedSnapshot = null;
+  state.serverSnapshot = null;
+  state.pendingSnapshot = null;
+  state.saving = false;
+  state.maySaveEditingRecord = false;
   state.mode = "new";
   document.querySelector("#mode-new").classList.add("active");
   document.querySelector("#mode-edit").classList.remove("active");

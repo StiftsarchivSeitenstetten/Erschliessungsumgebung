@@ -24,6 +24,8 @@ class PhotoUiStaticTest(unittest.TestCase):
         self.assertIn("function hasUnsavedChanges()", script)
         self.assertIn("beforeunload", script)
         self.assertIn("Ungespeicherte Änderungen verwerfen", script)
+        self.assertIn('id="discard-changes"', html)
+        self.assertIn("function discardChanges()", script)
 
     def test_direct_record_url_parameter_is_supported(self):
         script = (ROOT / "app" / "app.js").read_text(encoding="utf-8")

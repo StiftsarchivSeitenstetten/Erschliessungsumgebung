@@ -240,6 +240,30 @@ class RecordsApiTest(unittest.TestCase):
         self.assertEqual(record["technik"]["geaendert_von"], "anna")
         self.assertIsNotNone(record["technik"]["geaendert_am"])
 
+    def test_returned_revision_allows_immediate_followup_update(self):
+        self.seed_existing()
+        self.authed()
+        loaded = self.client.get("/api/records/photos/foto-000001").json()
+
+        first_payload = payload("A", "Erste Änderung")
+        first_payload["base_revision"] = loaded["base_revision"]
+        first = self.client.put(
+            "/api/records/photos/foto-000001",
+            json=first_payload,
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(first.status_code, 200)
+
+        second_payload = payload("A", "Zweite Änderung")
+        second_payload["base_revision"] = first.json()["base_revision"]
+        second = self.client.put(
+            "/api/records/photos/foto-000001",
+            json=second_payload,
+            headers={"X-CSRF-Token": self.csrf()},
+        )
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()["record"]["erschliessung"]["beschriftung"], "Zweite Änderung")
+
     def test_update_legacy_record_without_created_provenance_does_not_invent_it(self):
         record = self.seed_existing()
         record["technik"] = {"quelle": "migration_excel", "erstellt_am": None, "erstellt_von": None}

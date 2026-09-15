@@ -239,12 +239,12 @@ def create_photo_record(repository: DataRepository, payload: dict[str, Any], use
             STATE_PATH: dump_state(state),
         }
         try:
-            new_head = repository.commit_files(
+            repository.commit_files(
                 expected_head=head,
                 files=files,
                 message=f"Speichere {record['signatur']['anzeige']}",
             )
-            return StoredRecord(data=record, body="", revision=new_head)
+            return read_photo_record(repository, record["id"])
         except RepositoryConflictError as exc:
             last_conflict = exc
     raise RepositoryConflictError("Signaturvergabe konnte wegen paralleler Änderungen nicht abgeschlossen werden.") from last_conflict
@@ -263,11 +263,11 @@ def update_photo_record(repository: DataRepository, record_id: str, payload: dic
     if index_entry_changed(existing.data, record):
         files[INDEX_PATH] = dump_photo_index(update_index_record(read_photo_index(repository), record))
     try:
-        new_head = repository.commit_files(
+        repository.commit_files(
             expected_head=head,
             files=files,
             message=f"Aktualisiere {record_id}",
         )
     except RepositoryConflictError as exc:
         raise RecordRevisionConflictError("Dieser Datensatz wurde inzwischen von einer anderen Person geändert. Bitte laden Sie die aktuelle Fassung neu.") from exc
-    return StoredRecord(data=record, body=existing.body, revision=new_head)
+    return read_photo_record(repository, record_id)

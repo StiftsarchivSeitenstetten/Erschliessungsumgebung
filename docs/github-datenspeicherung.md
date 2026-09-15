@@ -100,6 +100,7 @@ Datensatz und State werden niemals in getrennten Commits geschrieben.
 ## Konflikterkennung bei Bearbeitung
 
 Beim Lesen eines bestehenden Datensatzes liefert die API eine `base_revision` mit. Beim Speichern per `PUT` muss der Client diese Revision mitsenden.
+Der Dirty State bezieht sich auf den zuletzt vom Backend bestätigten Datensatzstand und wird nach jedem erfolgreichen Save neu berechnet.
 
 Ist die gespeicherte Fassung nicht mehr dieselbe, antwortet das Backend mit `409 Conflict`:
 
