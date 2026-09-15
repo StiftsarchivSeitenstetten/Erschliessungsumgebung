@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import ModuleAccess, User
@@ -12,15 +12,15 @@ from ..permissions.rules import validate_module, validate_role, validate_ui_prof
 from .passwords import hash_password, verify_password
 
 
-def normalize_email(email: str) -> str:
-    return email.strip().lower()
+def normalize_email(email: str | None) -> str | None:
+    if email is None:
+        return None
+    normalized = email.strip().lower()
+    return normalized or None
 
 
 def find_user_by_login(db: Session, login: str) -> User | None:
-    login = login.strip()
-    return db.scalar(
-        select(User).where(or_(User.username == login, User.email == normalize_email(login)))
-    )
+    return db.scalar(select(User).where(User.username == login.strip()))
 
 
 def create_user(
@@ -28,7 +28,7 @@ def create_user(
     *,
     username: str,
     display_name: str,
-    email: str,
+    email: str | None = None,
     role: str,
     ui_profile: str,
     modules: list[str],

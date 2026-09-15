@@ -26,7 +26,7 @@ class UserResponse(BaseModel):
     id: int
     username: str
     display_name: str
-    email: str
+    email: str | None
     role: str
     ui_profile: str
     modules: list[str]

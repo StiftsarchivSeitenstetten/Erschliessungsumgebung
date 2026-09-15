@@ -25,6 +25,12 @@ def prompt(value: str | None, label: str) -> str:
     return answer
 
 
+def prompt_optional(value: str | None, label: str) -> str | None:
+    answer = value if value is not None else input(f"{label} (optional): ")
+    normalized = answer.strip()
+    return normalized or None
+
+
 def prompt_choice(value: str | None, label: str, choices: set[str]) -> str:
     if value:
         answer = value
@@ -63,7 +69,7 @@ def create_user_command(args: argparse.Namespace) -> int:
                 db,
                 username=prompt(args.username, "Benutzername"),
                 display_name=prompt(args.display_name, "Anzeigename"),
-                email=prompt(args.email, "E-Mail"),
+                email=prompt_optional(args.email, "E-Mail"),
                 role=validate_role(prompt_choice(args.role, "Rolle", ROLES)),
                 ui_profile=validate_ui_profile(prompt_choice(args.ui_profile, "UI-Profil", UI_PROFILES)),
                 modules=prompt_modules(args.modules),
@@ -73,7 +79,7 @@ def create_user_command(args: argparse.Namespace) -> int:
             username = user.username
         except IntegrityError as exc:
             db.rollback()
-            raise SystemExit("Benutzername oder E-Mail existiert bereits.") from exc
+            raise SystemExit("Benutzername existiert bereits.") from exc
     print(f"Benutzer angelegt: {username}")
     return 0
 
@@ -84,7 +90,7 @@ def list_users_command(args: argparse.Namespace) -> int:
         users = db.scalars(select(User).order_by(User.username)).all()
         for user in users:
             status = "aktiv" if user.active else "deaktiviert"
-            print(f"{user.username}\t{user.display_name}\t{user.email}\t{user.role}\t{user.ui_profile}\t{','.join(user.modules)}\t{status}")
+            print(f"{user.username}\t{user.display_name}\t{user.email or ''}\t{user.role}\t{user.ui_profile}\t{','.join(user.modules)}\t{status}")
     return 0
 
 

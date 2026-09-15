@@ -12,6 +12,7 @@ os.environ["COOKIE_SECURE"] = "false"
 
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import select  # noqa: E402
+from sqlalchemy.exc import IntegrityError  # noqa: E402
 
 from backend.auth.passwords import verify_password  # noqa: E402
 from backend.auth.service import create_user  # noqa: E402
@@ -89,10 +90,63 @@ class AuthBackendTest(unittest.TestCase):
         self.assertEqual(me.json()["ui_profile"], "ehrenamt-barrierearm")
         self.assertEqual(me.json()["modules"], [MODULE_FOTO_PAPIERABZUEGE])
 
-    def test_login_with_email(self):
+    def test_email_is_not_a_login_identifier(self):
         self.create_user()
         response = self.login(login="anna@example.test")
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 401)
+
+    def test_multiple_users_without_email_can_login_by_username(self):
+        self.create_user(username="user_a", email=None)
+        self.create_user(username="user_b", email="  ")
+
+        with SessionLocal() as db:
+            users = db.scalars(select(User).where(User.username.in_(["user_a", "user_b"]))).all()
+            self.assertEqual([user.email for user in users], [None, None])
+
+        self.assertEqual(self.login("user_a").status_code, 200)
+        self.client.cookies.clear()
+        self.assertEqual(self.login("user_b").status_code, 200)
+
+    def test_duplicate_email_addresses_are_allowed_and_login_uses_username(self):
+        self.create_user(username="user_c", email=" Test@Example.org ")
+        self.create_user(username="user_d", email="test@example.org")
+
+        with SessionLocal() as db:
+            users = db.scalars(select(User).where(User.username.in_(["user_c", "user_d"]))).all()
+            self.assertEqual([user.email for user in users], ["test@example.org", "test@example.org"])
+
+        self.assertEqual(self.login("user_c").status_code, 200)
+        self.client.cookies.clear()
+        self.assertEqual(self.login("user_d").status_code, 200)
+        self.client.cookies.clear()
+        self.assertEqual(self.login("test@example.org").status_code, 401)
+
+    def test_username_remains_unique(self):
+        self.create_user(username="user_a", email=None)
+        with self.assertRaises(IntegrityError), SessionLocal() as db:
+            create_user(
+                db,
+                username="user_a",
+                display_name="Noch ein User A",
+                email=None,
+                role="ehrenamtlich",
+                ui_profile="ehrenamt-standard",
+                modules=[MODULE_FOTO_PAPIERABZUEGE],
+                password="SehrGeheim123",
+            )
+            db.commit()
+
+    def test_email_remains_unvalidated_metadata(self):
+        user_id = self.create_user(email=" Keine-Mailadresse ")
+        with SessionLocal() as db:
+            self.assertEqual(db.get(User, user_id).email, "keine-mailadresse")
+
+    def test_login_page_only_advertises_username(self):
+        html = (Path(__file__).parents[1] / "backend" / "static" / "login" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('<label for="login">Benutzername</label>', html)
+        self.assertNotIn("Benutzername oder E-Mail", html)
 
     def test_wrong_password_is_rejected(self):
         self.create_user()
