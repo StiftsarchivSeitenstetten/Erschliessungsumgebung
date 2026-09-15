@@ -97,6 +97,46 @@ Der Ablauf ist optimistisch Git-basiert:
 
 Datensatz und State werden niemals in getrennten Commits geschrieben.
 
+## Verbindliche Reservierung für neue Foto-Datensätze
+
+Die kommende persistente Speicherwarteschlange kann vor dem vollständigen Create mit
+`POST /api/records/photos/reservations` eine Record-ID und Signatur verbindlich reservieren.
+Der Request enthält ausschließlich eine clientseitig erzeugte UUID als `operation_id` und
+die Signaturpartition A–F. Die Antwort liefert `operation_id`, `record_id`, `signature`,
+`partition` und `reserved_at`; eine Record-Revision gibt es zu diesem Zeitpunkt noch nicht.
+
+Die Reservierung wird unter `reservations` im bestehenden
+`state/foto-papierabzuege.json` gespeichert. Ein Eintrag enthält zusätzlich die vollständigen
+Signaturdaten für den späteren Create:
+
+```json
+{
+  "operation_id": "11111111-1111-4111-8111-111111111111",
+  "record_id": "foto-010334",
+  "signature": "9.4.2.B.1047",
+  "partition": "B",
+  "reserved_at": "2026-09-15T09:42:00Z",
+  "signature_data": {
+    "bestand": "9.4",
+    "objektgruppe": "2",
+    "format": "B",
+    "nummer": 1047,
+    "anzeige": "9.4.2.B.1047",
+    "status": "vergeben"
+  }
+}
+```
+
+Eine `operation_id` bezeichnet genau einen Create-Vorgang. Wiederholte Requests liefern
+die persistierte Reservierung und erhöhen den State nicht erneut. ID-Zähler,
+Partitionszähler und Reservation werden gemeinsam in einem atomaren State-Commit
+geschrieben. Dadurch liefert auch ein Retry nach verlorener HTTP-Antwort dieselbe Identität.
+
+Reservierungen werden nicht freigegeben; Signaturlücken sind ausdrücklich zulässig. Der
+spätere vollständige Create muss `operation_id`, `record_id` und `signature` mitsenden,
+verwendet exakt die reservierte Identität und erhöht die Zähler nicht nochmals. Der bisherige
+direkte Create ohne Reservation bleibt während dieses Zwischenschritts verfügbar.
+
 ## Konflikterkennung bei Bearbeitung
 
 Beim Lesen eines bestehenden Datensatzes liefert die API eine `base_revision` mit. Beim Speichern per `PUT` muss der Client diese Revision mitsenden.

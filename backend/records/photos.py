@@ -53,6 +53,10 @@ class RecordRevisionConflictError(RuntimeError):
     pass
 
 
+class ReservationConflictError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class StoredRecord:
     data: dict[str, Any]
@@ -121,16 +125,20 @@ def bootstrap_state(repository: DataRepository) -> dict[str, Any]:
         number = signatur.get("nummer")
         if format_code in formats and isinstance(number, int):
             formats[format_code] = max(formats[format_code], number + 1)
-    return {"next_id": max_id + 1, "formats": formats}
+    return {"next_id": max_id + 1, "formats": formats, "reservations": {}}
 
 
 def normalize_state(raw_state: dict[str, Any]) -> dict[str, Any]:
     if "next_id" in raw_state and "formats" in raw_state:
-        return raw_state
+        return {
+            **raw_state,
+            "reservations": dict(raw_state.get("reservations") or {}),
+        }
     if "next_record_id" in raw_state and "next_signature_number" in raw_state:
         return {
             "next_id": int(raw_state["next_record_id"]),
             "formats": {key: int(value) for key, value in raw_state["next_signature_number"].items()},
+            "reservations": dict(raw_state.get("reservations") or {}),
         }
     return raw_state
 
@@ -143,6 +151,7 @@ def public_state(state: dict[str, Any]) -> dict[str, Any]:
             key: int(value)
             for key, value in sorted(normalized["formats"].items())
         },
+        "reservations": normalized.get("reservations") or {},
     }
 
 
@@ -174,20 +183,30 @@ def canonical_erschliessung(values: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_new_record(payload: dict[str, Any], user: User, state: dict[str, Any]) -> dict[str, Any]:
+def allocate_photo_identity(state: dict[str, Any], partition: str) -> tuple[str, dict[str, Any]]:
     config = load_config()
-    format_code = str(payload.get("format", "")).upper()
-    if format_code not in config["signature"]["formats"]:
+    partition = str(partition).upper()
+    if partition not in config["signature"]["formats"]:
         raise RecordValidationError(["format ist unzulaessig."])
     record_id = f"foto-{int(state['next_id']):06d}"
-    number = int(state["formats"][format_code])
+    number = int(state["formats"][partition])
+    return record_id, build_signature(partition, number, config, status="vergeben")
+
+
+def build_new_record(
+    payload: dict[str, Any],
+    user: User,
+    record_id: str,
+    signature: dict[str, Any],
+) -> dict[str, Any]:
+    config = load_config()
     now = utc_iso()
     return {
         "schema_version": 1,
         "id": record_id,
         "datensatz_typ": config["datensatz_typ"],
         "modul": config["module_id"],
-        "signatur": build_signature(format_code, number, config, status="vergeben"),
+        "signatur": signature,
         "erschliessung": canonical_erschliessung(payload.get("erschliessung") or {}),
         "korrespondenzstueck": bool(payload.get("korrespondenzstueck", False)),
         "datierung": payload.get("datierung") or {"jahr": None, "monat": None, "tag": None},
@@ -202,6 +221,72 @@ def build_new_record(payload: dict[str, Any], user: User, state: dict[str, Any])
             "geaendert_von": user.username,
         },
     }
+
+
+def reservation_response(reservation: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "operation_id": reservation["operation_id"],
+        "record_id": reservation["record_id"],
+        "signature": reservation["signature"],
+        "partition": reservation["partition"],
+        "reserved_at": reservation["reserved_at"],
+    }
+
+
+def reserve_photo_identity(repository: DataRepository, operation_id: str, partition: str) -> dict[str, Any]:
+    operation_id = str(operation_id)
+    partition = str(partition).upper()
+    last_conflict: RepositoryConflictError | None = None
+    for _ in range(MAX_RETRIES):
+        head = repository.get_branch_head()
+        state = read_state(repository)
+        existing = state["reservations"].get(operation_id)
+        if existing is not None:
+            if existing["partition"] != partition:
+                raise ReservationConflictError("Diese operation_id ist bereits für eine andere Partition reserviert.")
+            return reservation_response(existing)
+
+        record_id, signature = allocate_photo_identity(state, partition)
+        reservation = {
+            "operation_id": operation_id,
+            "record_id": record_id,
+            "signature": signature["anzeige"],
+            "partition": partition,
+            "reserved_at": utc_iso(),
+            "signature_data": signature,
+        }
+        state["next_id"] = int(state["next_id"]) + 1
+        state["formats"][partition] = int(state["formats"][partition]) + 1
+        state["reservations"][operation_id] = reservation
+        try:
+            repository.commit_files(
+                expected_head=head,
+                files={STATE_PATH: dump_state(state)},
+                message=f"Reserviere {signature['anzeige']} für {operation_id}",
+            )
+            return reservation_response(reservation)
+        except RepositoryConflictError as exc:
+            last_conflict = exc
+    raise RepositoryConflictError("Foto-ID und Signatur konnten nicht reserviert werden.") from last_conflict
+
+
+def reserved_identity(state: dict[str, Any], payload: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    raw_operation_id = payload.get("operation_id")
+    if raw_operation_id is None:
+        if payload.get("record_id") is not None or payload.get("signature") is not None:
+            raise ReservationConflictError("Reservierte Record-ID und Signatur benötigen eine operation_id.")
+        return None
+    operation_id = str(raw_operation_id)
+    reservation = state["reservations"].get(operation_id)
+    if reservation is None:
+        raise ReservationConflictError("Für diese operation_id liegt keine Reservierung vor.")
+    if payload.get("record_id") != reservation["record_id"]:
+        raise ReservationConflictError("record_id stimmt nicht mit der Reservierung überein.")
+    if payload.get("signature") != reservation["signature"]:
+        raise ReservationConflictError("Signatur stimmt nicht mit der Reservierung überein.")
+    if str(payload.get("format", "")).upper() != reservation["partition"]:
+        raise ReservationConflictError("Partition stimmt nicht mit der Reservierung überein.")
+    return reservation["record_id"], dict(reservation["signature_data"])
 
 
 def update_record(existing: dict[str, Any], payload: dict[str, Any], user: User) -> dict[str, Any]:
@@ -229,15 +314,25 @@ def create_photo_record(repository: DataRepository, payload: dict[str, Any], use
         head = repository.get_branch_head()
         state = read_state(repository)
         index = read_photo_index(repository)
-        record = build_new_record(payload, user, state)
+        identity = reserved_identity(state, payload)
+        if identity is None:
+            record_id, signature = allocate_photo_identity(state, payload.get("format", ""))
+            state["next_id"] = int(state["next_id"]) + 1
+            state["formats"][signature["format"]] = int(state["formats"][signature["format"]]) + 1
+        else:
+            record_id, signature = identity
+            try:
+                return read_photo_record(repository, record_id)
+            except RepositoryNotFoundError:
+                pass
+        record = build_new_record(payload, user, record_id, signature)
         validate_canonical_record(record)
-        state["next_id"] = int(state["next_id"]) + 1
-        state["formats"][record["signatur"]["format"]] = int(record["signatur"]["nummer"]) + 1
         files = {
             record_path(record["id"]): render_photo_markdown(record),
             INDEX_PATH: dump_photo_index(append_index_record(index, record)),
-            STATE_PATH: dump_state(state),
         }
+        if identity is None:
+            files[STATE_PATH] = dump_state(state)
         try:
             repository.commit_files(
                 expected_head=head,
