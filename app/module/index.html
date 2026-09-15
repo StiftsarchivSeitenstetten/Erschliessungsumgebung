@@ -42,20 +42,19 @@
       </nav>
       <section class="status-band">
         <div>
-          <h2>Read-only Preview</h2>
-          <p>Diese Ansicht rendert und bearbeitet Datensätze generisch aus Modul-Descriptor und Record-API. Persistenz ist hier deaktiviert.</p>
+          <h2>Datensatz</h2>
+          <p id="save-status" role="status"></p>
         </div>
         <div class="preview-actions">
           <button id="toggle-edit" type="button" class="secondary">Edit-Modus aktivieren</button>
           <button id="discard-changes" type="button" class="secondary" disabled>Änderungen verwerfen</button>
           <button id="show-payload" type="button">Payload anzeigen</button>
-          <button type="button" class="secondary" disabled title="In dieser Entwicklungsansicht gibt es keine Schreib-API.">Speichern deaktiviert</button>
+          <button id="save-record" type="button" disabled>Speichern</button>
         </div>
       </section>
       <section id="record-preview" class="form-section" aria-live="polite"></section>
       <section class="form-section">
         <h2>Entwicklungs-Payload</h2>
-        <p class="generic-help">Dieser Payload wird nur lokal erzeugt und nicht versendet.</p>
         <pre id="payload-preview" class="payload-preview" aria-live="polite"></pre>
       </section>
       </div>
@@ -69,6 +68,6 @@
         <button value="discard">Änderungen verwerfen</button>
       </form>
     </dialog>
-    <script type="module" src="module.js?v=navigation-4"></script>
+    <script type="module" src="module.js?v=update-3"></script>
   </body>
 </html>

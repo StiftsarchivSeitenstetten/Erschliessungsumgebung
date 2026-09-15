@@ -1,6 +1,7 @@
 import { FormRenderer } from "../generic/form-renderer.js?v=date-roundtrip-1";
 import { FormState } from "../generic/form-state.js";
 import { ResultState, renderRecordList } from "../generic/record-list.js?v=navigation-1";
+import { RecordUpdate } from "../generic/record-update.js?v=update-2";
 
 const params = new URLSearchParams(window.location.search);
 const moduleKey = params.get("module");
@@ -16,6 +17,13 @@ let currentFormState = null;
 let renderer = new FormRenderer({ mode });
 let generation = 0;
 let acceptedUrl = location.href;
+let currentUpdate = null;
+let csrfCookieName = null;
+let saveInProgress = false;
+
+function updateSaveButton() {
+  $("#save-record").disabled = saveInProgress || !currentUpdate?.canSave(mode);
+}
 
 async function apiFetch(url) {
   const response = await fetch(url, { credentials: "same-origin" });
@@ -33,6 +41,7 @@ function syncStateFromForm() {
   if (mode === "edit" && currentFormState) renderer.readIntoState(preview, currentFormState);
 }
 async function allowNavigation() {
+  if (saveInProgress) return false;
   syncStateFromForm();
   if (!currentFormState?.isDirty()) return true;
   const dialog = $("#discard-dialog");
@@ -66,6 +75,8 @@ async function openRecord(moduleDescriptor, recordId, push = true) {
   if (request !== generation) return;
   currentDescriptor = moduleDescriptor;
   currentFormState = new FormState(moduleDescriptor, data.record);
+  currentUpdate = new RecordUpdate(moduleDescriptor.module, recordId, currentFormState, data.meta.revision);
+  $("#save-status").textContent = "";
   state.recordId = recordId;
   state.lastRecordId = recordId;
   mode = "read";
@@ -75,6 +86,7 @@ async function openRecord(moduleDescriptor, recordId, push = true) {
   discardChanges.disabled = true;
   renderCurrentRecord();
   showView();
+  updateSaveButton();
   if (push) updateUrl();
 }
 function renderCurrentRecord() {
@@ -86,12 +98,13 @@ function updatePayloadPreview() {
   payloadPreview.textContent = JSON.stringify({ dirty: currentFormState.isDirty(), changed_paths: currentFormState.changedPaths(),
     validation_errors: currentFormState.validate(), payload: currentFormState.buildPayload() }, null, 2);
   discardChanges.disabled = !currentFormState.isDirty();
+  updateSaveButton();
 }
 function queryFromUrl() {
   const query = new URLSearchParams(location.search);
   return { q: query.get("q") || "", lookupField: query.get("lookup_field") || "", lookupValue: query.get("lookup_value") || "" };
 }
-async function loadResults(query, push = true) {
+async function loadResults(query, push = true, preserveRecord = false) {
   const started = performance.now();
   const request = ++generation;
   const pending = new ResultState(moduleKey);
@@ -110,8 +123,10 @@ async function loadResults(query, push = true) {
   }
   const received = performance.now();
   if (request !== generation) return false;
+  const recordId = state.recordId;
   state.replace(listing.records || [], query);
-  currentFormState = null;
+  if (preserveRecord) state.recordId = recordId;
+  else { currentFormState = null; currentUpdate = null; }
   $("#search-text").value = state.q;
   $("#lookup-field").value = state.lookupField;
   $("#lookup-value").value = state.lookupValue;
@@ -131,6 +146,7 @@ async function run(action) {
 }
 async function init() {
   if (!moduleKey) throw new Error("Kein Modul ausgewählt.");
+  csrfCookieName = (await apiFetch("/api/auth/me")).csrf_cookie_name;
   currentDescriptor = await apiFetch(`/api/modules/${encodeURIComponent(moduleKey)}`);
   state.sort = currentDescriptor.list?.default_sort || currentDescriptor.search?.default_sort;
   $("#module-title").textContent = currentDescriptor.label;
@@ -166,6 +182,7 @@ $("#back-to-list").addEventListener("click", async () => {
   if (!await allowNavigation()) return;
   ++generation;
   currentFormState = null;
+  currentUpdate = null;
   state.recordId = null;
   showView();
   updateUrl();
@@ -186,7 +203,7 @@ $("#change-module").addEventListener("click", async event => {
 });
 window.addEventListener("beforeunload", event => {
   syncStateFromForm();
-  if (currentFormState?.isDirty()) { event.preventDefault(); event.returnValue = ""; }
+  if (currentFormState?.isDirty() || saveInProgress) { event.preventDefault(); event.returnValue = ""; }
 });
 window.addEventListener("popstate", async () => {
   if (!await allowNavigation()) { history.pushState(null, "", acceptedUrl); return; }
@@ -212,12 +229,49 @@ toggleEdit.addEventListener("click", () => {
 discardChanges.addEventListener("click", () => {
   if (!currentFormState) return;
   currentFormState.discardChanges();
+  $("#save-status").textContent = "";
+  $("#module-error").textContent = "";
   renderCurrentRecord();
   updatePayloadPreview();
 });
-for (const event of ["input", "change"]) preview.addEventListener(event, () => {
-  syncStateFromForm();
-  discardChanges.disabled = !currentFormState?.isDirty();
+for (const event of ["input", "change", "click"]) preview.addEventListener(event, () => {
+  if (currentUpdate?.saving) return;
+  updatePayloadPreview();
+});
+$("#save-record").addEventListener("click", async () => {
+  if (saveInProgress) return;
+  $("#module-error").textContent = "";
+  try {
+    syncStateFromForm();
+    if (!currentUpdate?.canSave(mode)) return;
+    const cookie = document.cookie.split(";").map(part => part.trim()).find(part => part.startsWith(`${csrfCookieName}=`));
+    if (!cookie) throw new Error("Anmeldung konnte nicht bestätigt werden. Ihre Änderungen bleiben erhalten.");
+    saveInProgress = true;
+    const saving = currentUpdate.save(mode, decodeURIComponent(cookie.slice(csrfCookieName.length + 1)));
+    updateSaveButton();
+    $("#detail-panel").inert = true;
+    $("#save-status").textContent = "Speichert …";
+    await saving;
+    renderCurrentRecord();
+    updatePayloadPreview();
+    $("#save-status").textContent = "Gespeichert.";
+    try {
+      await loadResults({q:state.q, lookupField:state.lookupField, lookupValue:state.lookupValue}, false, true);
+    } catch {
+      state.records = [];
+      renderRecordList($("#record-list"), currentDescriptor, [], () => {});
+      showView();
+      $("#result-count").textContent = "Trefferliste nicht aktuell.";
+      $("#save-status").textContent = "Gespeichert. Trefferliste konnte nicht aktualisiert werden; bitte die Suche erneut ausführen.";
+    }
+  } catch (error) {
+    $("#save-status").textContent = "Nicht als gespeichert bestätigt.";
+    $("#module-error").textContent = error.message || "Netzwerkfehler. Ihre Änderungen bleiben erhalten.";
+  } finally {
+    saveInProgress = false;
+    $("#detail-panel").inert = false;
+    updateSaveButton();
+  }
 });
 $("#show-payload").addEventListener("click", updatePayloadPreview);
 run(init);

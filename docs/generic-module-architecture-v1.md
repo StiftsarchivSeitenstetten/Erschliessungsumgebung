@@ -146,13 +146,13 @@ Die erste `WidgetRegistry` unterstützt für die read-only Vorschau:
 
 Repeater rendern ihre Unterfelder rekursiv über dieselbe Feldmetadaten-Schnittstelle. Pfade werden generisch über einfache Punktnotation gelesen. Unbekannte Widgets schlagen kontrolliert fehl, damit fehlende Renderer nicht stillschweigend falsche Anzeigen erzeugen.
 
-Die generische Schreib-API ist inzwischen nur für automatisierte Tests freischaltbar; die Preview sendet weiterhin keine Schreibanfragen. Draft-Zustände und ein produktiver Ersatz der Foto-Maske bleiben spätere Schritte. Der Browser interpretiert auch in der Vorschau keine Rollenlisten; Berechtigungen kommen bereits als `visible` und `editable` vom Backend.
+Die generische Schreib-API ist nur für Tests freischaltbar. In diesem freigegebenen Testbetrieb kann die Preview bestehende Datensätze per `PUT` aktualisieren; eine Neuanlage ist nicht angeschlossen. Der Browser interpretiert keine Rollenlisten, sondern verwendet ausschließlich `visible` und `editable` aus dem serverseitigen Descriptor.
 
-## Generischer Editiermodus ohne Persistenz
+## Generischer Editiermodus
 
-Die generische Modulvorschau besitzt zusätzlich zum `read`-Modus einen ersten `edit`-Modus. Dieser Modus ist eine Entwicklungsfunktion zur Beherrschung der generischen Client-Bearbeitung; er speichert nichts und sendet keine schreibenden Requests.
+Die generische Modulvorschau besitzt zusätzlich zum `read`-Modus einen `edit`-Modus. Änderungen bleiben zunächst im clientseitigen Form State. Für einen bereits vorhandenen Datensatz kann der Benutzer sie im freigegebenen Testbetrieb ausdrücklich speichern.
 
-Der generische Editiermodus erzeugt fachliche Payloads, besitzt aber in dieser Phase keinerlei Persistenzfunktion. Server und produktive Daten werden durch Bearbeitungen in der generischen Preview nicht verändert.
+Ohne Speichern verändern Bearbeitungen weder Server noch Datenrepository. Neue Datensätze, Autosave und ein produktiver Ersatz der Foto-Maske gehören weiterhin nicht zu diesem Schritt.
 
 Die Modi sind klar getrennt:
 
@@ -603,11 +603,19 @@ Die Suchmaske sendet `q` sowie optional `lookup_field` und `lookup_value` an die
 
 `ResultState` hält Modul, Suchbegriff, Lookup, serverseitige Standardsortierung, Trefferliste, geöffnete ID und zuletzt geöffnete ID. Die Position wird aus der tatsächlichen Trefferliste bestimmt. **Vorheriger und Nächster beziehen sich immer auf die aktuelle serverseitig bestimmte Treffer- und Sortierreihenfolge.** Am ersten/letzten Treffer ist die jeweilige Richtung deaktiviert, bei einem einzelnen Treffer beide. Ein direkt geöffneter Record außerhalb der aktuellen Suche bleibt lesbar, hat aber keine Nachbarn. Neue Suchergebnisse schließen den bisherigen Record. Die Liste kann später über denselben Ladeweg nach einem gespeicherten Update aktualisiert werden.
 
-Record-Ladung und Read-/Edit-Darstellung verwenden unverändert `FormState` und `FormRenderer`. Vor Recordwechsel, Rückkehr zur Liste, Modulwechsel und Browser-History-Navigation wird der aktuelle Formularzustand ausgelesen. Bei Änderungen fragt ein nativer HTML-Dialog nach ausdrücklichem Verwerfen; Abbrechen und Escape erhalten den Entwurf. Während einer Ladeanfrage ist der betroffene Formular-/Listenbereich gegen weitere Eingaben gesperrt. Überholte Antworten werden anhand einer Anfragegeneration verworfen. Reload oder Verlassen des Dokuments werden zusätzlich durch `beforeunload` geschützt. Es gibt keine Save-Verkabelung und keine automatische Speicherung.
+Record-Ladung und Read-/Edit-Darstellung verwenden unverändert `FormState` und `FormRenderer`. Vor Recordwechsel, Rückkehr zur Liste, Modulwechsel und Browser-History-Navigation wird der aktuelle Formularzustand ausgelesen. Bei Änderungen fragt ein nativer HTML-Dialog nach ausdrücklichem Verwerfen; Abbrechen und Escape erhalten den Entwurf. Während einer Ladeanfrage oder Speicherung ist der betroffene Formular-/Listenbereich gegen weitere Eingaben gesperrt. Überholte Ladeantworten werden anhand einer Anfragegeneration verworfen. Reload oder Verlassen des Dokuments werden zusätzlich durch `beforeunload` geschützt. Es gibt keine automatische Speicherung.
 
 Modul, Suchbegriff, Lookup und geöffnete Record-ID stehen in der URL. `pushState`/`popstate` ermöglichen Zurück/Vorwärts ohne Routerbibliothek. Zurück zur Liste erhält Suchbegriff und Reihenfolge und fokussiert den zuletzt geöffneten Link. Bei abgebrochener History-Navigation stellt die App die bisher akzeptierte URL wieder her; dabei kann ein neuer History-Eintrag entstehen. Eine vollständige History-Transaktionsverwaltung ist nicht Teil von v1.
 
-`Modul wechseln` führt auf `/arbeitsbereiche?view=generic`. Nur diese ausdrücklich gewählte Ansicht verlinkt die generischen Module. Der bisherige Login-Einstieg und die Arbeitsbereichsauswahl ohne Parameter führen weiterhin zum alten Fotoformular. `/app/`, Foto-Suche, Presets, Neuanlage, Speichern und Legacy-Navigation wurden nicht umgestellt.
+`Modul wechseln` führt auf `/arbeitsbereiche?view=generic`. Nur diese ausdrücklich gewählte Ansicht verlinkt die generischen Module. Der bisherige Login-Einstieg und die Arbeitsbereichsauswahl ohne Parameter führen weiterhin zum alten Fotoformular. `/app/`, Foto-Suche, Presets, Neuanlage und Legacy-Navigation wurden nicht umgestellt.
+
+#### Update bestehender Datensätze
+
+Im Edit-Modus wird `Speichern` nur für einen geöffneten, geänderten Datensatz aktiviert. Der generische Payload-Builder liefert ausschließlich sichtbare und für die Rolle editierbare Fachfelder. Das Frontend sendet diesen Payload zusammen mit der beim Laden erhaltenen `base_revision` an `PUT /api/modules/{module_key}/records/{record_id}`; technische Metadaten werden nicht aus dem Formular übernommen. Während des Requests sind Formular und Navigation gesperrt, und ein zweiter PUT wird verhindert.
+
+Bei Erfolg ist die Serverantwort maßgeblich: `record` ersetzt Original- und Arbeitszustand, `meta.revision` wird zur neuen Basisrevision und `dirty` wird `false`. Anschließend wird die aktuelle Trefferliste über die bestehende Listenroute neu geladen, wobei geöffneter Datensatz und Trefferposition erhalten bleiben. Validierungs- und Berechtigungsfehler, ein `409` wegen veralteter Basisrevision sowie Netzwerk- und Serverfehler lassen Entwurf, Basisrevision und Dirty State unverändert. Es gibt kein automatisches Retry, Force-Save oder clientseitiges Zusammenführen.
+
+Der abgesicherte Browserintegrationstest aktualisierte `foto-010332` und `integration-0003` jeweils zusammen mit ihrem generischen Index. ID, Signatur, State-Dateien und Legacy-Fotoindex blieben unverändert; das Legacy-Lesen von `foto-010332` funktioniert weiterhin. Ein Schemafehler (`422`) und ein echter Revisionskonflikt (`409`) erhielten die lokalen Eingaben. Daten-main blieb auf `bcde7c81187fd54466f4b2ecd80e10260bda40f0`; die beiden beabsichtigten Testcommits auf `integration-test` sind `8d721185d396f1f720b1fb4124c846b0b0ef80b4` und `7eaad9b88905b607b2dff3cc893e291b66c4b725`.
 
 #### Rein lesender Browsertest
 

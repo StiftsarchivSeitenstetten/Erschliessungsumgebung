@@ -6,13 +6,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class GenericFormRendererStaticTest(unittest.TestCase):
-    def test_generic_shell_loads_module_descriptor_and_read_only_records(self):
+    def test_generic_shell_loads_module_descriptor_and_existing_records(self):
         html = (ROOT / "app" / "module" / "index.html").read_text(encoding="utf-8")
         script = (ROOT / "app" / "module" / "module.js").read_text(encoding="utf-8")
 
-        self.assertIn('src="module.js?v=navigation-4"', html)
+        self.assertIn('src="module.js?v=update-3"', html)
         self.assertIn('href="/arbeitsbereiche?view=generic"', html)
-        self.assertIn("Read-only Preview", html)
+        self.assertIn('id="save-record"', html)
         self.assertIn('let mode = "read"', script)
         self.assertIn("new FormState(moduleDescriptor, data.record)", script)
         self.assertIn("new FormRenderer({ mode })", script)
@@ -26,7 +26,8 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         self.assertNotIn('method: "DELETE"', script)
         self.assertIn("Payload anzeigen", html)
         self.assertIn("Änderungen verwerfen", html)
-        self.assertIn("Speichern deaktiviert", html)
+        self.assertIn('disabled>Speichern</button>', html)
+        self.assertNotIn("nur lokal erzeugt und nicht versendet", html)
 
     def test_form_renderer_uses_descriptor_metadata_without_photo_fields(self):
         script = (ROOT / "app" / "generic" / "form-renderer.js").read_text(encoding="utf-8")
@@ -105,7 +106,7 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         self.assertIn("validate()", script)
         self.assertIn("Pflichtfeld ist leer", script)
 
-    def test_generic_frontend_has_no_write_requests_or_photo_special_cases(self):
+    def test_generic_frontend_has_only_the_existing_record_put_and_no_photo_special_cases(self):
         for path in (
             ROOT / "app" / "generic" / "form-state.js",
             ROOT / "app" / "generic" / "form-renderer.js",
@@ -113,10 +114,13 @@ class GenericFormRendererStaticTest(unittest.TestCase):
             ROOT / "app" / "module" / "module.js",
         ):
             script = path.read_text(encoding="utf-8")
-            for forbidden in ('method: "POST"', 'method: "PUT"', 'method: "PATCH"', 'method: "DELETE"'):
+            for forbidden in ('method: "POST"', 'method: "PATCH"', 'method: "DELETE"'):
                 self.assertNotIn(forbidden, script)
             for forbidden in ("foto_papierabzuege", "dargestellte_personen", "beschriftung", "fotograf"):
                 self.assertNotIn(forbidden, script)
+        update = (ROOT / "app" / "generic" / "record-update.js").read_text(encoding="utf-8")
+        self.assertIn('method: "PUT"', update)
+        self.assertNotIn('method: "POST"', update)
 
 
 if __name__ == "__main__":

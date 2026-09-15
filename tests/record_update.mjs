@@ -1,0 +1,61 @@
+import assert from 'node:assert/strict';
+import {RecordUpdate} from '../app/generic/record-update.js';
+import {FormState} from '../app/generic/form-state.js';
+const descriptor = {fields:[{path:'text',visible:true,editable:true},{path:'id',visible:true,editable:false},{path:'hidden',visible:false,editable:false}]};
+function fixture(request) {
+  const form = new FormState(descriptor,{id:'existing',text:'original',hidden:'protected'});
+  return new RecordUpdate('other-module','existing',form,'revision-a',request);
+}
+const response = {record_id:'existing',record:{text:'server canonical',id:'existing'},meta:{revision:'revision-b'}};
+let calls = [];
+const updater = fixture(async (url,options)=>{calls.push({url,options});return {ok:true,json:async()=>response};});
+assert.equal(updater.canSave('edit'),false);
+updater.formState.setValue('text','changed');
+assert.equal(updater.canSave('read'),false);
+assert.equal(updater.canSave('edit'),true);
+await updater.save('edit','csrf-test');
+assert.equal(calls[0].url,'/api/modules/other-module/records/existing');
+assert.equal(calls[0].options.method,'PUT');
+assert.equal(calls[0].options.headers['X-CSRF-Token'],'csrf-test');
+assert.deepEqual(JSON.parse(calls[0].options.body),{base_revision:'revision-a',record:{text:'changed'}});
+assert.deepEqual(updater.formState.original,response.record);
+assert.equal(updater.formState.isDirty(),false);
+assert.equal(updater.revision,'revision-b');
+assert.equal(await updater.save('edit','csrf'),null);
+assert.equal(calls.length,1);
+for (const status of [401,403,409,422,500]) {
+  const u = fixture(async()=>({ok:false,status,json:async()=>({detail:['invalid']})}));
+  u.formState.setValue('text','keep me');
+  await assert.rejects(()=>u.save('edit','csrf'));
+  assert.equal(u.formState.getValue('text'),'keep me');
+  assert.equal(u.formState.isDirty(),true);
+  assert.equal(u.revision,'revision-a');
+  assert.equal(u.canSave('edit'),true);
+}
+const network = fixture(async()=>{throw new Error('network');});
+network.formState.setValue('text','keep me');
+await assert.rejects(()=>network.save('edit','csrf'));
+assert.equal(network.formState.isDirty(),true);
+assert.equal(network.canSave('edit'),true);
+let finish;
+let count=0;
+const delayed = fixture(()=>{count++;return new Promise(resolve=>{finish=resolve;});});
+delayed.formState.setValue('text','changed');
+const first = delayed.save('edit','csrf');
+assert.equal(delayed.canSave('edit'),false);
+assert.equal(await delayed.save('edit','csrf'),null);
+assert.equal(count,1);
+finish({ok:true,json:async()=>response});
+await first;
+assert.equal(delayed.formState.isDirty(),false);
+console.log('PUT success, revision, payload, errors and duplicate-save assertions passed');
+const originalFetch = globalThis.fetch;
+globalThis.fetch = function () {
+  assert.notEqual(this, defaultUpdate);
+  return Promise.resolve({ok:true,json:async()=>response});
+};
+const defaultUpdate = fixture(undefined);
+defaultUpdate.formState.setValue('text','changed');
+await defaultUpdate.save('edit','csrf');
+assert.equal(defaultUpdate.formState.isDirty(),false);
+globalThis.fetch = originalFetch;

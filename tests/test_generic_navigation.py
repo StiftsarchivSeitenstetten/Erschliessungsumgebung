@@ -12,6 +12,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class GenericNavigationTest(unittest.TestCase):
+    def test_update_state(self):
+        node = shutil.which("node") or str(
+            Path.home() / ".cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+        )
+        if not Path(node).exists():
+            self.skipTest("Node.js required")
+        subprocess.run([node, "tests/record_update.mjs"], cwd=ROOT, check=True, capture_output=True)
+        source = (ROOT / "app/generic/record-update.js").read_text()
+        for forbidden in ('method: "POST"', "foto_papierabzuege", "beschriftung"):
+            self.assertNotIn(forbidden, source)
+
     def test_executable_navigation_state(self):
         node = shutil.which("node")
         if not node:
@@ -33,7 +44,7 @@ class GenericNavigationTest(unittest.TestCase):
             self.assertNotIn("daten.intern", [c["path"] for c in volunteer["list"]["columns"]])
             self.assertIn("daten.intern", [c["path"] for c in editor["list"]["columns"]])
 
-    def test_navigation_is_generic_read_only_and_guarded(self):
+    def test_navigation_is_generic_and_guarded(self):
         script = (ROOT / "app/module/module.js").read_text()
         component = (ROOT / "app/generic/record-list.js").read_text()
         for forbidden in ("foto_papierabzuege", "beschriftung", "row.signatur", "fotograf"):
@@ -45,6 +56,8 @@ class GenericNavigationTest(unittest.TestCase):
         self.assertIn('window.addEventListener("popstate"', script)
         self.assertIn("if (!await allowNavigation()) return", script)
         self.assertIn("request !== generation", script)
+        self.assertIn("updatePayloadPreview();", script)
+        self.assertIn("false, true", script)
         self.assertNotIn(".sort(", component)
 
 
