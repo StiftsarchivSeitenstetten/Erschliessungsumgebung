@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {RecordCreate} from "../app/generic/record-create.js";
+import {RecordUpdate} from "../app/generic/record-update.js";
 import {FormState} from "../app/generic/form-state.js";
 
 const descriptor = {fields: [
@@ -40,6 +41,9 @@ assert.equal(created.record_id, "other-0001");
 assert.equal(creator.recordId, "other-0001");
 assert.equal(creator.revision, "revision-a");
 assert.deepEqual(creator.formState.original, response.record);
+assert.deepEqual(creator.formState.serverSnapshot, response.record);
+assert.deepEqual(creator.formState.workingRecord, response.record);
+assert.equal(creator.formState.pendingSnapshot, null);
 assert.equal(creator.formState.getValue("signatur.anzeige"), "OTHER.A.1");
 assert.equal(creator.formState.isDirty(), false);
 assert.equal(await creator.save("edit", "csrf-test"), null);
@@ -51,6 +55,7 @@ for (const status of [401, 403, 422, 500]) {
   await assert.rejects(() => failed.save("edit", "csrf-test"));
   assert.equal(failed.formState.getValue("daten.text"), "keep draft");
   assert.equal(failed.formState.isDirty(), true);
+  assert.equal(failed.formState.pendingSnapshot, null);
   assert.equal(failed.recordId, null);
   assert.equal(failed.revision, null);
   assert.equal(failed.canSave("edit"), true);
@@ -77,10 +82,25 @@ finish({ok: true, status: 201, json: async () => response});
 await first;
 assert.equal(delayed.formState.isDirty(), false);
 
+delayed.formState.setValue("daten.text", "after create");
+let updateBody;
+const updater = new RecordUpdate("other-module", delayed.recordId, delayed.formState, delayed.revision, async (url, options) => {
+  updateBody = JSON.parse(options.body);
+  return {ok: true, json: async () => ({
+    record_id: "other-0001",
+    record: {...response.record, daten: {text: "after create"}},
+    meta: {revision: "revision-b"}
+  })};
+});
+await updater.save("edit", "csrf-test");
+assert.deepEqual(updateBody, {base_revision: "revision-a", record: {daten: {text: "after create"}}});
+assert.equal(updater.revision, "revision-b");
+assert.equal(delayed.formState.isDirty(), false);
+
 const discard = fixture(async () => { throw new Error("not called"); });
 discard.formState.setValue("daten.text", "discard me");
 discard.formState.discardChanges();
 assert.deepEqual(discard.formState.current, {});
 assert.equal(discard.formState.isDirty(), false);
 
-console.log("POST payload, server state, errors, discard and duplicate-create assertions passed");
+console.log("POST snapshots, errors, discard, duplicate-create and following PUT assertions passed");

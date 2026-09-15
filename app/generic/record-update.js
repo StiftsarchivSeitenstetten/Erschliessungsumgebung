@@ -10,7 +10,7 @@ export class RecordUpdate {
 
   async save(mode, csrfToken) {
     if (!this.canSave(mode)) return null;
-    const body = JSON.stringify({base_revision: this.revision, record: this.formState.buildPayload()});
+    const body = JSON.stringify({base_revision: this.revision, record: this.formState.beginSave()});
     this.saving = true;
     try {
       let response;
@@ -34,9 +34,12 @@ export class RecordUpdate {
       if (data.record_id !== this.recordId || !data.record || typeof data.record !== "object" || Array.isArray(data.record) || !data.meta?.revision) {
         throw new Error("Serverantwort unvollständig. Speicherstand unklar; Ihre Änderungen bleiben erhalten.");
       }
-      this.formState.reset(data.record);
+      this.formState.confirmSave(data.record);
       this.revision = data.meta.revision;
       return data;
+    } catch (error) {
+      this.formState.cancelSave();
+      throw error;
     } finally {
       this.saving = false;
     }

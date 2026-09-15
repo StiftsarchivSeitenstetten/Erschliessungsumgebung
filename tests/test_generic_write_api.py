@@ -274,6 +274,35 @@ class GenericWriteApiTest(unittest.TestCase):
         self.assertEqual(self.put("test-0001", {"daten": {"name": "Teil"}}, response.json()["meta"]["revision"]).status_code, 422)
         self.assertEqual(self.repo.files, before)
 
+    def test_consecutive_updates_use_concrete_record_revisions(self):
+        self.login()
+        created = self.post().json()
+        path = "data/test/test-0001.md"
+        revision_1 = created["meta"]["revision"]
+        self.assertEqual(revision_1, self.repo.read_file(path).revision)
+        self.assertNotEqual(revision_1, self.repo.get_branch_head())
+        loaded = self.client.get("/api/modules/runtime_test/records/test-0001").json()
+        self.assertEqual(loaded["meta"]["revision"], revision_1)
+
+        first_payload = valid_payload()
+        first_payload["daten"]["name"] = "Erster Zyklus"
+        first = self.put("test-0001", first_payload, revision_1)
+        self.assertEqual(first.status_code, 200, first.text)
+        revision_2 = first.json()["meta"]["revision"]
+        self.assertEqual(revision_2, self.repo.read_file(path).revision)
+        self.assertNotEqual(revision_2, revision_1)
+        self.assertNotEqual(revision_2, self.repo.get_branch_head())
+
+        second_payload = valid_payload()
+        second_payload["daten"]["name"] = "Zweiter Zyklus"
+        second = self.put("test-0001", second_payload, revision_2)
+        self.assertEqual(second.status_code, 200, second.text)
+        revision_3 = second.json()["meta"]["revision"]
+        self.assertEqual(revision_3, self.repo.read_file(path).revision)
+        self.assertNotEqual(revision_3, revision_2)
+        self.assertNotEqual(revision_3, self.repo.get_branch_head())
+        self.assertEqual(second.json()["record"]["daten"]["name"], "Zweiter Zyklus")
+
     def test_update_rejects_unknown_readonly_hidden_and_technical_values(self):
         self.login()
         created = self.post().json()

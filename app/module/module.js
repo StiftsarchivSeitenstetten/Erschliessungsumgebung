@@ -1,8 +1,8 @@
 import { FormRenderer } from "../generic/form-renderer.js?v=vocabulary-2";
-import { FormState } from "../generic/form-state.js";
+import { FormState } from "../generic/form-state.js?v=snapshot-1";
 import { ResultState, renderRecordList } from "../generic/record-list.js?v=create-1";
-import { RecordCreate } from "../generic/record-create.js?v=create-1";
-import { RecordUpdate } from "../generic/record-update.js?v=update-2";
+import { RecordCreate } from "../generic/record-create.js?v=snapshot-1";
+import { RecordUpdate } from "../generic/record-update.js?v=snapshot-1";
 import { PresetStore, presettableFields } from "../generic/preset-store.js?v=preset-1";
 import { VocabularyClient } from "../generic/vocabulary-client.js?v=vocabulary-2";
 
@@ -330,7 +330,6 @@ discardChanges.addEventListener("click", () => {
   updatePayloadPreview();
 });
 for (const event of ["input", "change", "click"]) preview.addEventListener(event, () => {
-  if (currentUpdate?.saving || currentCreate?.saving) return;
   updatePayloadPreview();
 });
 $("#save-record").addEventListener("click", async () => {
@@ -346,7 +345,6 @@ $("#save-record").addEventListener("click", async () => {
     const wasCreate = Boolean(currentCreate);
     const saving = operation.save(mode, decodeURIComponent(cookie.slice(csrfCookieName.length + 1)));
     updateSaveButton();
-    $("#detail-panel").inert = true;
     $("#save-status").textContent = "Speichert …";
     const data = await saving;
     if (wasCreate) {
@@ -359,7 +357,9 @@ $("#save-record").addEventListener("click", async () => {
     }
     renderCurrentRecord();
     updatePayloadPreview();
-    $("#save-status").textContent = "Gespeichert.";
+    $("#save-status").textContent = currentFormState.isDirty()
+      ? "Zwischenstand gespeichert; weitere Änderungen sind noch nicht gespeichert."
+      : "Gespeichert.";
     try {
       await loadResults({q:state.q, lookupField:state.lookupField, lookupValue:state.lookupValue}, false, true);
     } catch {
@@ -375,7 +375,6 @@ $("#save-record").addEventListener("click", async () => {
     $("#module-error").textContent = error.message || "Netzwerkfehler. Ihre Änderungen bleiben erhalten.";
   } finally {
     saveInProgress = false;
-    $("#detail-panel").inert = false;
     updateSaveButton();
   }
 });

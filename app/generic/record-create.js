@@ -12,7 +12,7 @@ export class RecordCreate {
 
   async save(mode, csrfToken) {
     if (!this.canSave(mode)) return null;
-    const body = JSON.stringify({record: this.formState.buildPayload()});
+    const body = JSON.stringify({record: this.formState.beginSave()});
     this.saving = true;
     try {
       let response;
@@ -35,10 +35,13 @@ export class RecordCreate {
       if (data.module !== this.moduleKey || !data.record_id || !data.record || typeof data.record !== "object" || Array.isArray(data.record) || !data.meta?.revision) {
         throw new Error("Serverantwort unvollständig. Speicherstand unklar; Ihr Entwurf bleibt erhalten.");
       }
-      this.formState.reset(data.record);
+      this.formState.confirmSave(data.record);
       this.recordId = data.record_id;
       this.revision = data.meta.revision;
       return data;
+    } catch (error) {
+      this.formState.cancelSave();
+      throw error;
     } finally {
       this.saving = false;
     }

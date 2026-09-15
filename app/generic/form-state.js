@@ -18,10 +18,6 @@ function editableFields(moduleDescriptor) {
   ));
 }
 
-function visibleFields(moduleDescriptor) {
-  return (moduleDescriptor.fields || []).filter((field) => field.visible !== false);
-}
-
 function isEmptyRequired(value) {
   return value === undefined;
 }
@@ -63,49 +59,83 @@ function validateField(field, value, path, errors) {
 export class FormState {
   constructor(moduleDescriptor, recordData = {}) {
     this.moduleDescriptor = moduleDescriptor;
-    this.original = cloneValue(recordData) || {};
-    this.current = cloneValue(recordData) || {};
+    this.reset(recordData);
   }
 
-  reset(recordData = this.original) {
-    this.original = cloneValue(recordData) || {};
-    this.current = cloneValue(recordData) || {};
+  get original() {
+    return this.serverSnapshot;
+  }
+
+  get current() {
+    return this.workingRecord;
+  }
+
+  reset(recordData = this.serverSnapshot) {
+    this.serverSnapshot = cloneValue(recordData) || {};
+    this.workingRecord = cloneValue(recordData) || {};
+    this.pendingSnapshot = null;
   }
 
   discardChanges() {
-    this.current = cloneValue(this.original) || {};
+    this.workingRecord = cloneValue(this.serverSnapshot) || {};
   }
 
   getValue(path) {
-    return getPathValue(this.current, path);
+    return getPathValue(this.workingRecord, path);
   }
 
   setValue(path, value) {
-    setPathValue(this.current, path, cloneValue(value));
+    setPathValue(this.workingRecord, path, cloneValue(value));
   }
 
   isDirty() {
-    return !valuesEqual(this.original, this.current);
+    return !valuesEqual(this.buildPayload(this.serverSnapshot), this.buildPayload(this.workingRecord));
   }
 
   changedPaths() {
-    return visibleFields(this.moduleDescriptor)
+    return editableFields(this.moduleDescriptor)
       .map((field) => field.path)
-      .filter((path) => !valuesEqual(getPathValue(this.original, path), getPathValue(this.current, path)));
+      .filter((path) => !valuesEqual(getPathValue(this.serverSnapshot, path), getPathValue(this.workingRecord, path)));
   }
 
-  buildPayload() {
+  buildPayload(recordData = this.workingRecord) {
     const payload = {};
     editableFields(this.moduleDescriptor).forEach((field) => {
-      setPathValue(payload, field.path, cloneValue(getPathValue(this.current, field.path)));
+      setPathValue(payload, field.path, cloneValue(getPathValue(recordData, field.path)));
     });
     return payload;
+  }
+
+  beginSave() {
+    this.pendingSnapshot = cloneValue(this.workingRecord) || {};
+    return this.buildPayload(this.pendingSnapshot);
+  }
+
+  confirmSave(confirmedRecord) {
+    if (this.pendingSnapshot === null) throw new Error("Kein ausstehender Snapshot vorhanden.");
+    const pending = this.pendingSnapshot;
+    const latest = this.workingRecord;
+    const confirmed = cloneValue(confirmedRecord) || {};
+    const nextWorking = cloneValue(confirmed) || {};
+    editableFields(this.moduleDescriptor).forEach((field) => {
+      const latestValue = getPathValue(latest, field.path);
+      if (!valuesEqual(latestValue, getPathValue(pending, field.path))) {
+        setPathValue(nextWorking, field.path, cloneValue(latestValue));
+      }
+    });
+    this.serverSnapshot = confirmed;
+    this.workingRecord = nextWorking;
+    this.pendingSnapshot = null;
+  }
+
+  cancelSave() {
+    this.pendingSnapshot = null;
   }
 
   validate() {
     const errors = [];
     editableFields(this.moduleDescriptor).forEach((field) => {
-      const value = getPathValue(this.current, field.path);
+      const value = getPathValue(this.workingRecord, field.path);
       validateField(field, value, field.path, errors);
     });
     return errors;
