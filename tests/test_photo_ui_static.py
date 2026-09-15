@@ -33,7 +33,9 @@ class PhotoUiStaticTest(unittest.TestCase):
     def test_workspace_selection_uses_module_catalog(self):
         script = (ROOT / "backend" / "static" / "login" / "arbeitsbereiche.js").read_text(encoding="utf-8")
         self.assertIn('fetch("/api/modules"', script)
-        self.assertIn("renderWorkspaces(user, Array.isArray(catalog) ? catalog : [])", script)
+        self.assertIn('fetch("/api/vocabularies"', script)
+        self.assertIn('link.href = "/app/vocabularies/"', script)
+        self.assertIn("renderWorkspaces(", script)
         self.assertNotIn("moduleLabels", script)
         self.assertNotIn('moduleKey === "foto_papierabzuege"', script)
 

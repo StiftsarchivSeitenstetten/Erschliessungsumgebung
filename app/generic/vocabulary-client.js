@@ -31,9 +31,17 @@ function walkFields(fields) {
   return (fields || []).flatMap(field => [field, ...walkFields(field.item_fields)]);
 }
 
+async function responseError(response, fallback) {
+  const data = await response.json().catch(() => ({}));
+  const detail = Array.isArray(data.detail) ? data.detail.join(" ") : data.detail;
+  const error = new Error(typeof detail === "string" && detail ? detail : fallback);
+  error.status = response.status;
+  return error;
+}
+
 export class VocabularyClient {
   constructor(fetchImpl = globalThis.fetch) {
-    this.fetchImpl = fetchImpl;
+    this.fetchImpl = (...args) => fetchImpl(...args);
     this.cache = new Map();
   }
 
@@ -43,7 +51,7 @@ export class VocabularyClient {
       this.cache.set(vocabularyId, fetchImpl(`/api/vocabularies/${encodeURIComponent(vocabularyId)}`, {
         credentials: "same-origin",
       }).then(async response => {
-        if (!response.ok) throw new Error(`Vokabular ${vocabularyId} konnte nicht geladen werden.`);
+        if (!response.ok) throw await responseError(response, `Vokabular ${vocabularyId} konnte nicht geladen werden.`);
         const vocabulary = await response.json();
         if (vocabulary.id !== vocabularyId || !Array.isArray(vocabulary.terms)) {
           throw new Error(`Vokabular ${vocabularyId} ist ungültig.`);
@@ -54,6 +62,19 @@ export class VocabularyClient {
     return this.cache.get(vocabularyId);
   }
 
+  async reload(vocabularyId) {
+    this.cache.delete(vocabularyId);
+    return this.load(vocabularyId);
+  }
+
+  async catalog() {
+    const response = await this.fetchImpl("/api/vocabularies", { credentials: "same-origin" });
+    if (!response.ok) throw await responseError(response, "Vokabulare konnten nicht geladen werden.");
+    const catalog = await response.json();
+    if (!Array.isArray(catalog)) throw new Error("Ungültiger Vocabulary-Katalog.");
+    return catalog;
+  }
+
   async write(vocabularyId, suffix, method, body, csrfToken) {
     const response = await this.fetchImpl(`/api/vocabularies/${encodeURIComponent(vocabularyId)}${suffix}`, {
       method,
@@ -61,12 +82,12 @@ export class VocabularyClient {
       headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken || "" },
       body: JSON.stringify(body),
     });
-    if (!response.ok) throw new Error(`Vokabular ${vocabularyId} konnte nicht gespeichert werden.`);
+    if (!response.ok) throw await responseError(response, `Vokabular ${vocabularyId} konnte nicht gespeichert werden.`);
     const result = await response.json();
     if (!result.vocabulary || result.vocabulary.id !== vocabularyId || !result.meta?.revision) {
       throw new Error(`Ungültige Schreibantwort für Vokabular ${vocabularyId}.`);
     }
-    this.cache.set(vocabularyId, Promise.resolve(result.vocabulary));
+    this.cache.set(vocabularyId, Promise.resolve({ ...result.vocabulary, meta: result.meta }));
     return result;
   }
 

@@ -29,6 +29,16 @@ async function loadModuleCatalog() {
   return response.json();
 }
 
+async function loadVocabularyCatalog() {
+  const response = await fetch("/api/vocabularies", { credentials: "same-origin" });
+  if (response.status === 401) {
+    window.location.href = "/login/";
+    return [];
+  }
+  if (!response.ok) return [];
+  return response.json();
+}
+
 function moduleUrl(module) {
   if (new URLSearchParams(location.search).get("view") === "generic") {
     return `/app/module/?module=${encodeURIComponent(module.id)}`;
@@ -36,7 +46,7 @@ function moduleUrl(module) {
   return `/app/?module=${encodeURIComponent(module.id)}`;
 }
 
-function renderWorkspaces(user, modules) {
+function renderWorkspaces(user, modules, vocabularies) {
   document.querySelector("#user-name").textContent = user.display_name;
   const list = document.querySelector("#workspace-list");
   list.innerHTML = "";
@@ -54,7 +64,18 @@ function renderWorkspaces(user, modules) {
     }
     list.append(link);
   });
-  if (modules.length === 1 && new URLSearchParams(location.search).get("view") !== "generic") {
+  if (vocabularies.length) {
+    const link = document.createElement("a");
+    link.href = "/app/vocabularies/";
+    link.dataset.area = "vocabularies";
+    const title = document.createElement("strong");
+    title.textContent = "Vokabulare";
+    const description = document.createElement("span");
+    description.textContent = "Kontrollierte Begriffe anzeigen und – je nach Recht – redaktionell pflegen.";
+    link.append(title, description);
+    list.append(link);
+  }
+  if (modules.length === 1 && !vocabularies.length && new URLSearchParams(location.search).get("view") !== "generic") {
     window.location.href = moduleUrl(modules[0]);
   }
 }
@@ -68,11 +89,15 @@ document.querySelector("#logout").addEventListener("click", async () => {
   window.location.href = "/login/";
 });
 
-Promise.all([loadMe(), loadModuleCatalog()])
-  .then(([user, catalog]) => {
+Promise.all([loadMe(), loadModuleCatalog(), loadVocabularyCatalog()])
+  .then(([user, catalog, vocabularies]) => {
     if (user) {
       currentUser = user;
-      renderWorkspaces(user, Array.isArray(catalog) ? catalog : []);
+      renderWorkspaces(
+        user,
+        Array.isArray(catalog) ? catalog : [],
+        Array.isArray(vocabularies) ? vocabularies : [],
+      );
     }
   })
   .catch(() => {

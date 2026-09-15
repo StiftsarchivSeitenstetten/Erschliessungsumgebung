@@ -20,6 +20,27 @@ class GenericNavigationTest(unittest.TestCase):
             self.skipTest("Node.js required")
         subprocess.run([node, "tests/vocabulary_state.mjs"], cwd=ROOT, check=True, capture_output=True)
 
+    def test_vocabulary_administration_state(self):
+        node = shutil.which("node") or str(
+            Path.home() / ".cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+        )
+        if not Path(node).exists():
+            self.skipTest("Node.js required")
+        subprocess.run([node, "tests/vocabulary_admin.mjs"], cwd=ROOT, check=True, capture_output=True)
+
+    def test_vocabulary_administration_page_is_generic_and_accessible(self):
+        html = (ROOT / "app" / "vocabularies" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "app" / "vocabularies" / "vocabularies.js").read_text(encoding="utf-8")
+        state = (ROOT / "app" / "generic" / "vocabulary-admin.js").read_text(encoding="utf-8")
+        self.assertIn('role="alert"', html)
+        self.assertIn('role="status"', html)
+        self.assertIn("Vocabulary neu laden", html)
+        self.assertIn("bleibt für bestehende Datensätze erhalten", html)
+        self.assertIn("showModal()", script)
+        self.assertNotIn("deleteTerm", script + state)
+        for vocabulary_id in ("dokumenttypen", "rollen", "bearbeitungsstatus"):
+            self.assertNotIn(vocabulary_id, script + state)
+
     def test_preset_state(self):
         node = shutil.which("node") or str(
             Path.home() / ".cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"

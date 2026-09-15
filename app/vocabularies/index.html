@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Vokabulare – Erschließungsumgebung</title>
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="vocabularies.css?v=vocabulary-admin-1">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Stiftsarchiv Seitenstetten</p>
+        <h1>Vokabulare</h1>
+        <p class="help-text">Kontrollierte Begriffe lesen und redaktionell pflegen.</p>
+      </div>
+      <div class="auth-user">
+        <span id="current-user"></span>
+        <a class="button-like secondary" href="/arbeitsbereiche?view=generic">Arbeitsbereiche</a>
+      </div>
+    </header>
+
+    <main class="vocabulary-shell">
+      <section class="form-section" aria-labelledby="catalog-heading">
+        <h2 id="catalog-heading">Verfügbare Vokabulare</h2>
+        <div id="vocabulary-list" class="vocabulary-list" aria-live="polite">Vokabulare werden geladen …</div>
+      </section>
+
+      <section id="vocabulary-panel" class="form-section" aria-labelledby="vocabulary-heading" hidden>
+        <div class="section-title-row">
+          <div>
+            <h2 id="vocabulary-heading"></h2>
+            <p id="vocabulary-description" class="help-text"></p>
+          </div>
+          <span id="vocabulary-revision" class="revision-label"></span>
+        </div>
+        <p id="rights-summary" class="help-text"></p>
+        <p id="save-status" role="status"></p>
+        <p id="vocabulary-error" class="errors" role="alert"></p>
+        <div class="button-row">
+          <button id="reload-vocabulary" type="button" class="secondary" hidden>Vocabulary neu laden</button>
+        </div>
+
+        <form id="add-term-form" class="term-add" novalidate>
+          <h3>Begriff hinzufügen</h3>
+          <div>
+            <label for="new-term-id">Term-ID</label>
+            <input id="new-term-id" name="term-id" autocomplete="off" required>
+            <p class="help-text">Stabiler Identifikator; wird nicht automatisch aus dem Label erzeugt.</p>
+          </div>
+          <div>
+            <label for="new-term-label">Label</label>
+            <input id="new-term-label" name="term-label" required>
+          </div>
+          <button type="submit">Begriff hinzufügen</button>
+        </form>
+
+        <div class="term-table-wrap">
+          <table class="term-table">
+            <thead><tr><th scope="col">Term-ID</th><th scope="col">Label</th><th scope="col">Status</th><th scope="col">Weitere Angaben</th><th scope="col">Aktionen</th></tr></thead>
+            <tbody id="term-list"></tbody>
+          </table>
+        </div>
+      </section>
+      <p id="page-error" class="errors" role="alert"></p>
+    </main>
+
+    <dialog id="deactivate-dialog" aria-labelledby="deactivate-heading">
+      <h2 id="deactivate-heading">Begriff deaktivieren</h2>
+      <p>Der Begriff bleibt für bestehende Datensätze erhalten, kann aber künftig nicht mehr neu ausgewählt werden.</p>
+      <p id="deactivate-term-label"></p>
+      <div class="button-row">
+        <button id="cancel-deactivate" type="button" class="secondary">Abbrechen</button>
+        <button id="confirm-deactivate" type="button">Begriff deaktivieren</button>
+      </div>
+    </dialog>
+    <script type="module" src="vocabularies.js?v=vocabulary-admin-1"></script>
+  </body>
+</html>

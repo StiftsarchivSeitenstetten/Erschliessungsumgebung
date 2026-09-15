@@ -75,6 +75,14 @@ assert.equal(writes[0].options.headers["X-CSRF-Token"], "csrf");
 assert.deepEqual(JSON.parse(writes[1].options.body), { base_revision: "revision-1", label: "Journal" });
 assert.deepEqual(JSON.parse(writes[2].options.body), { base_revision: "revision-2", active: false });
 
+let fetchReceiver = "not-called";
+const receiverClient = new VocabularyClient(function () {
+  fetchReceiver = this;
+  return { ok: true, json: async () => [] };
+});
+await receiverClient.catalog();
+assert.equal(fetchReceiver, undefined);
+
 const storage = new MemoryStorage();
 const moduleDescriptor = { module: "test", fields: [field] };
 const state = new FormState(moduleDescriptor, { data: { kind: { id: "letter", vocabulary_id: "document_types" } } });

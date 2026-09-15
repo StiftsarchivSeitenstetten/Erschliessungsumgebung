@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..config import ROOT
 from ..github.errors import RepositoryConflictError, RepositoryError, RepositoryNotFoundError
 from ..github.repository import DataRepository
 from ..models import User
@@ -138,16 +139,45 @@ def module_catalog(user: User = Depends(require_authenticated_user)) -> list[dic
     return modules
 
 
+def vocabulary_references() -> dict[str, dict[str, str]]:
+    references: dict[str, dict[str, str]] = {}
+    vocabulary_dir = ROOT / "vocabularies"
+    paths = (*vocabulary_dir.glob("*.yaml"), *vocabulary_dir.glob("*.yml"), *vocabulary_dir.glob("*.json"))
+    for path in sorted(paths):
+        vocabulary = load_vocabulary(path)
+        references[vocabulary.id] = {
+            "path": str(path),
+            "repository_path": path.relative_to(ROOT).as_posix(),
+        }
+    for module in list_modules():
+        for vocabulary_id, reference in module.vocabularies.items():
+            existing = references.get(vocabulary_id)
+            if existing is not None and existing != reference:
+                raise HTTPException(status_code=500, detail="Vocabulary-Registry ist widerspruechlich.")
+            references[vocabulary_id] = reference
+    return references
+
+
 def vocabulary_reference(vocabulary_id: str) -> dict[str, str]:
-    references = [module.vocabularies[vocabulary_id] for module in list_modules() if vocabulary_id in module.vocabularies]
-    if not references:
+    reference = vocabulary_references().get(vocabulary_id)
+    if reference is None:
         raise HTTPException(status_code=404, detail="Vokabular nicht gefunden.")
-    return references[0]
+    return reference
 
 
-def vocabulary_response(stored) -> dict[str, object]:
+def vocabulary_rights(vocabulary, role: str) -> dict[str, bool]:
     return {
-        "vocabulary": stored.vocabulary.descriptor(),
+        operation: vocabulary.allows(role, operation)
+        for operation in ("use", "add", "rename", "deactivate")
+    }
+
+
+def vocabulary_response(stored, user: User) -> dict[str, object]:
+    return {
+        "vocabulary": {
+            **stored.vocabulary.descriptor(),
+            "rights": vocabulary_rights(stored.vocabulary, user.role),
+        },
         "meta": {"revision": stored.revision},
     }
 
@@ -168,6 +198,36 @@ def raise_vocabulary_write_error(exc: Exception) -> None:
     raise exc
 
 
+def read_available_vocabulary(repository: DataRepository, vocabulary_id: str, reference: dict[str, str]):
+    try:
+        stored = read_repository_vocabulary(repository, reference["repository_path"], vocabulary_id)
+        return stored.vocabulary, stored.revision
+    except RepositoryNotFoundError:
+        vocabulary = load_vocabulary(reference["path"], vocabulary_id)
+        content = Path(reference["path"]).read_text(encoding="utf-8").encode("utf-8")
+        revision = hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest()
+        return vocabulary, revision
+
+
+@vocabulary_router.get("")
+def vocabulary_catalog(
+    user: User = Depends(require_authenticated_user),
+    repository: DataRepository = Depends(get_data_repository),
+) -> list[dict[str, object]]:
+    try:
+        catalog = []
+        for vocabulary_id, reference in vocabulary_references().items():
+            vocabulary, _ = read_available_vocabulary(repository, vocabulary_id, reference)
+            rights = vocabulary_rights(vocabulary, user.role)
+            if rights["use"]:
+                catalog.append({"id": vocabulary.id, "label": vocabulary.label, "rights": rights})
+        return sorted(catalog, key=lambda item: (str(item["label"]).casefold(), str(item["id"])))
+    except VocabularyError as exc:
+        raise HTTPException(status_code=500, detail="Vokabular ist ungueltig.") from exc
+    except RepositoryError as exc:
+        raise HTTPException(status_code=503, detail="Vokabular ist derzeit nicht verfuegbar.") from exc
+
+
 @vocabulary_router.get("/{vocabulary_id}")
 def vocabulary_access(
     vocabulary_id: str,
@@ -176,17 +236,11 @@ def vocabulary_access(
 ) -> dict[str, object]:
     reference = vocabulary_reference(vocabulary_id)
     try:
-        try:
-            stored = read_repository_vocabulary(repository, reference["repository_path"], vocabulary_id)
-            vocabulary = stored.vocabulary
-            revision = stored.revision
-        except RepositoryNotFoundError:
-            vocabulary = load_vocabulary(reference["path"], vocabulary_id)
-            content = Path(reference["path"]).read_text(encoding="utf-8").encode("utf-8")
-            revision = hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest()
-        if not vocabulary.allows(user.role, "use"):
+        vocabulary, revision = read_available_vocabulary(repository, vocabulary_id, reference)
+        rights = vocabulary_rights(vocabulary, user.role)
+        if not rights["use"]:
             raise HTTPException(status_code=403, detail="Keine Berechtigung fuer dieses Vokabular.")
-        return {**vocabulary.descriptor(), "meta": {"revision": revision}}
+        return {**vocabulary.descriptor(), "rights": rights, "meta": {"revision": revision}}
     except VocabularyError as exc:
         raise HTTPException(status_code=500, detail="Vokabular ist ungueltig.") from exc
     except RepositoryError as exc:
@@ -213,7 +267,7 @@ def add_vocabulary_term(
         )
     except (VocabularyError, RepositoryError) as exc:
         raise_vocabulary_write_error(exc)
-    return vocabulary_response(stored)
+    return vocabulary_response(stored, user)
 
 
 @vocabulary_router.patch(
@@ -243,7 +297,7 @@ def patch_vocabulary_term(
             raise VocabularyValidationError("PATCH muss genau Label-Aenderung oder active=false enthalten.")
     except (VocabularyError, RepositoryError) as exc:
         raise_vocabulary_write_error(exc)
-    return vocabulary_response(stored)
+    return vocabulary_response(stored, user)
 
 
 @router.get("/{module_key}/records")

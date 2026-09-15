@@ -1,0 +1,18 @@
+.vocabulary-shell { width: min(1180px, calc(100% - 32px)); margin: 24px auto; }
+.vocabulary-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-top: 18px; }
+.vocabulary-list button { min-height: 84px; text-align: left; }
+.vocabulary-list button span { display: block; font-size: .9rem; font-weight: 500; }
+.revision-label { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem; overflow-wrap: anywhere; }
+.term-add { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(220px, 2fr) auto; gap: 16px; align-items: end; margin: 24px 0; padding: 18px; border: 2px solid var(--line); border-radius: 8px; }
+.term-add h3 { grid-column: 1 / -1; margin: 0; }
+.term-table-wrap { overflow-x: auto; }
+.term-table { width: 100%; border-collapse: collapse; }
+.term-table th, .term-table td { padding: 12px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.term-table th { background: #eef3f0; }
+.term-table input { min-width: 190px; }
+.term-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.term-status { display: inline-block; border: 2px solid var(--accent); border-radius: 999px; padding: 2px 10px; font-weight: 800; }
+.term-status.inactive { border-color: var(--muted); color: var(--muted); }
+dialog { max-width: min(560px, calc(100% - 32px)); border: 2px solid var(--line); border-radius: 8px; padding: 24px; }
+dialog::backdrop { background: #0006; }
+@media (max-width: 760px) { .term-add { grid-template-columns: 1fr; } .term-add h3 { grid-column: auto; } }

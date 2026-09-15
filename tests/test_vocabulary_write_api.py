@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+import yaml
 
 from backend.auth.service import create_user
 from backend.database import Base, SessionLocal, engine
@@ -55,9 +56,17 @@ class VocabularyWriteApiTest(unittest.TestCase):
 
     def test_read_add_rename_deactivate_end_to_end(self):
         self.login()
+        catalog = self.client.get("/api/vocabularies")
+        self.assertEqual(catalog.status_code, 200, catalog.text)
+        document_types = next(item for item in catalog.json() if item["id"] == "dokumenttypen")
+        self.assertEqual(document_types["label"], "Dokumenttypen")
+        self.assertEqual(document_types["rights"], {
+            "use": True, "add": True, "rename": True, "deactivate": True,
+        })
         loaded = self.client.get("/api/vocabularies/dokumenttypen")
         self.assertEqual(loaded.status_code, 200, loaded.text)
         revision = loaded.json()["meta"]["revision"]
+        self.assertTrue(loaded.json()["rights"]["rename"])
 
         added = self.client.post(
             "/api/vocabularies/dokumenttypen/terms",
@@ -98,6 +107,9 @@ class VocabularyWriteApiTest(unittest.TestCase):
         self.login(role="ehrenamtlich", username="anna")
         loaded = self.client.get("/api/vocabularies/dokumenttypen")
         self.assertEqual(loaded.status_code, 200)
+        self.assertEqual(loaded.json()["rights"], {
+            "use": True, "add": False, "rename": False, "deactivate": False,
+        })
         revision = loaded.json()["meta"]["revision"]
         body = {"base_revision": revision, "term": {"id": "neu", "label": "Neu"}}
         self.assertEqual(self.client.post("/api/vocabularies/dokumenttypen/terms", json=body).status_code, 403)
@@ -159,6 +171,24 @@ class VocabularyWriteApiTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 404)
         self.assertEqual(self.repository.commits, [])
+
+    def test_catalog_hides_vocabulary_without_use_right(self):
+        raw = yaml.safe_load((ROOT / PATH).read_text(encoding="utf-8"))
+        raw["id"] = "private"
+        raw["label"] = "Internes Vokabular"
+        raw["rights"]["use"] = ["redaktion", "admin"]
+        self.repository.files["vocabularies/private.yaml"] = yaml.safe_dump(raw, allow_unicode=True, sort_keys=False)
+        reference = {
+            "private": {
+                "path": str(ROOT / PATH),
+                "repository_path": "vocabularies/private.yaml",
+            },
+        }
+        self.login(role="ehrenamtlich", username="anna")
+        with patch("backend.routes.modules.vocabulary_references", return_value=reference):
+            response = self.client.get("/api/vocabularies")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [])
 
 
 if __name__ == "__main__":
