@@ -3,6 +3,7 @@ import { FormState } from "../generic/form-state.js";
 import { ResultState, renderRecordList } from "../generic/record-list.js?v=create-1";
 import { RecordCreate } from "../generic/record-create.js?v=create-1";
 import { RecordUpdate } from "../generic/record-update.js?v=update-2";
+import { PresetStore, presettableFields } from "../generic/preset-store.js?v=preset-1";
 
 const params = new URLSearchParams(window.location.search);
 const moduleKey = params.get("module");
@@ -22,6 +23,27 @@ let currentUpdate = null;
 let currentCreate = null;
 let csrfCookieName = null;
 let saveInProgress = false;
+let presetStore = null;
+
+function currentPreset() {
+  return presetStore?.load() || { values: {} };
+}
+
+function presetLabels(preset = currentPreset()) {
+  const paths = new Set(Object.keys(preset.values));
+  return presettableFields(currentDescriptor || {}).filter(field => paths.has(field.path)).map(field => field.label);
+}
+
+function updatePresetControls(message = "") {
+  const labels = presetLabels();
+  const editable = mode === "edit" && Boolean(currentFormState);
+  $("#save-preset").disabled = !editable;
+  $("#apply-preset").disabled = !editable || !labels.length;
+  $("#delete-preset").disabled = !labels.length;
+  $("#preset-status").textContent = message || (labels.length
+    ? `Gespeichert für dieses Modul: ${labels.join(", ")}.`
+    : "Keine Vorbelegungen gespeichert.");
+}
 
 function updateSaveButton() {
   const operation = currentCreate || currentUpdate;
@@ -93,6 +115,7 @@ async function openRecord(moduleDescriptor, recordId, push = true) {
   renderCurrentRecord();
   showView();
   updateSaveButton();
+  updatePresetControls();
   if (push) updateUrl();
 }
 async function startCreate(push = true) {
@@ -113,8 +136,11 @@ async function startCreate(push = true) {
   renderCurrentRecord();
   renderer.readIntoState(preview, currentFormState);
   currentFormState.reset(currentFormState.current);
+  const presetPaths = presetStore.apply(currentFormState, { includeInitialDefaults: true });
+  if (presetPaths.length) renderCurrentRecord();
   showView();
-  updateSaveButton();
+  updatePayloadPreview();
+  updatePresetControls(presetPaths.length ? "Vorbelegungen wurden auf den neuen Datensatz angewendet." : "");
   if (push) updateUrl();
 }
 function renderCurrentRecord() {
@@ -127,6 +153,7 @@ function updatePayloadPreview() {
     validation_errors: currentFormState.validate(), payload: currentFormState.buildPayload() }, null, 2);
   discardChanges.disabled = !currentFormState.isDirty();
   updateSaveButton();
+  updatePresetControls();
 }
 function queryFromUrl() {
   const query = new URLSearchParams(location.search);
@@ -176,6 +203,7 @@ async function init() {
   if (!moduleKey) throw new Error("Kein Modul ausgewählt.");
   csrfCookieName = (await apiFetch("/api/auth/me")).csrf_cookie_name;
   currentDescriptor = await apiFetch(`/api/modules/${encodeURIComponent(moduleKey)}`);
+  presetStore = new PresetStore(currentDescriptor, currentDescriptor.user);
   state.sort = currentDescriptor.list?.default_sort || currentDescriptor.search?.default_sort;
   $("#module-title").textContent = currentDescriptor.label;
   $("#module-description").textContent = currentDescriptor.description || "";
@@ -259,6 +287,36 @@ toggleEdit.addEventListener("click", () => {
   toggleEdit.textContent = mode === "read" ? "Edit-Modus aktivieren" : "Read-Modus anzeigen";
   renderCurrentRecord();
   updatePayloadPreview();
+});
+$("#save-preset").addEventListener("click", () => {
+  if (!currentFormState || mode !== "edit") return;
+  try {
+    syncStateFromForm();
+    const preset = presetStore.saveFromState(currentFormState);
+    updatePayloadPreview();
+    const count = Object.keys(preset.values).length;
+    updatePresetControls(count ? `${count} Vorbelegung(en) lokal gespeichert.` : "Keine belegten, zulässigen Felder zum Speichern gefunden.");
+  } catch {
+    $("#module-error").textContent = "Vorbelegungen konnten nicht lokal gespeichert werden.";
+  }
+});
+$("#apply-preset").addEventListener("click", () => {
+  if (!currentFormState || mode !== "edit") return;
+  syncStateFromForm();
+  const changed = presetStore.apply(currentFormState);
+  if (changed.length) renderCurrentRecord();
+  updatePayloadPreview();
+  updatePresetControls(changed.length
+    ? `${changed.length} leere(s) Feld(er) mit Vorbelegungen gefüllt.`
+    : "Keine leeren Felder konnten mit Vorbelegungen gefüllt werden.");
+});
+$("#delete-preset").addEventListener("click", () => {
+  try {
+    presetStore.clear();
+    updatePresetControls("Vorbelegungen für dieses Modul wurden gelöscht.");
+  } catch {
+    $("#module-error").textContent = "Vorbelegungen konnten nicht lokal gelöscht werden.";
+  }
 });
 discardChanges.addEventListener("click", () => {
   if (!currentFormState) return;

@@ -54,10 +54,11 @@ def make_module(directory: Path):
     schema_path.write_text(json.dumps(schema), encoding="utf-8")
     fields = [
         {"path": "signatur.anzeige", "widget": "text", "label": "Testsignatur", "order": 0},
-        {"path": "daten.text", "widget": "text", "label": "Testtext", "order": 10},
+        {"path": "daten.text", "widget": "text", "label": "Testtext", "order": 10, "presettable": True},
         {"path": "daten.personen", "widget": "repeater", "label": "Testpersonen", "order": 20,
+         "presettable": True,
          "item_fields": [{"path": "name", "widget": "text", "label": "Name", "order": 0}]},
-        {"path": "daten.zeitraum", "widget": "date_range", "label": "Testzeitraum", "order": 30},
+        {"path": "daten.zeitraum", "widget": "date_range", "label": "Testzeitraum", "order": 30, "presettable": True},
         {"path": "daten.intern", "widget": "text", "label": "Redaktioneller Testwert", "order": 40},
     ]
     rights = {field["path"]: {"view": roles, "edit": roles} for field in fields}
@@ -76,7 +77,7 @@ def make_module(directory: Path):
         "form": {"sections": [{"id": "test", "label": "Integrationstest", "order": 0, "fields": fields}]},
         "access": {"fields": rights}, "search": {"fulltext": ["daten.text"], "filters": []},
         "list": {"columns": [{"label": "Testtext", "path": "daten.text"}]},
-        "presets": {"enabled_fields": [], "disabled_fields": []},
+        "presets": {"enabled_fields": ["daten.text", "daten.personen", "daten.zeitraum"], "disabled_fields": []},
     }
     module_path = directory / "integration.yaml"
     module_path.write_text(json.dumps(config), encoding="utf-8")

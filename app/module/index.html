@@ -53,6 +53,17 @@
           <button id="save-record" type="button" disabled>Speichern</button>
         </div>
       </section>
+      <section class="status-band" aria-labelledby="preset-heading">
+        <div>
+          <h2 id="preset-heading">Vorbelegungen</h2>
+          <p id="preset-status" role="status">Keine Vorbelegungen gespeichert.</p>
+        </div>
+        <div class="preview-actions">
+          <button id="save-preset" type="button" class="secondary" disabled>Vorbelegungen speichern</button>
+          <button id="apply-preset" type="button" class="secondary" disabled>Vorbelegungen anwenden</button>
+          <button id="delete-preset" type="button" class="secondary" disabled>Vorbelegungen löschen</button>
+        </div>
+      </section>
       <section id="record-preview" class="form-section" aria-live="polite"></section>
       <section class="form-section">
         <h2>Entwicklungs-Payload</h2>
@@ -69,6 +80,6 @@
         <button value="discard">Änderungen verwerfen</button>
       </form>
     </dialog>
-    <script type="module" src="module.js?v=create-1"></script>
+    <script type="module" src="module.js?v=preset-1"></script>
   </body>
 </html>

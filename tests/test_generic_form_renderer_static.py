@@ -10,10 +10,13 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         html = (ROOT / "app" / "module" / "index.html").read_text(encoding="utf-8")
         script = (ROOT / "app" / "module" / "module.js").read_text(encoding="utf-8")
 
-        self.assertIn('src="module.js?v=create-1"', html)
+        self.assertIn('src="module.js?v=preset-1"', html)
         self.assertIn('href="/arbeitsbereiche?view=generic"', html)
         self.assertIn('id="save-record"', html)
         self.assertIn('id="new-record"', html)
+        self.assertIn('id="save-preset"', html)
+        self.assertIn('id="apply-preset"', html)
+        self.assertIn('id="delete-preset"', html)
         self.assertIn('let mode = "read"', script)
         self.assertIn("new FormState(moduleDescriptor, data.record)", script)
         self.assertIn("new FormRenderer({ mode })", script)
@@ -128,6 +131,18 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         self.assertNotIn('method: "PUT"', create)
         for forbidden in ("foto_papierabzuege", "dargestellte_personen", "beschriftung", "fotograf"):
             self.assertNotIn(forbidden, create)
+
+    def test_preset_component_is_descriptor_driven_without_photo_fields(self):
+        script = (ROOT / "app" / "generic" / "preset-store.js").read_text(encoding="utf-8")
+
+        self.assertIn("field.presettable === true", script)
+        self.assertIn("field.visible !== false", script)
+        self.assertIn("field.editable === true", script)
+        self.assertIn("SERVER_MANAGED_PATHS", script)
+        self.assertIn("includeInitialDefaults", script)
+        self.assertIn("readLegacy", script)
+        for forbidden in ("foto_papierabzuege", "beschriftung", "fotograf", "sammler"):
+            self.assertNotIn(forbidden, script)
 
 
 if __name__ == "__main__":

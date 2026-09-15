@@ -66,13 +66,14 @@ def architecture_test_config() -> dict:
                     "widget": "repeater",
                     "label": "Beteiligte",
                     "order": 40,
+                    "presettable": True,
                     "item_fields": [
                         {"id": "akteur", "path": "akteur", "widget": "text", "label": "Akteur", "order": 10},
                         {"id": "rolle", "path": "rolle", "widget": "vocabulary_select", "label": "Rolle", "order": 20, "vocabulary": "rollen"},
                     ],
                 },
-                {"id": "zeitraum", "path": "daten.zeitraum", "widget": "date_range", "label": "Zeitraum", "order": 50},
-                {"id": "language", "path": "daten.language", "widget": "select", "label": "Sprache", "order": 60, "options": [
+                {"id": "zeitraum", "path": "daten.zeitraum", "widget": "date_range", "label": "Zeitraum", "order": 50, "presettable": True},
+                {"id": "language", "path": "daten.language", "widget": "select", "label": "Sprache", "order": 60, "presettable": True, "options": [
                     {"value": "de", "label": "Deutsch"},
                     {"value": "la", "label": "Latein"},
                 ]},
@@ -93,7 +94,7 @@ def architecture_test_config() -> dict:
     }
     data["search"] = {"fulltext": ["daten.name"], "filters": [{"path": "daten.zeitraum", "label": "Zeitraum", "widget": "date_range"}]}
     data["list"] = {"columns": [{"label": "Name", "path": "daten.name", "sortable": True}]}
-    data["presets"] = {"enabled_fields": ["daten.name"], "disabled_fields": ["technik"]}
+    data["presets"] = {"enabled_fields": ["daten.name", "daten.beteiligte", "daten.zeitraum", "daten.language"], "disabled_fields": ["technik"]}
     data["vocabularies"] = {"rollen": {"path": "../../vocabularies/redaktionsstufen.yaml"}}
     data["ui_profiles"] = {"standard": {"label": "Standard"}}
     data.pop("formats", None)
