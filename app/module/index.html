@@ -19,6 +19,12 @@
       </div>
     </header>
     <main class="generic-shell">
+      <section class="status-band" aria-label="Speicherwarteschlange">
+        <div>
+          <h2>Speicherwarteschlange</h2>
+          <p id="queue-status" role="status" data-count="0">Speicherwarteschlange wird geöffnet …</p>
+        </div>
+      </section>
       <section id="list-panel" class="form-section">
         <h2>Datensätze</h2>
         <div class="preview-actions"><button id="new-record" type="button">Neuer Datensatz</button></div>
@@ -80,6 +86,6 @@
         <button value="discard">Änderungen verwerfen</button>
       </form>
     </dialog>
-    <script type="module" src="module.js?v=snapshot-1"></script>
+    <script type="module" src="module.js?v=put-queue-1"></script>
   </body>
 </html>

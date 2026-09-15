@@ -1,8 +1,10 @@
 import { FormRenderer } from "../generic/form-renderer.js?v=vocabulary-2";
-import { FormState } from "../generic/form-state.js?v=snapshot-1";
+import { FormState } from "../generic/form-state.js?v=put-queue-1";
 import { ResultState, renderRecordList } from "../generic/record-list.js?v=create-1";
 import { RecordCreate } from "../generic/record-create.js?v=snapshot-1";
-import { RecordUpdate } from "../generic/record-update.js?v=snapshot-1";
+import { RecordUpdate, sendQueuedRecordUpdate } from "../generic/record-update.js?v=put-queue-1";
+import { createIndexedDbSaveQueueStore } from "../generic/save-queue-store.js?v=put-queue-1";
+import { createSaveQueueProcessor, queueEntryMatchesContext, queueRecordKey, queueStatusMessage } from "../generic/save-queue.js?v=put-queue-1";
 import { PresetStore, presettableFields } from "../generic/preset-store.js?v=preset-1";
 import { VocabularyClient } from "../generic/vocabulary-client.js?v=vocabulary-2";
 
@@ -25,7 +27,21 @@ let currentCreate = null;
 let csrfCookieName = null;
 let saveInProgress = false;
 let presetStore = null;
+let saveQueueStore = null;
+let saveQueueProcessor = null;
+let queueInitializationError = null;
+let activeQueueRecordKeys = new Set();
+const queueContexts = new Map();
 const vocabularyClient = new VocabularyClient();
+
+function currentRecordQueueKey() {
+  return currentUpdate ? queueRecordKey(currentUpdate.moduleKey, currentUpdate.recordId) : null;
+}
+
+function currentRecordHasQueueEntry() {
+  const key = currentRecordQueueKey();
+  return Boolean(key && activeQueueRecordKeys.has(key));
+}
 
 function currentPreset() {
   return presetStore?.load() || { values: {} };
@@ -49,7 +65,122 @@ function updatePresetControls(message = "") {
 
 function updateSaveButton() {
   const operation = currentCreate || currentUpdate;
-  $("#save-record").disabled = saveInProgress || !operation?.canSave(mode);
+  $("#save-record").disabled = saveInProgress || currentRecordHasQueueEntry() || !operation?.canSave(mode);
+}
+
+function updateQueueStatus(entries = []) {
+  const queueStatus = $("#queue-status");
+  activeQueueRecordKeys = new Set(entries.map(entry => queueRecordKey(entry.module_id, entry.record_id)));
+  queueStatus.dataset.count = String(entries.length);
+  if (queueInitializationError) {
+    queueStatus.textContent = "Lokale Speicherwarteschlange nicht verfügbar.";
+  } else {
+    queueStatus.textContent = queueStatusMessage(entries, saveQueueProcessor?.isRunning());
+  }
+  updateSaveButton();
+}
+
+function queueEntryMatchesCurrent(entry, context = queueContexts.get(entry.operation_id)) {
+  return queueEntryMatchesContext(entry, context, {
+    formState: currentFormState,
+    update: currentUpdate,
+    recordId: state.recordId,
+    moduleId: currentDescriptor?.module
+  });
+}
+
+function queueFailureMessage(entry) {
+  if (entry.status === "auth_error") return "Anmeldung abgelaufen. Der lokal gesicherte Speichervorgang bleibt erhalten.";
+  if (entry.status === "conflict") return "Der Serverstand wurde geändert. Der lokale Queue-Snapshot bleibt erhalten.";
+  if (entry.status === "validation_error") return "Speichern wurde abgelehnt. Der lokale Queue-Snapshot bleibt erhalten.";
+  return "Übertragung fehlgeschlagen. Der lokale Queue-Snapshot bleibt erhalten.";
+}
+
+async function handleQueueChange(entry, entries) {
+  updateQueueStatus(entries);
+  const existingOperationIds = new Set(entries.map(item => item.operation_id));
+  for (const operationId of queueContexts.keys()) {
+    if (!existingOperationIds.has(operationId)) queueContexts.delete(operationId);
+  }
+  if (!entry || !queueEntryMatchesCurrent(entry)) return;
+  if (entry.status === "queued") $("#save-status").textContent = "Lokal gesichert – Übertragung ausstehend.";
+  if (entry.status === "saving") $("#save-status").textContent = "Wird übertragen …";
+  if (["auth_error", "conflict", "validation_error", "error"].includes(entry.status)) {
+    $("#save-status").textContent = "Nicht als serverseitig gespeichert bestätigt.";
+    $("#module-error").textContent = queueFailureMessage(entry);
+  }
+}
+
+function csrfToken() {
+  const cookie = document.cookie.split(";").map(part => part.trim()).find(part => part.startsWith(`${csrfCookieName}=`));
+  if (!cookie) {
+    const error = new Error("Anmeldung konnte nicht bestätigt werden.");
+    error.status = 401;
+    error.userMessage = "Anmeldung abgelaufen.";
+    throw error;
+  }
+  return decodeURIComponent(cookie.slice(csrfCookieName.length + 1));
+}
+
+async function sendQueuedUpdate(entry) {
+  return sendQueuedRecordUpdate(entry, csrfToken());
+}
+
+async function handleQueueSuccess(entry, data) {
+  const context = queueContexts.get(entry.operation_id);
+  if (queueEntryMatchesCurrent(entry, context)) {
+    context.formState.confirmSave(data.record);
+    context.update.revision = data.meta.revision;
+    renderCurrentRecord();
+    updatePayloadPreview();
+    $("#save-status").textContent = context.formState.isDirty()
+      ? "Zwischenstand gespeichert; weitere Änderungen sind noch nicht gespeichert."
+      : "Gespeichert.";
+  }
+}
+
+async function handleQueueError(entry, error, details) {
+  if (details.remoteConfirmed) {
+    if (queueEntryMatchesCurrent(entry)) {
+      $("#save-status").textContent = "Lokaler Bereinigungsfehler nach Serverbestätigung.";
+      $("#module-error").textContent = "Serverseitig gespeichert, aber der lokale Queue-Eintrag konnte nicht sicher bereinigt werden. Keine erneute Übertragung gestartet.";
+    }
+    return;
+  }
+  if (queueEntryMatchesCurrent(entry)) {
+    $("#save-status").textContent = "Nicht als serverseitig gespeichert bestätigt.";
+    $("#module-error").textContent = queueFailureMessage(entry);
+  }
+  console.error("Vorgemerkter Datensatz konnte nicht gespeichert werden.", error);
+}
+
+async function initializeSaveQueue() {
+  try {
+    saveQueueStore = createIndexedDbSaveQueueStore({indexedDB: window.indexedDB});
+    await saveQueueStore.open();
+    saveQueueProcessor = createSaveQueueProcessor({
+      store: saveQueueStore,
+      sendUpdate: sendQueuedUpdate,
+      onChange: handleQueueChange,
+      onSuccess: handleQueueSuccess,
+      onError: handleQueueError,
+      lockManager: window.navigator?.locks || null
+    });
+    updateQueueStatus(await saveQueueStore.list());
+  } catch (error) {
+    queueInitializationError = error;
+    updateQueueStatus([]);
+    console.error("Lokale Speicherwarteschlange konnte nicht geöffnet werden.", error);
+  }
+}
+
+function scheduleQueueProcessing() {
+  window.setTimeout(() => {
+    saveQueueProcessor.process().catch(error => {
+      $("#module-error").textContent = "Die lokale Speicherwarteschlange konnte nicht weiter verarbeitet werden. Der Queue-Eintrag bleibt erhalten.";
+      console.error("Speicherwarteschlange konnte nicht verarbeitet werden.", error);
+    });
+  }, 0);
 }
 
 async function apiFetch(url) {
@@ -70,7 +201,7 @@ function syncStateFromForm() {
 async function allowNavigation() {
   if (saveInProgress) return false;
   syncStateFromForm();
-  if (!currentFormState?.isDirty()) return true;
+  if (!currentFormState?.hasUnpersistedChanges()) return true;
   const dialog = $("#discard-dialog");
   if (dialog.open) return false;
   dialog.returnValue = "cancel";
@@ -153,7 +284,7 @@ function updatePayloadPreview() {
   if (!currentFormState) return;
   payloadPreview.textContent = JSON.stringify({ dirty: currentFormState.isDirty(), changed_paths: currentFormState.changedPaths(),
     validation_errors: currentFormState.validate(), payload: currentFormState.buildPayload() }, null, 2);
-  discardChanges.disabled = !currentFormState.isDirty();
+  discardChanges.disabled = !currentFormState.hasUnpersistedChanges();
   updateSaveButton();
   updatePresetControls();
 }
@@ -203,6 +334,7 @@ async function run(action) {
 }
 async function init() {
   if (!moduleKey) throw new Error("Kein Modul ausgewählt.");
+  await initializeSaveQueue();
   csrfCookieName = (await apiFetch("/api/auth/me")).csrf_cookie_name;
   currentDescriptor = await apiFetch(`/api/modules/${encodeURIComponent(moduleKey)}`);
   await vocabularyClient.hydrateDescriptor(currentDescriptor);
@@ -267,7 +399,7 @@ $("#change-module").addEventListener("click", async event => {
 });
 window.addEventListener("beforeunload", event => {
   syncStateFromForm();
-  if (currentFormState?.isDirty() || saveInProgress) { event.preventDefault(); event.returnValue = ""; }
+  if (currentFormState?.hasUnpersistedChanges() || saveInProgress) { event.preventDefault(); event.returnValue = ""; }
 });
 window.addEventListener("popstate", async () => {
   if (!await allowNavigation()) { history.pushState(null, "", acceptedUrl); return; }
@@ -338,15 +470,42 @@ $("#save-record").addEventListener("click", async () => {
   try {
     syncStateFromForm();
     const operation = currentCreate || currentUpdate;
-    if (!operation?.canSave(mode)) return;
-    const cookie = document.cookie.split(";").map(part => part.trim()).find(part => part.startsWith(`${csrfCookieName}=`));
-    if (!cookie) throw new Error("Anmeldung konnte nicht bestätigt werden. Ihre Änderungen bleiben erhalten.");
+    if (!operation?.canSave(mode) || currentRecordHasQueueEntry()) return;
     saveInProgress = true;
     const wasCreate = Boolean(currentCreate);
-    const saving = operation.save(mode, decodeURIComponent(cookie.slice(csrfCookieName.length + 1)));
     updateSaveButton();
+    if (!wasCreate) {
+      if (!saveQueueProcessor || queueInitializationError) {
+        throw new Error("Lokale Speicherwarteschlange nicht verfügbar. Es wurde nichts an den Server gesendet.");
+      }
+      const operationId = window.crypto.randomUUID();
+      const snapshot = currentFormState.beginSave();
+      queueContexts.set(operationId, {operationId, formState: currentFormState, update: currentUpdate});
+      try {
+        await saveQueueProcessor.enqueueUpdate({
+          operationId,
+          moduleId: currentUpdate.moduleKey,
+          recordId: currentUpdate.recordId,
+          baseRevision: currentUpdate.revision,
+          snapshot
+        });
+      } catch (error) {
+        if (error.queuePersisted) {
+          $("#save-status").textContent = "Lokal gesichert – Queue-Status konnte nicht gelesen werden; keine Übertragung gestartet.";
+          $("#module-error").textContent = "Der lokale Queue-Eintrag bleibt erhalten. Die Wiederaufnahme folgt im Recovery-Schritt.";
+          return;
+        }
+        queueContexts.delete(operationId);
+        currentFormState.cancelSave();
+        throw new Error(`Lokale Vormerkung fehlgeschlagen. Es wurde nichts an den Server gesendet. ${error.message || ""}`.trim());
+      }
+      $("#save-status").textContent = "Lokal gesichert – Übertragung ausstehend.";
+      scheduleQueueProcessing();
+      return;
+    }
+
     $("#save-status").textContent = "Speichert …";
-    const data = await saving;
+    const data = await operation.save(mode, csrfToken());
     if (wasCreate) {
       state.recordId = data.record_id;
       state.lastRecordId = data.record_id;

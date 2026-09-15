@@ -77,7 +77,7 @@ export class FormState {
   }
 
   discardChanges() {
-    this.workingRecord = cloneValue(this.serverSnapshot) || {};
+    this.workingRecord = cloneValue(this.pendingSnapshot ?? this.serverSnapshot) || {};
   }
 
   getValue(path) {
@@ -90,6 +90,11 @@ export class FormState {
 
   isDirty() {
     return !valuesEqual(this.buildPayload(this.serverSnapshot), this.buildPayload(this.workingRecord));
+  }
+
+  hasUnpersistedChanges() {
+    const securedSnapshot = this.pendingSnapshot ?? this.serverSnapshot;
+    return !valuesEqual(this.buildPayload(securedSnapshot), this.buildPayload(this.workingRecord));
   }
 
   changedPaths() {
@@ -116,14 +121,18 @@ export class FormState {
     const pending = this.pendingSnapshot;
     const latest = this.workingRecord;
     const confirmed = cloneValue(confirmedRecord) || {};
-    const nextWorking = cloneValue(confirmed) || {};
+    const acknowledged = cloneValue(confirmed) || {};
+    editableFields(this.moduleDescriptor).forEach((field) => {
+      setPathValue(acknowledged, field.path, cloneValue(getPathValue(pending, field.path)));
+    });
+    const nextWorking = cloneValue(acknowledged) || {};
     editableFields(this.moduleDescriptor).forEach((field) => {
       const latestValue = getPathValue(latest, field.path);
       if (!valuesEqual(latestValue, getPathValue(pending, field.path))) {
         setPathValue(nextWorking, field.path, cloneValue(latestValue));
       }
     });
-    this.serverSnapshot = confirmed;
+    this.serverSnapshot = acknowledged;
     this.workingRecord = nextWorking;
     this.pendingSnapshot = null;
   }

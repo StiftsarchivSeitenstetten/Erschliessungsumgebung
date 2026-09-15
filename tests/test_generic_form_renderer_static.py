@@ -10,13 +10,14 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         html = (ROOT / "app" / "module" / "index.html").read_text(encoding="utf-8")
         script = (ROOT / "app" / "module" / "module.js").read_text(encoding="utf-8")
 
-        self.assertIn('src="module.js?v=snapshot-1"', html)
+        self.assertIn('src="module.js?v=put-queue-1"', html)
         self.assertIn('href="/arbeitsbereiche?view=generic"', html)
         self.assertIn('id="save-record"', html)
         self.assertIn('id="new-record"', html)
         self.assertIn('id="save-preset"', html)
         self.assertIn('id="apply-preset"', html)
         self.assertIn('id="delete-preset"', html)
+        self.assertIn('id="queue-status"', html)
         self.assertIn('let mode = "read"', script)
         self.assertIn("new FormState(moduleDescriptor, data.record)", script)
         self.assertIn("new FormRenderer({ mode })", script)
@@ -108,6 +109,7 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         self.assertIn("cancelSave()", script)
         self.assertIn("discardChanges()", script)
         self.assertIn("isDirty()", script)
+        self.assertIn("hasUnpersistedChanges()", script)
         self.assertIn("changedPaths()", script)
         self.assertIn("buildPayload(recordData = this.workingRecord)", script)
         self.assertIn("field.visible !== false", script)
@@ -139,6 +141,25 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         self.assertNotIn('method: "PUT"', create)
         for forbidden in ("foto_papierabzuege", "dargestellte_personen", "beschriftung", "fotograf"):
             self.assertNotIn(forbidden, create)
+
+    def test_generic_put_queue_is_persistent_and_module_neutral(self):
+        store = (ROOT / "app" / "generic" / "save-queue-store.js").read_text(encoding="utf-8")
+        queue = (ROOT / "app" / "generic" / "save-queue.js").read_text(encoding="utf-8")
+        module = (ROOT / "app" / "module" / "module.js").read_text(encoding="utf-8")
+
+        self.assertIn('DEFAULT_DATABASE_NAME = "Erschliessungsumgebung"', store)
+        self.assertIn('DEFAULT_STORE_NAME = "save_queue"', store)
+        self.assertIn('keyPath: "operation_id"', store)
+        self.assertIn("createUpdateQueueEntry", queue)
+        self.assertIn('operation: "update"', queue)
+        self.assertIn("attempt_count", queue)
+        self.assertIn("last_error", queue)
+        self.assertIn("createSaveQueueProcessor", queue)
+        self.assertIn("initializeSaveQueue", module)
+        self.assertIn("window.crypto.randomUUID()", module)
+        self.assertNotIn("localStorage", store + queue)
+        for forbidden in ("foto_papierabzuege", "partition", "signature", "reservation"):
+            self.assertNotIn(forbidden, store + queue)
 
     def test_vocabulary_client_loads_generic_read_only_endpoint(self):
         script = (ROOT / "app" / "generic" / "vocabulary-client.js").read_text(encoding="utf-8")

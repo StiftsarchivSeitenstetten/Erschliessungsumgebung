@@ -18,7 +18,7 @@ function fixture(request) {
 const response = {
   module: "other-module",
   record_id: "other-0001",
-  record: {id: "other-0001", signatur: {anzeige: "OTHER.A.1"}, daten: {text: "server canonical"}},
+  record: {id: "other-0001", signatur: {anzeige: "OTHER.A.1"}, daten: {text: "new value"}},
   meta: {revision: "revision-a"}
 };
 let calls = [];

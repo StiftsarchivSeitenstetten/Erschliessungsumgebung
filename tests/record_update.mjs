@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import {RecordUpdate} from '../app/generic/record-update.js';
+import {RecordUpdate,sendQueuedRecordUpdate} from '../app/generic/record-update.js';
 import {FormState} from '../app/generic/form-state.js';
 const descriptor = {fields:[{path:'text',visible:true,editable:true},{path:'id',visible:true,editable:false},{path:'hidden',visible:false,editable:false}]};
 function fixture(request) {
   const form = new FormState(descriptor,{id:'existing',text:'original',hidden:'protected'});
   return new RecordUpdate('other-module','existing',form,'revision-a',request);
 }
-const response = {record_id:'existing',record:{text:'server canonical',id:'existing'},meta:{revision:'revision-b'}};
+const response = {record_id:'existing',record:{text:'changed',id:'existing'},meta:{revision:'revision-b'}};
 let calls = [];
 const updater = fixture(async (url,options)=>{calls.push({url,options});return {ok:true,json:async()=>response};});
 assert.equal(updater.canSave('edit'),false);
@@ -93,3 +93,13 @@ defaultUpdate.formState.setValue('text','changed');
 await defaultUpdate.save('edit','csrf');
 assert.equal(defaultUpdate.formState.isDirty(),false);
 globalThis.fetch = originalFetch;
+
+let queuedCall;
+const queuedResponse = {module:'other-module',record_id:'existing',record:{id:'existing',text:'queued'},meta:{revision:'revision-q'}};
+const queuedResult = await sendQueuedRecordUpdate({
+  module_id:'other-module',record_id:'existing',base_revision:'revision-p',snapshot:{text:'queued'}
+},'csrf-queue',async(url,options)=>{queuedCall={url,options};return {ok:true,json:async()=>queuedResponse};});
+assert.equal(queuedCall.url,'/api/modules/other-module/records/existing');
+assert.deepEqual(JSON.parse(queuedCall.options.body),{base_revision:'revision-p',record:{text:'queued'}});
+assert.equal(queuedCall.options.headers['X-CSRF-Token'],'csrf-queue');
+assert.equal(queuedResult.meta.revision,'revision-q');

@@ -45,3 +45,25 @@ export class RecordUpdate {
     }
   }
 }
+
+export async function sendQueuedRecordUpdate(entry, csrfToken, request = (url, options) => fetch(url, options)) {
+  const response = await request(`/api/modules/${encodeURIComponent(entry.module_id)}/records/${encodeURIComponent(entry.record_id)}`, {
+    method: "PUT",
+    credentials: "same-origin",
+    headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken},
+    body: JSON.stringify({base_revision: entry.base_revision, record: entry.snapshot})
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    const detail = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail || "");
+    const error = new Error(detail || `HTTP ${response.status}`);
+    error.status = response.status;
+    error.userMessage = detail;
+    throw error;
+  }
+  const data = await response.json();
+  if (data.module !== entry.module_id || data.record_id !== entry.record_id || !data.record || !data.meta?.revision) {
+    throw new Error("Serverantwort unvollständig. Der Queue-Eintrag bleibt erhalten.");
+  }
+  return data;
+}
