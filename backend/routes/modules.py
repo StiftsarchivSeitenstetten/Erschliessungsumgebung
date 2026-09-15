@@ -189,4 +189,8 @@ def update_module_record(
 @router.get("/{module_key}")
 def module_access(module_key: str, user: User = Depends(require_authenticated_user)) -> dict[str, object]:
     module = load_authorized_module(module_key, user)
-    return {**module.descriptor_for_role(user.role), "user": user.username}
+    return {
+        **module.descriptor_for_role(user.role),
+        "empty_record": RecordRuntime(module).empty_record(user.role),
+        "user": user.username,
+    }

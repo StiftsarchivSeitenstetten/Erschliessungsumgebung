@@ -10,6 +10,7 @@ export class ResultState {
     this.records = [];
     this.recordId = null;
     this.lastRecordId = null;
+    this.creating = false;
   }
   get position() { return this.records.findIndex(row => row.record_id === this.recordId); }
   neighbor(offset) {
@@ -33,7 +34,8 @@ export class ResultState {
   url() {
     const query = new URLSearchParams(this.queryString());
     query.set("module", this.module);
-    if (this.recordId) query.set("record", this.recordId);
+    if (this.creating) query.set("new", "1");
+    else if (this.recordId) query.set("record", this.recordId);
     return `/app/module/?${query}`;
   }
 }

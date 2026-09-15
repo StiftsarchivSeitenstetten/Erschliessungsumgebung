@@ -227,6 +227,17 @@ class RecordRuntimeTest(unittest.TestCase):
         self.assertEqual(visible["daten"]["name"], "Test")
         self.assertIn("id", visible)
 
+    def test_empty_record_uses_schema_types_options_and_role_rights(self):
+        empty = self.runtime.empty_record("ehrenamtlich")
+        self.assertEqual(empty["daten"]["name"], "")
+        self.assertEqual(empty["daten"]["beteiligte"], [])
+        self.assertEqual(empty["daten"]["term"]["id"], "brief")
+        self.assertEqual(empty["daten"]["language"]["code"], "de")
+        self.assertEqual(empty["daten"]["date"], {})
+        self.assertNotIn("readonly", empty["daten"])
+        self.assertNotIn("secret", empty["daten"])
+        self.assertNotIn("technik", empty)
+
     def test_readonly_field_cannot_be_written_by_role(self):
         with self.assertRaises(RecordPermissionError):
             self.runtime.filter_for_edit({"daten": {"readonly": "Nein"}}, "ehrenamtlich")

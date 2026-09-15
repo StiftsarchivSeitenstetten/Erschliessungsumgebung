@@ -23,6 +23,18 @@ class GenericNavigationTest(unittest.TestCase):
         for forbidden in ('method: "POST"', "foto_papierabzuege", "beschriftung"):
             self.assertNotIn(forbidden, source)
 
+    def test_create_state(self):
+        node = shutil.which("node") or str(
+            Path.home() / ".cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+        )
+        if not Path(node).exists():
+            self.skipTest("Node.js required")
+        subprocess.run([node, "tests/record_create.mjs"], cwd=ROOT, check=True, capture_output=True)
+        source = (ROOT / "app/generic/record-create.js").read_text()
+        self.assertIn('method: "POST"', source)
+        for forbidden in ("foto_papierabzuege", "beschriftung", "fotograf", "signatur.format"):
+            self.assertNotIn(forbidden, source)
+
     def test_executable_navigation_state(self):
         node = shutil.which("node")
         if not node:
@@ -58,6 +70,10 @@ class GenericNavigationTest(unittest.TestCase):
         self.assertIn("request !== generation", script)
         self.assertIn("updatePayloadPreview();", script)
         self.assertIn("false, true", script)
+        self.assertIn('new FormState(currentDescriptor, currentDescriptor.empty_record || {})', script)
+        self.assertIn("currentFormState.reset(currentFormState.current)", script)
+        self.assertIn("currentCreate || currentUpdate", script)
+        self.assertIn('query.get("new") === "1"', script)
         self.assertNotIn(".sort(", component)
 
 

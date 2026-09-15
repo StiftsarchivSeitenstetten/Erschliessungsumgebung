@@ -94,7 +94,7 @@ export class FormRenderer {
           renderField: (itemField, itemData, itemValue, itemInputId) => this.renderField(itemField, itemData, itemValue, itemInputId),
           readField: (itemField, itemRoot, itemOriginal) => this.readField(itemField, itemRoot, itemOriginal)
         }, fieldRoot);
-        formState.setValue(field.path, value);
+        if (value !== undefined) formState.setValue(field.path, value);
       });
     return formState;
   }

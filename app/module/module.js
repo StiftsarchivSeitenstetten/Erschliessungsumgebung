@@ -1,6 +1,7 @@
-import { FormRenderer } from "../generic/form-renderer.js?v=date-roundtrip-1";
+import { FormRenderer } from "../generic/form-renderer.js?v=create-1";
 import { FormState } from "../generic/form-state.js";
-import { ResultState, renderRecordList } from "../generic/record-list.js?v=navigation-1";
+import { ResultState, renderRecordList } from "../generic/record-list.js?v=create-1";
+import { RecordCreate } from "../generic/record-create.js?v=create-1";
 import { RecordUpdate } from "../generic/record-update.js?v=update-2";
 
 const params = new URLSearchParams(window.location.search);
@@ -18,11 +19,13 @@ let renderer = new FormRenderer({ mode });
 let generation = 0;
 let acceptedUrl = location.href;
 let currentUpdate = null;
+let currentCreate = null;
 let csrfCookieName = null;
 let saveInProgress = false;
 
 function updateSaveButton() {
-  $("#save-record").disabled = saveInProgress || !currentUpdate?.canSave(mode);
+  const operation = currentCreate || currentUpdate;
+  $("#save-record").disabled = saveInProgress || !operation?.canSave(mode);
 }
 
 async function apiFetch(url) {
@@ -60,7 +63,7 @@ function showView() {
   $("#detail-panel").hidden = !opened;
   $("#previous-record").disabled = !state.neighbor(-1);
   $("#next-record").disabled = !state.neighbor(1);
-  $("#record-position").textContent = opened ? `${state.recordId} · ${state.position < 0 ? "Außerhalb der Trefferliste" : `${state.position + 1} / ${state.records.length}`}` : "";
+  $("#record-position").textContent = !opened ? "" : state.creating ? "Neuer, noch nicht gespeicherter Datensatz" : `${state.recordId} · ${state.position < 0 ? "Außerhalb der Trefferliste" : `${state.position + 1} / ${state.records.length}`}`;
 }
 async function openRecord(moduleDescriptor, recordId, push = true) {
   if (!await allowNavigation()) return;
@@ -76,15 +79,40 @@ async function openRecord(moduleDescriptor, recordId, push = true) {
   currentDescriptor = moduleDescriptor;
   currentFormState = new FormState(moduleDescriptor, data.record);
   currentUpdate = new RecordUpdate(moduleDescriptor.module, recordId, currentFormState, data.meta.revision);
+  currentCreate = null;
   $("#save-status").textContent = "";
   state.recordId = recordId;
   state.lastRecordId = recordId;
+  state.creating = false;
   mode = "read";
   renderer = new FormRenderer({ mode });
   payloadPreview.textContent = "";
   toggleEdit.textContent = "Edit-Modus aktivieren";
   discardChanges.disabled = true;
+  $("#save-record").textContent = "Speichern";
   renderCurrentRecord();
+  showView();
+  updateSaveButton();
+  if (push) updateUrl();
+}
+async function startCreate(push = true) {
+  if (!await allowNavigation()) return;
+  ++generation;
+  currentFormState = new FormState(currentDescriptor, currentDescriptor.empty_record || {});
+  currentCreate = new RecordCreate(currentDescriptor.module, currentFormState);
+  currentUpdate = null;
+  state.recordId = null;
+  state.creating = true;
+  mode = "edit";
+  renderer = new FormRenderer({ mode });
+  payloadPreview.textContent = "";
+  $("#save-status").textContent = "";
+  toggleEdit.textContent = "Read-Modus anzeigen";
+  discardChanges.disabled = true;
+  $("#save-record").textContent = "Datensatz anlegen";
+  renderCurrentRecord();
+  renderer.readIntoState(preview, currentFormState);
+  currentFormState.reset(currentFormState.current);
   showView();
   updateSaveButton();
   if (push) updateUrl();
@@ -126,7 +154,7 @@ async function loadResults(query, push = true, preserveRecord = false) {
   const recordId = state.recordId;
   state.replace(listing.records || [], query);
   if (preserveRecord) state.recordId = recordId;
-  else { currentFormState = null; currentUpdate = null; }
+  else { currentFormState = null; currentUpdate = null; currentCreate = null; state.creating = false; }
   $("#search-text").value = state.q;
   $("#lookup-field").value = state.lookupField;
   $("#lookup-value").value = state.lookupValue;
@@ -162,8 +190,10 @@ async function init() {
   $("#fulltext-controls").hidden = !currentDescriptor.search?.fulltext?.length;
   const recordId = params.get("record");
   await loadResults(queryFromUrl(), false);
-  if (recordId) await openRecord(currentDescriptor, recordId, false);
+  if (params.get("new") === "1") await startCreate(false);
+  else if (recordId) await openRecord(currentDescriptor, recordId, false);
 }
+$("#new-record").addEventListener("click", () => run(() => startCreate()));
 $("#search-form").addEventListener("submit", async event => {
   event.preventDefault();
   if (!await allowNavigation()) return;
@@ -183,7 +213,9 @@ $("#back-to-list").addEventListener("click", async () => {
   ++generation;
   currentFormState = null;
   currentUpdate = null;
+  currentCreate = null;
   state.recordId = null;
+  state.creating = false;
   showView();
   updateUrl();
   Array.from($("#record-list").querySelectorAll("a")).find(link => link.dataset.recordId === state.lastRecordId)?.focus();
@@ -198,6 +230,7 @@ $("#change-module").addEventListener("click", async event => {
   event.preventDefault();
   if (await allowNavigation()) {
     currentFormState = null;
+    currentCreate = null;
     location.href = $("#change-module").href;
   }
 });
@@ -212,7 +245,8 @@ window.addEventListener("popstate", async () => {
     const recordId = query.get("record");
     if (query.get("module") !== moduleKey) { location.reload(); return; }
     if (await loadResults(queryFromUrl(), false)) {
-      if (recordId) await openRecord(currentDescriptor, recordId, false);
+      if (query.get("new") === "1") await startCreate(false);
+      else if (recordId) await openRecord(currentDescriptor, recordId, false);
       acceptedUrl = location.href;
     }
   });
@@ -235,7 +269,7 @@ discardChanges.addEventListener("click", () => {
   updatePayloadPreview();
 });
 for (const event of ["input", "change", "click"]) preview.addEventListener(event, () => {
-  if (currentUpdate?.saving) return;
+  if (currentUpdate?.saving || currentCreate?.saving) return;
   updatePayloadPreview();
 });
 $("#save-record").addEventListener("click", async () => {
@@ -243,15 +277,25 @@ $("#save-record").addEventListener("click", async () => {
   $("#module-error").textContent = "";
   try {
     syncStateFromForm();
-    if (!currentUpdate?.canSave(mode)) return;
+    const operation = currentCreate || currentUpdate;
+    if (!operation?.canSave(mode)) return;
     const cookie = document.cookie.split(";").map(part => part.trim()).find(part => part.startsWith(`${csrfCookieName}=`));
     if (!cookie) throw new Error("Anmeldung konnte nicht bestätigt werden. Ihre Änderungen bleiben erhalten.");
     saveInProgress = true;
-    const saving = currentUpdate.save(mode, decodeURIComponent(cookie.slice(csrfCookieName.length + 1)));
+    const wasCreate = Boolean(currentCreate);
+    const saving = operation.save(mode, decodeURIComponent(cookie.slice(csrfCookieName.length + 1)));
     updateSaveButton();
     $("#detail-panel").inert = true;
     $("#save-status").textContent = "Speichert …";
-    await saving;
+    const data = await saving;
+    if (wasCreate) {
+      state.recordId = data.record_id;
+      state.lastRecordId = data.record_id;
+      state.creating = false;
+      currentUpdate = new RecordUpdate(currentDescriptor.module, data.record_id, currentFormState, data.meta.revision);
+      currentCreate = null;
+      $("#save-record").textContent = "Speichern";
+    }
     renderCurrentRecord();
     updatePayloadPreview();
     $("#save-status").textContent = "Gespeichert.";
@@ -264,6 +308,7 @@ $("#save-record").addEventListener("click", async () => {
       $("#result-count").textContent = "Trefferliste nicht aktuell.";
       $("#save-status").textContent = "Gespeichert. Trefferliste konnte nicht aktualisiert werden; bitte die Suche erneut ausführen.";
     }
+    updateUrl();
   } catch (error) {
     $("#save-status").textContent = "Nicht als gespeichert bestätigt.";
     $("#module-error").textContent = error.message || "Netzwerkfehler. Ihre Änderungen bleiben erhalten.";

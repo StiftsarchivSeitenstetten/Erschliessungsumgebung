@@ -18,6 +18,7 @@ from ..modules.access import SERVER_MANAGED_FIELDS, is_server_managed_field
 
 
 TRANSPORT_FIELDS = frozenset({"base_revision", "revision"})
+MISSING = object()
 
 
 class RecordRuntimeError(ValueError):
@@ -48,8 +49,15 @@ class RecordRuntime:
         self.fields_by_path = {field.path: field for field in module.fields}
         self.fields_by_id = {field.id: field for field in module.fields}
 
-    def empty_record(self) -> dict[str, Any]:
-        return {}
+    def empty_record(self, role: str | None = None) -> dict[str, Any]:
+        record: dict[str, Any] = {}
+        for field in self.module.fields:
+            if is_server_managed_field(field.path) or (role is not None and not field.can_edit(role)):
+                continue
+            value = self._empty_value(self._schema_for_path(field.path), field)
+            if value is not MISSING:
+                set_path_value(record, field.path, value)
+        return record
 
     def filter_for_view(self, record: dict[str, Any], role: str) -> dict[str, Any]:
         visible: dict[str, Any] = {}
@@ -86,16 +94,81 @@ class RecordRuntime:
             raise RecordValidationError(messages)
 
     @cached_property
-    def validator(self):
-        schema = json.loads(self.module.schema_path.read_text(encoding="utf-8"))
+    def schema(self) -> dict[str, Any]:
+        return json.loads(self.module.schema_path.read_text(encoding="utf-8"))
+
+    @cached_property
+    def core_schema(self) -> dict[str, Any]:
         core_schema_path = ROOT / "schemas" / "core-datatypes.schema.json"
-        core_schema = json.loads(core_schema_path.read_text(encoding="utf-8"))
+        return json.loads(core_schema_path.read_text(encoding="utf-8"))
+
+    @cached_property
+    def validator(self):
+        core_schema_path = ROOT / "schemas" / "core-datatypes.schema.json"
         store = {
-            core_schema.get("$id", str(core_schema_path)): core_schema,
-            str(core_schema_path): core_schema,
+            self.core_schema.get("$id", str(core_schema_path)): self.core_schema,
+            str(core_schema_path): self.core_schema,
         }
-        resolver = RefResolver.from_schema(schema, store=store)
-        return jsonschema.Draft202012Validator(schema, resolver=resolver)
+        resolver = RefResolver.from_schema(self.schema, store=store)
+        return jsonschema.Draft202012Validator(self.schema, resolver=resolver)
+
+    def _schema_for_path(self, path: str) -> dict[str, Any]:
+        schema = self.schema
+        for part in path.split("."):
+            schema = self._resolve_schema(schema)
+            schema = schema.get("properties", {}).get(part, {})
+        return self._resolve_schema(schema)
+
+    def _resolve_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
+        reference = schema.get("$ref")
+        if not reference:
+            return schema
+        fragment = reference.split("#", 1)[1] if "#" in reference else ""
+        documents = [self.core_schema] if reference.startswith(self.core_schema.get("$id", "<no-id>")) else [self.schema, self.core_schema]
+        for document in documents:
+            resolved: Any = document
+            try:
+                for part in fragment.removeprefix("/").split("/") if fragment else ():
+                    resolved = resolved[part.replace("~1", "/").replace("~0", "~")]
+            except (KeyError, TypeError):
+                continue
+            return resolved
+        return schema
+
+    def _empty_value(self, schema: dict[str, Any], field: Any | None = None) -> Any:
+        schema = self._resolve_schema(schema)
+        if "default" in schema:
+            return deepcopy(schema["default"])
+        if "const" in schema:
+            return deepcopy(schema["const"])
+        types = schema.get("type", [])
+        types = [types] if isinstance(types, str) else list(types)
+        if "array" in types:
+            return []
+        if "boolean" in types:
+            return False
+        if "object" in types or "properties" in schema:
+            value = {}
+            for key in schema.get("required", []):
+                child = self._empty_value(schema.get("properties", {}).get(key, {}))
+                if child is not MISSING:
+                    value[key] = child
+            if field and field.options:
+                selected = deepcopy(field.options[0]["value"])
+                if field.widget == "vocabulary_select":
+                    value["id"] = selected
+                elif field.widget == "select" and "code" in schema.get("properties", {}):
+                    value["code"] = selected
+            return value
+        if field and field.options:
+            return deepcopy(field.options[0]["value"])
+        if "null" in types:
+            return None
+        if schema.get("enum"):
+            return deepcopy(schema["enum"][0])
+        if "string" in types:
+            return ""
+        return MISSING
 
     def prepare_create(self, payload: dict[str, Any], user: Any, server_values: dict[str, Any] | None = None) -> dict[str, Any]:
         record = self.filter_for_edit(payload, user.role)

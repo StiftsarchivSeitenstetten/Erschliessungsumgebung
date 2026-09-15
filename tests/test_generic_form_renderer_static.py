@@ -10,9 +10,10 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         html = (ROOT / "app" / "module" / "index.html").read_text(encoding="utf-8")
         script = (ROOT / "app" / "module" / "module.js").read_text(encoding="utf-8")
 
-        self.assertIn('src="module.js?v=update-3"', html)
+        self.assertIn('src="module.js?v=create-1"', html)
         self.assertIn('href="/arbeitsbereiche?view=generic"', html)
         self.assertIn('id="save-record"', html)
+        self.assertIn('id="new-record"', html)
         self.assertIn('let mode = "read"', script)
         self.assertIn("new FormState(moduleDescriptor, data.record)", script)
         self.assertIn("new FormRenderer({ mode })", script)
@@ -40,6 +41,7 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         self.assertIn("field.presettable", script)
         self.assertIn("readIntoState", script)
         self.assertIn("widgetRegistry.readValue", script)
+        self.assertIn("if (value !== undefined) formState.setValue", script)
         self.assertIn(".sort((a, b) => a.order - b.order)", script)
         self.assertIn("this.widgetRegistry.render(field.widget", script)
         for forbidden in (
@@ -106,7 +108,7 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         self.assertIn("validate()", script)
         self.assertIn("Pflichtfeld ist leer", script)
 
-    def test_generic_frontend_has_only_the_existing_record_put_and_no_photo_special_cases(self):
+    def test_generic_frontend_keeps_writes_in_dedicated_generic_components(self):
         for path in (
             ROOT / "app" / "generic" / "form-state.js",
             ROOT / "app" / "generic" / "form-renderer.js",
@@ -121,6 +123,11 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         update = (ROOT / "app" / "generic" / "record-update.js").read_text(encoding="utf-8")
         self.assertIn('method: "PUT"', update)
         self.assertNotIn('method: "POST"', update)
+        create = (ROOT / "app" / "generic" / "record-create.js").read_text(encoding="utf-8")
+        self.assertIn('method: "POST"', create)
+        self.assertNotIn('method: "PUT"', create)
+        for forbidden in ("foto_papierabzuege", "dargestellte_personen", "beschriftung", "fotograf"):
+            self.assertNotIn(forbidden, create)
 
 
 if __name__ == "__main__":

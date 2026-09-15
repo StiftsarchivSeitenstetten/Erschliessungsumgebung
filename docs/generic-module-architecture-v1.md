@@ -607,7 +607,7 @@ Record-Ladung und Read-/Edit-Darstellung verwenden unverändert `FormState` und 
 
 Modul, Suchbegriff, Lookup und geöffnete Record-ID stehen in der URL. `pushState`/`popstate` ermöglichen Zurück/Vorwärts ohne Routerbibliothek. Zurück zur Liste erhält Suchbegriff und Reihenfolge und fokussiert den zuletzt geöffneten Link. Bei abgebrochener History-Navigation stellt die App die bisher akzeptierte URL wieder her; dabei kann ein neuer History-Eintrag entstehen. Eine vollständige History-Transaktionsverwaltung ist nicht Teil von v1.
 
-`Modul wechseln` führt auf `/arbeitsbereiche?view=generic`. Nur diese ausdrücklich gewählte Ansicht verlinkt die generischen Module. Der bisherige Login-Einstieg und die Arbeitsbereichsauswahl ohne Parameter führen weiterhin zum alten Fotoformular. `/app/`, Foto-Suche, Presets, Neuanlage und Legacy-Navigation wurden nicht umgestellt.
+`Modul wechseln` führt auf `/arbeitsbereiche?view=generic`. Nur diese ausdrücklich gewählte Ansicht verlinkt die generischen Module. Der bisherige Login-Einstieg und die Arbeitsbereichsauswahl ohne Parameter führen weiterhin zum alten Fotoformular. `/app/`, Foto-Suche, Presets und Legacy-Navigation wurden nicht umgestellt.
 
 #### Update bestehender Datensätze
 
@@ -616,6 +616,16 @@ Im Edit-Modus wird `Speichern` nur für einen geöffneten, geänderten Datensatz
 Bei Erfolg ist die Serverantwort maßgeblich: `record` ersetzt Original- und Arbeitszustand, `meta.revision` wird zur neuen Basisrevision und `dirty` wird `false`. Anschließend wird die aktuelle Trefferliste über die bestehende Listenroute neu geladen, wobei geöffneter Datensatz und Trefferposition erhalten bleiben. Validierungs- und Berechtigungsfehler, ein `409` wegen veralteter Basisrevision sowie Netzwerk- und Serverfehler lassen Entwurf, Basisrevision und Dirty State unverändert. Es gibt kein automatisches Retry, Force-Save oder clientseitiges Zusammenführen.
 
 Der abgesicherte Browserintegrationstest aktualisierte `foto-010332` und `integration-0003` jeweils zusammen mit ihrem generischen Index. ID, Signatur, State-Dateien und Legacy-Fotoindex blieben unverändert; das Legacy-Lesen von `foto-010332` funktioniert weiterhin. Ein Schemafehler (`422`) und ein echter Revisionskonflikt (`409`) erhielten die lokalen Eingaben. Daten-main blieb auf `bcde7c81187fd54466f4b2ecd80e10260bda40f0`; die beiden beabsichtigten Testcommits auf `integration-test` sind `8d721185d396f1f720b1fb4124c846b0b0ef80b4` und `7eaad9b88905b607b2dff3cc893e291b66c4b725`.
+
+#### Neuanlage in der generischen Anwendung
+
+`Neuer Datensatz` öffnet im gewählten Modul denselben `FormRenderer` im Edit-Modus. Der Moduldescriptor liefert dazu den generischen Ausgangswert aus `RecordRuntime.empty_record()`; anschließend werden die tatsächlich gerenderten, generischen Widget-Leerwerte beziehungsweise deklarativen Optionen einmalig als sauberer Formular-Ausgangszustand übernommen. Original- und Form State beginnen damit ohne technische ID, Revision, endgültige Signatur oder technische Metadaten. Die URL kennzeichnet den ungespeicherten Zustand mit `new=1`, ohne eine ID vorzutäuschen. Änderungen verwerfen setzt das Formular auf genau diesen leeren Ausgangszustand zurück.
+
+Der eigenständige generische `RecordCreate` baut den Request ausschließlich mit `FormState.buildPayload()` und sendet `{ "record": ... }` an `POST /api/modules/{module_key}/records`. Clientseitig werden weder ID noch Signaturnummer, Revision oder technische Metadaten erzeugt. Während der Anfrage sind Formular, Navigation und Anlege-Schaltfläche gesperrt; ein zweiter POST ist ausgeschlossen.
+
+Nach erfolgreichem POST ist ausschließlich die Serverantwort maßgeblich. Ihre rollenabhängig gefilterte `record`-Struktur ersetzt Original- und Form State, `record_id` wird zur geöffneten ID und `meta.revision` zur Basisrevision. Der Create-State wechselt damit in den normalen bestehenden Record-/PUT-State, `dirty` ist `false`, die URL enthält die Server-ID und die aktuelle Trefferliste wird kontrolliert neu geladen. So kommt der bereits atomar in Record, State und Index geschriebene Datensatz ohne clientseitige Indexlogik in Liste und Navigation.
+
+Bei `422`, fehlender Berechtigung, abgelaufener Anmeldung, Netzwerk- oder Serverfehlern bleiben Form State und Dirty State erhalten; es wird keine technische ID oder Signatur angenommen. Die bestehende Dirty-Warnung schützt auch ungespeicherte Create-Entwürfe bei Listen-, Record-, Modul- und Browsernavigation. Presets, Vocabulary-Verwaltung, Autosave, Signaturvorschau und Batch-Erfassung sind weiterhin nicht Bestandteil dieses Schritts.
 
 #### Rein lesender Browsertest
 
