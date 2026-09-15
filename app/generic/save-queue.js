@@ -44,6 +44,13 @@
     };
   }
 
+  function statusForError(error) {
+    if (error.status === 401 || error.status === 403) return "auth_error";
+    if (error.status === 409) return "conflict";
+    if (error.status === 422) return "validation_error";
+    return "error";
+  }
+
   function createSaveQueueProcessor({ store, handlers, onChange = async () => {}, lockManager = null }) {
     let running = false;
     let remoteTail = Promise.resolve();
@@ -57,6 +64,16 @@
 
     async function notify(entry = null) {
       await onChange(entry, await store.list());
+    }
+
+    async function fail(operationId, error) {
+      const failed = await store.update(operationId, {
+        status: statusForError(error),
+        updated_at: nowIso(),
+        last_error: queueError(error)
+      });
+      await notify(failed);
+      return failed;
     }
 
     async function reserve(operationId, reserveHandler) {
@@ -81,12 +98,7 @@
         await notify(queued);
         return { entry: deepCopy(queued), reservation: deepCopy(reservation) };
       } catch (error) {
-        const failed = await store.update(operationId, {
-          status: "error",
-          updated_at: nowIso(),
-          last_error: queueError(error)
-        });
-        await notify(failed);
+        await fail(operationId, error);
         throw error;
       }
     }
@@ -97,8 +109,8 @@
       try {
         while (true) {
           const entries = await store.list();
-          const next = entries.find((entry) => entry.status === "queued");
-          if (!next) return true;
+          const next = entries[0];
+          if (!next || next.status !== "queued") return true;
           const saving = await store.update(next.operation_id, {
             status: "saving",
             attempt_count: next.attempt_count + 1,
@@ -113,12 +125,7 @@
             const send = () => handler(deepCopy(saving));
             result = ownsGlobalLock ? await send() : await runRemote(send);
           } catch (error) {
-            const failed = await store.update(saving.operation_id, {
-              status: "error",
-              updated_at: nowIso(),
-              last_error: queueError(error)
-            });
-            await notify(failed);
+            const failed = await fail(saving.operation_id, error);
             if (handlers.onError) await handlers.onError(deepCopy(failed), error);
             return false;
           }
@@ -141,7 +148,26 @@
       return runSequentially(false);
     }
 
-    return { reserve, process, isRunning: () => running };
+    async function requeue(operationId, status = "queued") {
+      const entry = await store.update(operationId, {
+        status,
+        updated_at: nowIso(),
+        last_error: null
+      });
+      await notify(entry);
+      return entry;
+    }
+
+    async function resolve(operationId, result) {
+      const entry = await store.get(operationId);
+      if (!entry) return false;
+      await store.remove(operationId);
+      await notify(null);
+      if (handlers.onSuccess) await handlers.onSuccess(deepCopy(entry), result);
+      return true;
+    }
+
+    return { reserve, process, requeue, resolve, fail, isRunning: () => running };
   }
 
   global.deepCopySaveSnapshot = deepCopy;

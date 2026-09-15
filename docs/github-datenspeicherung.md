@@ -174,8 +174,9 @@ Queue-Eintrag. Vor dieser Antwort zeigt die Oberfläche keine vermeintlich endg�
 Der Worker verarbeitet `queued`-Einträge strikt nacheinander. Vor dem Request wechselt ein
 Eintrag zu `saving` und erhöht `attempt_count`. Nur eine zweifelsfrei erfolgreiche
 Backend-Antwort entfernt ihn. Bei HTTP-, Authentifizierungs-, Validierungs-, Konflikt- oder
-Netzwerkfehlern bleibt der Eintrag mit `last_error` erhalten; die Verarbeitung stoppt und es
-gibt in dieser Ausbaustufe keinen automatischen Retry.
+Netzwerkfehlern bleibt der Eintrag mit `last_error` erhalten; die Verarbeitung stoppt. Der
+erste problematische Eintrag blockiert dabei alle späteren Einträge, damit die fachliche
+Reihenfolge nicht stillschweigend verändert wird.
 
 Ein vorgemerkter, seitdem unveränderter Formularstand darf verlassen werden. Die Rückmeldung
 eines Hintergrund-Saves aktualisiert das Formular nur, wenn dort weiterhin genau derselbe
@@ -183,9 +184,34 @@ Queue-Vorgang aktiv ist. Eine Antwort für Foto A kann deshalb ein inzwischen ge
 nicht überschreiben. Ein globaler Hinweis zeigt unabhängig vom gerade geöffneten Datensatz die
 Zahl aller noch vorhandenen Queue-Einträge.
 
-Beim Neuladen öffnet die Anwendung IndexedDB und zeigt vorhandene Einträge an. Sie sendet
-weder `reserving`-, `saving`-, `error`- noch `queued`-Einträge blind erneut. Eine explizite,
-prüfbare Wiederaufnahme und Konfliktauflösung bleibt einem späteren Ausbauschritt vorbehalten.
+## Wiederaufnahme und Recovery
+
+Beim Neuladen öffnet die Anwendung IndexedDB, normalisiert ältere Fehlerzustände und zeigt
+den ersten blockierenden Status global an. Ein eindeutig noch nicht gestarteter `queued`-
+Eintrag wird automatisch fortgesetzt. Ein Create in `reserving` ohne Identität wiederholt
+ausschließlich die Reservierungsanfrage mit derselben `operation_id`. Hat der Eintrag bereits
+`record_id` und `signature`, wird keine neue Signatur reserviert.
+
+Für pausierte Vorgänge bietet die Oberfläche `Speicherung fortsetzen`, `Lokalen Stand öffnen`
+und – nach ausdrücklicher Warnung – `Lokale Speicherung verwerfen`. Ein Retry verwendet immer
+die vorhandene `operation_id`, Identität und den unveränderten Queue-Snapshot. Bei `401` oder
+`403` bleibt die Queue als `auth_error` pausiert; nach erneuter Anmeldung kann der Benutzer
+die Fortsetzung ausdrücklich auslösen.
+
+Reservierte Creates sind serverseitig idempotent: Existiert der mit der Reservation verknüpfte
+Record bereits, liefert derselbe Create ihn ohne weiteren Commit und ohne neue Signatur zurück.
+Dadurch ist auch eine verlorene Create-Antwort sicher auflösbar.
+
+Ein unklarer PUT wird nicht blind wiederholt. Der Client liest zuerst den aktuellen Record:
+
+- Entspricht dessen fachlicher Stand exakt dem Queue-Snapshot, gilt der Vorgang als bestätigt.
+- Ist die Serverrevision noch gleich der gespeicherten `base_revision`, darf derselbe PUT erneut laufen.
+- Weichen Revision und fachlicher Stand ab, bleibt der Eintrag als `conflict` blockiert.
+
+`409` und `validation_error` werden nicht automatisch erneut gesendet. Der lokale Snapshot kann
+geöffnet und bearbeitet werden; ein Force-Save oder automatischer Feld-Merge findet nicht statt.
+Ein Queue-Eintrag wird ausschließlich nach bestätigtem Backend-Erfolg, eindeutigem Read-back-
+Nachweis oder ausdrücklichem Verwerfen durch den Benutzer gelöscht.
 
 Ist die gespeicherte Fassung nicht mehr dieselbe, antwortet das Backend mit `409 Conflict`:
 

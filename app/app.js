@@ -59,6 +59,7 @@ const state = {
   serverSnapshot: null,
   queuedSnapshot: null,
   currentQueueOperationId: null,
+  queueRecoveryRunning: false,
   saveState: SAVE_STATES.DIRTY,
   maySaveEditingRecord: false
 };
@@ -72,6 +73,10 @@ const finalizeButton = document.querySelector("#finalize");
 const discardButton = document.querySelector("#discard-changes");
 const saveStatus = document.querySelector("#save-status");
 const queueStatus = document.querySelector("#queue-status");
+const queueRecoveryActions = document.querySelector("#queue-recovery-actions");
+const retryQueueButton = document.querySelector("#retry-queue");
+const openQueuedSnapshotButton = document.querySelector("#open-queued-snapshot");
+const discardQueuedSaveButton = document.querySelector("#discard-queued-save");
 const numberOutput = document.querySelector("#number-output");
 const signatureOutput = document.querySelector("#signature-output");
 const archivisDateOutput = document.querySelector("#archivis-date");
@@ -121,6 +126,7 @@ async function init() {
   if (initialRecordId) {
     await openExistingRecord(initialRecordId, { preserveDirty: false });
   }
+  scheduleSafeQueueRecovery();
 }
 
 async function loadCurrentUser() {
@@ -155,14 +161,15 @@ function csrfToken() {
 }
 
 async function apiFetch(url, options = {}) {
-  const headers = { ...(options.headers || {}) };
-  if (options.method && options.method !== "GET") headers["X-CSRF-Token"] = csrfToken() || "";
+  const { redirectOnAuth = true, ...fetchOptions } = options;
+  const headers = { ...(fetchOptions.headers || {}) };
+  if (fetchOptions.method && fetchOptions.method !== "GET") headers["X-CSRF-Token"] = csrfToken() || "";
   const response = await fetch(url, {
     credentials: "same-origin",
-    ...options,
+    ...fetchOptions,
     headers
   });
-  if (response.status === 401 && (!options.method || options.method === "GET")) {
+  if (redirectOnAuth && response.status === 401 && (!fetchOptions.method || fetchOptions.method === "GET")) {
     window.location.href = "/login/";
     const error = new Error("Nicht angemeldet");
     error.status = response.status;
@@ -220,6 +227,9 @@ function bindEvents() {
   document.querySelector("#generate").addEventListener("click", generateRecord);
   finalizeButton.addEventListener("click", finalizeRecord);
   discardButton.addEventListener("click", discardChanges);
+  retryQueueButton.addEventListener("click", retryFirstQueueEntry);
+  openQueuedSnapshotButton.addEventListener("click", openFirstQueuedSnapshot);
+  discardQueuedSaveButton.addEventListener("click", discardFirstQueueEntry);
   document.querySelector("#new-record").addEventListener("click", startNewRecord);
   document.querySelector("#reset-session").addEventListener("click", resetLocalSessionRecords);
   document.querySelector("#add-person").addEventListener("click", () => {
@@ -812,18 +822,60 @@ async function initializeSaveQueue() {
     },
     onChange: handleQueueChange
   });
+  await normalizePersistedQueueEntries();
   await refreshQueueStatus();
+}
+
+async function normalizePersistedQueueEntries() {
+  const entries = await saveQueueStore.list();
+  for (const entry of entries) {
+    let status = entry.status;
+    if (status === "reserving" && entry.record_id && entry.signature) status = "queued";
+    if (status === "error") {
+      const httpStatus = entry.last_error?.http_status;
+      if (httpStatus === 401 || httpStatus === 403) status = "auth_error";
+      if (httpStatus === 409) status = "conflict";
+      if (httpStatus === 422) status = "validation_error";
+    }
+    if (status !== entry.status) {
+      await saveQueueStore.update(entry.operation_id, { status, updated_at: new Date().toISOString() });
+    }
+  }
 }
 
 async function refreshQueueStatus(entries = null) {
   const queueEntries = entries || (saveQueueStore ? await saveQueueStore.list() : []);
   const count = queueEntries.length;
+  const first = queueEntries[0] || null;
+  const label = count === 1 ? "1 Speichervorgang ausstehend" : `${count} Speichervorgänge ausstehend`;
+  const paused = Boolean(first && !["queued", "reserving"].includes(first.status));
   queueStatus.dataset.count = String(count);
-  queueStatus.textContent = count === 0
-    ? "Alle vorgemerkten Datensätze übertragen"
-    : count === 1
-      ? "1 Speichervorgang ausstehend"
-      : `${count} Speichervorgänge ausstehend`;
+  queueStatus.dataset.paused = paused ? "true" : "false";
+  if (!first) {
+    queueStatus.textContent = "Alle vorgemerkten Datensätze übertragen";
+  } else if (first.status === "auth_error") {
+    queueStatus.textContent = `${label} – pausiert: Anmeldung erforderlich`;
+  } else if (first.status === "conflict") {
+    queueStatus.textContent = `${label} – pausiert: Serverstand wurde geändert`;
+  } else if (first.status === "validation_error") {
+    queueStatus.textContent = `${label} – pausiert: lokaler Stand muss bearbeitet werden`;
+  } else if (first.status === "saving" || first.last_error?.uncertain) {
+    queueStatus.textContent = `${label} – pausiert: Ergebnis der letzten Übertragung ist ungeklärt`;
+  } else if (first.status === "error") {
+    queueStatus.textContent = `${label} – pausiert: manueller Wiederholungsversuch erforderlich`;
+  } else if (first.status === "reserving") {
+    queueStatus.textContent = `${label} – sichere Reservierung wird fortgesetzt`;
+  } else {
+    queueStatus.textContent = `${label} – sichere Übertragung wird fortgesetzt`;
+  }
+
+  queueRecoveryActions.hidden = !paused;
+  retryQueueButton.hidden = !first || ["conflict", "validation_error"].includes(first.status);
+  openQueuedSnapshotButton.hidden = !first;
+  discardQueuedSaveButton.hidden = !first;
+  retryQueueButton.disabled = state.queueRecoveryRunning;
+  openQueuedSnapshotButton.disabled = state.queueRecoveryRunning;
+  discardQueuedSaveButton.disabled = state.queueRecoveryRunning;
 }
 
 async function handleQueueChange(entry, entries) {
@@ -832,8 +884,8 @@ async function handleQueueChange(entry, entries) {
   if (entry.status === "reserving") setSaveState(SAVE_STATES.RESERVING);
   if (entry.status === "queued") setSaveState(SAVE_STATES.QUEUED);
   if (entry.status === "saving") setSaveState(SAVE_STATES.SAVING);
-  if (entry.status === "error") {
-    const failedState = failureSaveState(entry.last_error?.http_status);
+  if (["auth_error", "conflict", "validation_error", "error"].includes(entry.status)) {
+    const failedState = queueEntrySaveState(entry);
     setSaveState(failedState);
     showSaveFailure(failedState, entry.last_error?.message);
   }
@@ -890,6 +942,240 @@ async function reserveQueuedCreate(entry) {
     throw new Error("Reservierungsantwort enthält keine vollständige Identität.");
   }
   return reservation;
+}
+
+function queueEntrySaveState(entry) {
+  if (entry.status === "auth_error") return SAVE_STATES.AUTH_ERROR;
+  if (entry.status === "conflict") return SAVE_STATES.CONFLICT;
+  if (entry.status === "validation_error") return SAVE_STATES.VALIDATION_ERROR;
+  return SAVE_STATES.ERROR;
+}
+
+function applyReservationToCurrentEntry(entry, reservation) {
+  if (entry.operation_id !== state.currentQueueOperationId) return;
+  state.currentDraft = {
+    id: reservation.record_id,
+    format: reservation.signature_data.format,
+    nummer: reservation.signature_data.nummer,
+    signature: reservation.signature_data
+  };
+  state.format = reservation.signature_data.format;
+  state.finalizedCurrentDraft = true;
+  state.queuedSnapshot = JSON.stringify(entry.snapshot);
+  errors.innerHTML = "";
+  updateSignatureOutput();
+  setSaveState(SAVE_STATES.QUEUED);
+}
+
+function scheduleSafeQueueRecovery() {
+  window.setTimeout(() => {
+    resumeSafeQueueEntries().catch((error) => console.error("Sichere Queue-Wiederaufnahme fehlgeschlagen.", error));
+  }, 0);
+}
+
+async function resumeSafeQueueEntries() {
+  if (state.queueRecoveryRunning) return false;
+  state.queueRecoveryRunning = true;
+  await refreshQueueStatus();
+  try {
+    while (true) {
+      const entries = await saveQueueStore.list();
+      const first = entries[0];
+      if (!first) return true;
+      if (first.status === "reserving" && first.operation === "create" && !first.record_id && !first.signature) {
+        try {
+          const reserved = await saveQueueProcessor.reserve(first.operation_id, reserveQueuedCreate);
+          applyReservationToCurrentEntry(reserved.entry, reserved.reservation);
+        } catch (error) {
+          return false;
+        }
+        continue;
+      }
+      if (first.status !== "queued") return false;
+      if (!await saveQueueProcessor.process()) return false;
+    }
+  } finally {
+    state.queueRecoveryRunning = false;
+    await refreshQueueStatus();
+  }
+}
+
+function normalizedJson(value) {
+  if (Array.isArray(value)) return value.map(normalizedJson);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, normalizedJson(value[key])]));
+  }
+  return value;
+}
+
+function photoSnapshotFromServer(record) {
+  const datierung = record.datierung || {};
+  return {
+    format: record.signatur?.format || null,
+    erschliessung: record.erschliessung || {},
+    korrespondenzstueck: Boolean(record.korrespondenzstueck),
+    datierung: {
+      jahr: datierung.jahr ?? null,
+      monat: datierung.monat ?? null,
+      tag: datierung.tag ?? null,
+      anmerkung: datierung.anmerkung ?? null,
+      original: datierung.original ?? null,
+      original_typ: datierung.original_typ ?? null
+    }
+  };
+}
+
+function snapshotsEqual(left, right) {
+  return JSON.stringify(normalizedJson(left)) === JSON.stringify(normalizedJson(right));
+}
+
+async function readQueueRecord(entry) {
+  const response = await apiFetch(`/api/records/photos/${entry.record_id}`, {
+    method: "GET",
+    redirectOnAuth: false
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json();
+}
+
+async function recoverUncertainUpdate(entry) {
+  const checking = await saveQueueStore.update(entry.operation_id, {
+    attempt_count: entry.attempt_count + 1,
+    updated_at: new Date().toISOString()
+  });
+  try {
+    const server = await readQueueRecord(checking);
+    if (snapshotsEqual(checking.snapshot, photoSnapshotFromServer(server.record))) {
+      await saveQueueProcessor.resolve(checking.operation_id, server);
+      return true;
+    }
+    if (server.base_revision === checking.base_revision) {
+      await saveQueueProcessor.requeue(checking.operation_id);
+      return resumeSafeQueueEntries();
+    }
+    const conflict = new Error("Der Serverstand hat sich geändert; die lokale Fassung bleibt in der Warteschlange erhalten.");
+    conflict.status = 409;
+    conflict.userMessage = conflict.message;
+    await saveQueueProcessor.fail(checking.operation_id, conflict);
+    return false;
+  } catch (error) {
+    await saveQueueProcessor.fail(checking.operation_id, error);
+    return false;
+  }
+}
+
+async function retryFirstQueueEntry() {
+  if (state.queueRecoveryRunning) return;
+  const entry = (await saveQueueStore.list())[0];
+  if (!entry) return;
+  if (["conflict", "validation_error"].includes(entry.status)) return;
+
+  state.queueRecoveryRunning = true;
+  await refreshQueueStatus();
+  try {
+    if (entry.operation === "create") {
+      if (entry.record_id && entry.signature) {
+        await saveQueueProcessor.requeue(entry.operation_id);
+      } else {
+        const reserving = await saveQueueProcessor.requeue(entry.operation_id, "reserving");
+        try {
+          const reserved = await saveQueueProcessor.reserve(reserving.operation_id, reserveQueuedCreate);
+          applyReservationToCurrentEntry(reserved.entry, reserved.reservation);
+        } catch (error) {
+          return;
+        }
+      }
+    } else if (entry.status === "queued") {
+      await saveQueueProcessor.requeue(entry.operation_id);
+    } else {
+      state.queueRecoveryRunning = false;
+      await recoverUncertainUpdate(entry);
+      return;
+    }
+  } finally {
+    if (state.queueRecoveryRunning) {
+      state.queueRecoveryRunning = false;
+      await refreshQueueStatus();
+    }
+  }
+  await resumeSafeQueueEntries();
+}
+
+function queuedSignatureData(entry) {
+  const numberMatch = entry.signature?.match(/\.([0-9]+)$/);
+  return entry.signature && numberMatch
+    ? { ...buildSignature(entry.partition, Number(numberMatch[1]), "vergeben"), anzeige: entry.signature }
+    : null;
+}
+
+function fillFormFromQueueSnapshot(entry) {
+  state.format = entry.snapshot.format || entry.partition;
+  fillFormFromRecord({
+    erschliessung: entry.snapshot.erschliessung,
+    korrespondenzstueck: entry.snapshot.korrespondenzstueck,
+    datierung: entry.snapshot.datierung,
+    signatur: { format: state.format }
+  });
+  state.currentQueueOperationId = entry.operation_id;
+  state.queuedSnapshot = JSON.stringify(entry.snapshot);
+  updateArchivisDate();
+}
+
+async function openFirstQueuedSnapshot() {
+  const entry = (await saveQueueStore.list())[0];
+  if (!entry) return;
+  try {
+    if (entry.operation === "update") {
+      const server = await readQueueRecord(entry);
+      applyLoadedRecord(server.record, server.base_revision);
+      fillFormFromQueueSnapshot(entry);
+    } else {
+      startNewRecord({ skipConfirmation: true });
+      fillFormFromQueueSnapshot(entry);
+      const signature = queuedSignatureData(entry);
+      if (signature) {
+        state.currentDraft = {
+          id: entry.record_id,
+          format: entry.partition,
+          nummer: signature.nummer,
+          signature
+        };
+        state.finalizedCurrentDraft = true;
+      }
+    }
+    updateSignatureOutput();
+    const failedState = queueEntrySaveState(entry);
+    setSaveState(failedState);
+    showSaveFailure(failedState, entry.last_error?.message);
+  } catch (error) {
+    const failed = await saveQueueProcessor.fail(entry.operation_id, error);
+    showSaveFailure(queueEntrySaveState(failed), error.userMessage);
+  }
+}
+
+async function discardFirstQueueEntry() {
+  const entry = (await saveQueueStore.list())[0];
+  if (!entry) return;
+  const confirmed = window.confirm(
+    "Die lokal gesicherte Speicherung wirklich verwerfen? Dieser Queue-Snapshot kann danach nicht wiederhergestellt werden."
+  );
+  if (!confirmed) return;
+  await saveQueueStore.remove(entry.operation_id);
+  if (state.currentQueueOperationId === entry.operation_id) {
+    state.currentQueueOperationId = null;
+    state.queuedSnapshot = null;
+    if (entry.operation === "create") {
+      state.currentDraft = null;
+      state.finalizedCurrentDraft = false;
+      updateSignatureOutput();
+      setSaveState(SAVE_STATES.DIRTY);
+    } else {
+      updateDirtyState();
+    }
+  }
+  errors.innerHTML = "<p>Die lokale Speicherung wurde ausdrücklich verworfen.</p>";
+  await refreshQueueStatus();
+  scheduleSafeQueueRecovery();
 }
 
 async function handleQueuedSaveSuccess(entry, saved) {

@@ -65,7 +65,7 @@ async function run() {
   assert.equal(await failedProcessor.process(), false);
   assert.deepEqual(attempted, ["bad"], "processing stops after the first error");
   const failed = await failedStore.get("bad");
-  assert.equal(failed.status, "error");
+  assert.equal(failed.status, "conflict");
   assert.equal(failed.attempt_count, 1);
   assert.equal(failed.last_error.http_status, 409);
   assert.ok(await failedStore.get("later"), "later entries remain queued");
@@ -111,6 +111,33 @@ async function run() {
   await activeWrite;
   await waitingReservation;
   assert.equal(reservationStarted, true, "reservation starts after the previous write completes");
+
+  for (const [httpStatus, expectedStatus] of [[401, "auth_error"], [403, "auth_error"], [422, "validation_error"]]) {
+    const classifiedStore = new MemoryStore();
+    await classifiedStore.put(createSaveQueueEntry({ operationId: `http-${httpStatus}`, operation: "update", snapshot: {} }));
+    await createSaveQueueProcessor({
+      store: classifiedStore,
+      handlers: { update: async () => { const error = new Error("http error"); error.status = httpStatus; throw error; } }
+    }).process();
+    assert.equal((await classifiedStore.get(`http-${httpStatus}`)).status, expectedStatus);
+  }
+
+  const resolutionStore = new MemoryStore();
+  const recoverable = createSaveQueueEntry({ operationId: "recover-same", operation: "create", recordId: "foto-30", signature: "9.4.2.A.30", snapshot: {} });
+  recoverable.status = "saving";
+  await resolutionStore.put(recoverable);
+  let resolvedOperation = null;
+  const resolutionProcessor = createSaveQueueProcessor({
+    store: resolutionStore,
+    handlers: { onSuccess: async (entry) => { resolvedOperation = entry.operation_id; } }
+  });
+  const requeued = await resolutionProcessor.requeue("recover-same");
+  assert.equal(requeued.operation_id, "recover-same");
+  assert.equal(requeued.record_id, "foto-30");
+  assert.equal(requeued.signature, "9.4.2.A.30");
+  await resolutionProcessor.resolve("recover-same", { confirmed: true });
+  assert.equal(resolvedOperation, "recover-same");
+  assert.equal(await resolutionStore.get("recover-same"), null, "verified recovery removes the original operation");
 }
 
 run().catch((error) => { console.error(error); process.exitCode = 1; });

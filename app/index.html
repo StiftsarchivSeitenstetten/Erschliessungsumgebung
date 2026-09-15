@@ -33,6 +33,11 @@
           Im Produktivmodus vergibt das Backend ID und Signatur verbindlich beim Speichern.
         </div>
         <p id="queue-status" class="queue-status" aria-live="polite">Lokale Speicherwarteschlange wird geladen …</p>
+        <div id="queue-recovery-actions" class="queue-recovery-actions" hidden>
+          <button type="button" id="retry-queue">Speicherung fortsetzen</button>
+          <button type="button" id="open-queued-snapshot">Lokalen Stand öffnen</button>
+          <button type="button" id="discard-queued-save" class="danger-button">Lokale Speicherung verwerfen</button>
+        </div>
       </section>
 
       <form id="record-form" novalidate>

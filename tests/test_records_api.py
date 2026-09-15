@@ -234,10 +234,12 @@ class RecordsApiTest(unittest.TestCase):
             "indexes/fotos.json",
         ])
 
+        commits_after_create = list(self.repository.commits)
         repeated = self.post_photo(data)
         self.assertEqual(repeated.status_code, 201)
-        self.assertEqual(repeated.json()["record"]["id"], reservation["record_id"])
-        self.assertEqual(len(self.repository.commits), 2)
+        self.assertEqual(repeated.json(), created.json())
+        self.assertEqual(self.repository.commits, commits_after_create)
+        self.assertEqual(self.repository.files[STATE_PATH], state_after_reservation)
 
     def test_reserved_identity_requires_matching_operation(self):
         self.authed()

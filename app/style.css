@@ -197,6 +197,21 @@ main {
   font-weight: 700;
 }
 
+.queue-status[data-paused="true"] {
+  color: var(--error);
+}
+
+.queue-recovery-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.queue-recovery-actions[hidden] {
+  display: none;
+}
+
 .save-status[data-state$="error"],
 .save-status[data-state="conflict"] {
   border-color: var(--error);

@@ -40,12 +40,15 @@ class PhotoUiStaticTest(unittest.TestCase):
         store = (ROOT / "app" / "generic" / "save-queue-store.js").read_text(encoding="utf-8")
         worker = (ROOT / "app" / "generic" / "save-queue.js").read_text(encoding="utf-8")
         self.assertIn('id="queue-status"', html)
+        self.assertIn('id="retry-queue"', html)
+        self.assertIn('id="open-queued-snapshot"', html)
+        self.assertIn('id="discard-queued-save"', html)
         self.assertLess(html.index('src="generic/save-queue-store.js"'), html.index('src="app.js"'))
         self.assertLess(html.index('src="generic/save-queue.js"'), html.index('src="app.js"'))
         self.assertIn('DEFAULT_DATABASE_NAME = "Erschliessungsumgebung"', store)
         self.assertIn('DEFAULT_STORE_NAME = "save_queue"', store)
         self.assertNotIn("localStorage", store)
-        self.assertIn('entry.status === "queued"', worker)
+        self.assertIn('next.status !== "queued"', worker)
         self.assertIn("await store.remove", worker)
 
 

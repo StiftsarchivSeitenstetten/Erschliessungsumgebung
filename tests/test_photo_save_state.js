@@ -29,7 +29,8 @@ class Element {
 
 const selectors = [
   "#record-form", "#errors", "#preview", "#generate", "#download", "#finalize", "#discard-changes", "#save-status",
-  "#queue-status", "#number-output", "#signature-output", "#archivis-date", "#preset-status", "#preset-editor",
+  "#queue-status", "#queue-recovery-actions", "#retry-queue", "#open-queued-snapshot", "#discard-queued-save",
+  "#number-output", "#signature-output", "#archivis-date", "#preset-status", "#preset-editor",
   "#preset-field-list", "#current-user", "#record-browser", "#record-search", "#record-list", "#record-nav-top",
   "#record-nav-bottom", "#personen-list", "#beschriftung", "#titel", "#beschreibung", "#herkunft", "#sammler",
   "#fotograf", "#rechteinhaber", "#orte", "#schlagworte", "#altsignaturen", "#interne-bemerkung",
@@ -85,6 +86,7 @@ function testRecord(title, id = "foto-000001", number = 1) {
   };
 }
 function configureQueue(events) {
+  state.queueRecoveryRunning = false;
   saveQueueStore = new MemoryStore(events);
   saveQueueProcessor = createSaveQueueProcessor({
     store: saveQueueStore,
@@ -92,6 +94,19 @@ function configureQueue(events) {
     onChange: handleQueueChange
   });
   scheduleQueueProcessing = () => {};
+}
+function workingSnapshot(title) {
+  const record = testRecord(title);
+  return {
+    format: "A", erschliessung: record.erschliessung, korrespondenzstueck: false, datierung: record.datierung
+  };
+}
+function queueEntry(operationId, operation, status, snapshot, extra = {}) {
+  return {
+    ...createSaveQueueEntry({ operationId, operation, recordId: extra.record_id || null, signature: extra.signature || null,
+      partition: "A", baseRevision: extra.base_revision || null, snapshot, status }),
+    last_error: extra.last_error || null
+  };
 }
 async function runSaveStateTests() {
   config = {
@@ -148,10 +163,10 @@ async function runSaveStateTests() {
   apiFetch = async () => ({ ok: false, status: 409, async json() { return { detail: "revision conflict" }; } });
   assert.equal(await saveQueueProcessor.process(), false);
   const failed = await saveQueueStore.get("operation-3");
-  assert.equal(failed.status, "error", "failed entries remain persisted");
+  assert.equal(failed.status, "conflict", "failed entries remain persisted and classified");
   assert.equal(failed.last_error.http_status, 409);
   assert.equal(state.saveState, SAVE_STATES.CONFLICT);
-  assert.equal(queueStatus.textContent, "1 Speichervorgang ausstehend");
+  assert.match(queueStatus.textContent, /pausiert: Serverstand wurde geändert/);
   assert.equal(hasUnsecuredChanges(), false, "the failed but persisted snapshot can be left safely");
 
   configureQueue([]);
@@ -206,6 +221,118 @@ async function runSaveStateTests() {
   assert.equal(state.mode, "edit", "a confirmed create becomes a normal existing record");
   assert.equal(state.currentQueueOperationId, null);
   assert.equal(state.saveState, SAVE_STATES.CLEAN);
+
+  configureQueue([]);
+  await saveQueueStore.put(queueEntry("reload-queued", "update", "queued", workingSnapshot("Recovered queued"), {
+    record_id: "foto-000001", base_revision: "rev-a"
+  }));
+  let reloadPut = 0;
+  apiFetch = async (_url, options) => {
+    reloadPut += 1;
+    const payload = JSON.parse(options.body);
+    return { ok: true, async json() { return { record: testRecord(payload.erschliessung.titel), base_revision: "rev-recovered" }; } };
+  };
+  await resumeSafeQueueEntries();
+  assert.equal(reloadPut, 1, "an unequivocally queued reload entry resumes automatically");
+  assert.equal((await saveQueueStore.list()).length, 0);
+
+  configureQueue([]);
+  await saveQueueStore.put(queueEntry("same-reservation", "create", "reserving", workingSnapshot("Reserved recovery")));
+  const recoveredCreateCalls = [];
+  apiFetch = async (url, options) => {
+    const payload = JSON.parse(options.body); recoveredCreateCalls.push({ url, payload });
+    if (url.endsWith("/reservations")) return { ok: true, async json() { return {
+      operation_id: payload.operation_id, record_id: "foto-000020", signature: "9.4.2.A.20", partition: "A",
+      signature_data: { bestand: "9", objektgruppe: "4.2", format: "A", nummer: 20, anzeige: "9.4.2.A.20", status: "vergeben" }
+    }; } };
+    return { ok: true, async json() { return { record: testRecord("Reserved recovery", "foto-000020", 20), base_revision: "rev-20" }; } };
+  };
+  await resumeSafeQueueEntries();
+  assert.deepEqual(recoveredCreateCalls.map((call) => call.payload.operation_id), ["same-reservation", "same-reservation"]);
+  assert.equal((await saveQueueStore.list()).length, 0, "reserving recovery uses one operation through final create");
+
+  configureQueue([]);
+  await saveQueueStore.put(queueEntry("lost-create", "create", "error", workingSnapshot("Already created"), {
+    record_id: "foto-000021", signature: "9.4.2.A.21", last_error: { uncertain: true }
+  }));
+  let lostCreatePayload;
+  apiFetch = async (_url, options) => {
+    lostCreatePayload = JSON.parse(options.body);
+    return { ok: true, async json() { return { record: testRecord("Already created", "foto-000021", 21), base_revision: "rev-21" }; } };
+  };
+  await retryFirstQueueEntry();
+  assert.equal(lostCreatePayload.operation_id, "lost-create");
+  assert.equal(lostCreatePayload.record_id, "foto-000021");
+  assert.equal((await saveQueueStore.list()).length, 0, "idempotent create recovery removes the confirmed entry");
+
+  configureQueue([]);
+  const alreadyApplied = workingSnapshot("Already applied");
+  await saveQueueStore.put(queueEntry("lost-put", "update", "saving", alreadyApplied, {
+    record_id: "foto-000001", base_revision: "rev-old"
+  }));
+  const recoveryMethods = [];
+  apiFetch = async (_url, options) => {
+    recoveryMethods.push(options.method);
+    return { ok: true, async json() {
+      const record = testRecord("Already applied");
+      record.datierung = { jahr: null, monat: null, tag: null, anmerkung: null };
+      return { record, base_revision: "rev-after" };
+    } };
+  };
+  await retryFirstQueueEntry();
+  assert.deepEqual(recoveryMethods, ["GET"], "a lost PUT response is resolved by read-back without another PUT");
+  assert.equal((await saveQueueStore.list()).length, 0);
+
+  configureQueue([]);
+  await saveQueueStore.put(queueEntry("auth-retry", "update", "queued", workingSnapshot("After login"), {
+    record_id: "foto-000001", base_revision: "rev-auth"
+  }));
+  apiFetch = async () => ({ ok: false, status: 401, async json() { return { detail: "login required" }; } });
+  await saveQueueProcessor.process();
+  assert.equal((await saveQueueStore.get("auth-retry")).status, "auth_error");
+  const authMethods = [];
+  apiFetch = async (_url, options) => {
+    authMethods.push(options.method);
+    if (options.method === "GET") return { ok: true, async json() { return { record: testRecord("A"), base_revision: "rev-auth" }; } };
+    return { ok: true, async json() { return { record: testRecord("After login"), base_revision: "rev-auth-next" }; } };
+  };
+  await retryFirstQueueEntry();
+  assert.deepEqual(authMethods, ["GET", "PUT"]);
+  assert.equal((await saveQueueStore.list()).length, 0, "auth recovery continues the preserved operation after login");
+
+  configureQueue([]);
+  await saveQueueStore.put(queueEntry("real-conflict", "update", "saving", workingSnapshot("Local conflict"), {
+    record_id: "foto-000001", base_revision: "rev-old"
+  }));
+  apiFetch = async () => ({ ok: true, async json() { return { record: testRecord("Server changed"), base_revision: "rev-other" }; } });
+  await retryFirstQueueEntry();
+  const conflictEntry = await saveQueueStore.get("real-conflict");
+  assert.equal(conflictEntry.status, "conflict");
+  assert.equal(conflictEntry.snapshot.erschliessung.titel, "Local conflict");
+
+  configureQueue([]);
+  await saveQueueStore.put(queueEntry("invalid", "update", "queued", workingSnapshot("Invalid"), {
+    record_id: "foto-000001", base_revision: "rev-a"
+  }));
+  apiFetch = async () => ({ ok: false, status: 422, async json() { return { detail: ["invalid field"] }; } });
+  await saveQueueProcessor.process();
+  const invalidEntry = await saveQueueStore.get("invalid");
+  assert.equal(invalidEntry.status, "validation_error");
+  assert.equal(invalidEntry.snapshot.erschliessung.titel, "Invalid");
+  apiFetch = async () => ({ ok: true, async json() { return { record: testRecord("Server valid"), base_revision: "rev-server" }; } });
+  await openFirstQueuedSnapshot();
+  assert.equal(elements["#titel"].value, "Invalid", "the retained validation snapshot can be opened for editing");
+  assert.equal(state.currentQueueOperationId, "invalid");
+  await discardFirstQueueEntry();
+  assert.equal((await saveQueueStore.list()).length, 0, "only explicit confirmation discards the blocked queue entry");
+  assert.equal(elements["#titel"].value, "Invalid", "discarding the queue leaves the opened working copy available");
+
+  configureQueue([]);
+  await saveQueueStore.put(queueEntry("legacy-auth", "update", "error", workingSnapshot("Auth"), {
+    record_id: "foto-000001", base_revision: "rev-a", last_error: { http_status: 403, uncertain: false }
+  }));
+  await normalizePersistedQueueEntries();
+  assert.equal((await saveQueueStore.get("legacy-auth")).status, "auth_error", "reload normalizes persisted HTTP failures");
 }
 return runSaveStateTests();
 `;
