@@ -18,6 +18,7 @@ from backend.auth.service import create_user  # noqa: E402
 from backend.auth.sessions import utcnow  # noqa: E402
 from backend.database import Base, SessionLocal, engine  # noqa: E402
 from backend.main import create_app  # noqa: E402
+from backend.github.repository import InMemoryGitRepository  # noqa: E402
 from backend.models import ModuleAccess, SessionToken, User  # noqa: E402
 from backend.permissions import MODULE_FOTO_PAPIERABZUEGE, can_edit_record, has_module_access  # noqa: E402
 from backend.modules import get_module, load_module  # noqa: E402
@@ -34,7 +35,9 @@ class AuthBackendTest(unittest.TestCase):
     def setUp(self):
         Base.metadata.drop_all(bind=engine)
         Base.metadata.create_all(bind=engine)
-        self.client = TestClient(create_app())
+        self.app = create_app()
+        self.app.state.data_repository = InMemoryGitRepository()
+        self.client = TestClient(self.app)
 
     def create_user(self, **overrides):
         defaults = {
@@ -236,7 +239,7 @@ class AuthBackendTest(unittest.TestCase):
         response = self.client.get("/api/modules/foto_papierabzuege")
         self.assertEqual(response.status_code, 403)
 
-    def test_vocabulary_endpoint_requires_access_to_referencing_module(self):
+    def test_vocabulary_endpoint_uses_vocabulary_rights_not_module_membership(self):
         self.create_user(username="rita", role="redaktion", ui_profile="redaktion")
         with SessionLocal() as db:
             user = db.scalar(select(User).where(User.username == "rita"))
@@ -258,7 +261,7 @@ class AuthBackendTest(unittest.TestCase):
         self.create_user(username="ohne-zugriff", email="ohne@example.test", modules=[])
         self.assertEqual(self.login("ohne-zugriff").status_code, 200)
         with patch("backend.routes.modules.list_modules", return_value=(module,)):
-            self.assertEqual(self.client.get("/api/vocabularies/dokumenttypen").status_code, 404)
+            self.assertEqual(self.client.get("/api/vocabularies/dokumenttypen").status_code, 200)
 
     def test_record_edit_permissions(self):
         ehrenamt_id = self.create_user(username="anna", email="anna@example.test", role="ehrenamtlich")

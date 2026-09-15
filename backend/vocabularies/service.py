@@ -1,4 +1,4 @@
-"""Load, validate and resolve small versioned read-only vocabularies."""
+"""Load, validate and resolve small versioned controlled vocabularies."""
 
 from __future__ import annotations
 
@@ -22,6 +22,10 @@ class VocabularyError(ValueError):
 
 
 class VocabularyTermNotFound(VocabularyError):
+    pass
+
+
+class VocabularyValidationError(VocabularyError):
     pass
 
 
@@ -51,6 +55,7 @@ class Vocabulary:
     label: str
     description: str | None
     terms: tuple[VocabularyTerm, ...]
+    rights: dict[str, tuple[str, ...]]
 
     def resolve(self, term_id: str) -> VocabularyTerm:
         for term in self.terms:
@@ -64,6 +69,9 @@ class Vocabulary:
     def active_terms(self) -> tuple[VocabularyTerm, ...]:
         return tuple(term for term in self.terms if term.active)
 
+    def allows(self, role: str, operation: str) -> bool:
+        return role in self.rights.get(operation, ())
+
     def descriptor(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -71,6 +79,41 @@ class Vocabulary:
             "description": self.description,
             "terms": [term.descriptor() for term in self.terms],
         }
+
+
+def parse_vocabulary(content: str, expected_id: str | None = None, source: str = "Vocabulary-Datei") -> tuple[Vocabulary, dict[str, Any]]:
+    try:
+        raw = yaml.safe_load(content)
+    except yaml.YAMLError as exc:
+        raise VocabularyValidationError(f"{source} ist kein gueltiges YAML.") from exc
+    if not isinstance(raw, dict):
+        raise VocabularyValidationError(f"{source} ist kein Mapping.")
+    schema = json.loads(VOCABULARY_SCHEMA_PATH.read_text(encoding="utf-8"))
+    try:
+        jsonschema.validate(instance=raw, schema=schema)
+    except jsonschema.ValidationError as exc:
+        raise VocabularyValidationError(f"Ungueltiges Vokabular {source}: {exc.message}") from exc
+    if expected_id is not None and raw["id"] != expected_id:
+        raise VocabularyValidationError(
+            f"Vocabulary-ID {raw['id']!r} stimmt nicht mit Referenz {expected_id!r} ueberein."
+        )
+    ids = [term["id"] for term in raw["terms"]]
+    duplicates = sorted({term_id for term_id in ids if ids.count(term_id) > 1})
+    if duplicates:
+        raise VocabularyValidationError(f"Doppelte Term-ID(s) in {raw['id']!r}: {', '.join(duplicates)}")
+    terms = tuple(VocabularyTerm(
+        id=term["id"],
+        label=term["label"],
+        active=term["active"],
+        description=term.get("description"),
+        aliases=tuple(term.get("aliases") or ()),
+        sort_order=term.get("sort_order"),
+    ) for term in _sorted_terms(raw["terms"]))
+    rights = {
+        operation: tuple(roles)
+        for operation, roles in (raw.get("rights") or {}).items()
+    }
+    return Vocabulary(raw["id"], raw["label"], raw.get("description"), terms, rights), raw
 
 
 def _sorted_terms(raw_terms: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -89,29 +132,7 @@ def load_vocabulary(path: str | Path, expected_id: str | None = None) -> Vocabul
     vocabulary_path = Path(path)
     if not vocabulary_path.exists():
         raise VocabularyError(f"Vocabulary-Datei fehlt: {vocabulary_path}")
-    try:
-        raw = yaml.safe_load(vocabulary_path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
-        raise VocabularyError(f"Vocabulary-Datei ist kein gueltiges YAML: {vocabulary_path}") from exc
-    if not isinstance(raw, dict):
-        raise VocabularyError(f"Vocabulary-Datei ist kein Mapping: {vocabulary_path}")
-    schema = json.loads(VOCABULARY_SCHEMA_PATH.read_text(encoding="utf-8"))
-    try:
-        jsonschema.validate(instance=raw, schema=schema)
-    except jsonschema.ValidationError as exc:
-        raise VocabularyError(f"Ungueltiges Vokabular {vocabulary_path}: {exc.message}") from exc
-    if expected_id is not None and raw["id"] != expected_id:
-        raise VocabularyError(f"Vocabulary-ID {raw['id']!r} stimmt nicht mit Referenz {expected_id!r} ueberein.")
-    ids = [term["id"] for term in raw["terms"]]
-    duplicates = sorted({term_id for term_id in ids if ids.count(term_id) > 1})
-    if duplicates:
-        raise VocabularyError(f"Doppelte Term-ID(s) in {raw['id']!r}: {', '.join(duplicates)}")
-    terms = tuple(VocabularyTerm(
-        id=term["id"],
-        label=term["label"],
-        active=term["active"],
-        description=term.get("description"),
-        aliases=tuple(term.get("aliases") or ()),
-        sort_order=term.get("sort_order"),
-    ) for term in _sorted_terms(raw["terms"]))
-    return Vocabulary(raw["id"], raw["label"], raw.get("description"), terms)
+    vocabulary, _ = parse_vocabulary(
+        vocabulary_path.read_text(encoding="utf-8"), expected_id, str(vocabulary_path),
+    )
+    return vocabulary

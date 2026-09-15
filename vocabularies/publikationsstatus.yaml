@@ -1,5 +1,10 @@
 id: publikationsstatus
 label: Publikationsstatus
+rights:
+  use: [ehrenamtlich, redaktion, admin]
+  add: [redaktion, admin]
+  rename: [redaktion, admin]
+  deactivate: [redaktion, admin]
 terms:
   - id: intern
     label: Intern

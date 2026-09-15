@@ -266,7 +266,16 @@ def _vocabulary_references(raw: dict[str, Any], config_path: Path) -> dict[str, 
             load_vocabulary(path, vocabulary_id)
         except VocabularyError as exc:
             raise ModuleConfigError(str(exc)) from exc
-        resolved[vocabulary_id] = {"path": str(path)}
+        repository_path = reference.get("repository_path")
+        if repository_path is None:
+            try:
+                repository_path = path.relative_to(ROOT).as_posix()
+            except ValueError:
+                repository_path = f"vocabularies/{path.name}"
+        repository_parts = Path(repository_path).parts
+        if Path(repository_path).is_absolute() or ".." in repository_parts:
+            raise ModuleConfigError(f"Repository-Pfad fuer Vokabular {vocabulary_id!r} ist ungueltig.")
+        resolved[vocabulary_id] = {"path": str(path), "repository_path": repository_path}
     return resolved
 
 
@@ -392,13 +401,13 @@ def load_modules(paths: list[Path] | tuple[Path, ...]) -> tuple[ModuleDefinition
             if key in seen and seen[key] != index:
                 raise ModuleConfigError(f"Doppelte Modul-ID oder Zugriffkennung: {key}")
             seen[key] = index
-    vocabulary_paths: dict[str, str] = {}
+    vocabulary_paths: dict[str, tuple[str, str]] = {}
     for module in modules:
         for vocabulary_id, reference in module.vocabularies.items():
-            path = reference["path"]
-            if vocabulary_id in vocabulary_paths and vocabulary_paths[vocabulary_id] != path:
+            paths = (reference["path"], reference["repository_path"])
+            if vocabulary_id in vocabulary_paths and vocabulary_paths[vocabulary_id] != paths:
                 raise ModuleConfigError(f"Vocabulary-ID {vocabulary_id!r} verweist auf unterschiedliche Dateien.")
-            vocabulary_paths[vocabulary_id] = path
+            vocabulary_paths[vocabulary_id] = paths
     return modules
 
 

@@ -1,5 +1,10 @@
 id: bearbeitungsstatus
 label: Bearbeitungsstatus
+rights:
+  use: [ehrenamtlich, redaktion, admin]
+  add: [redaktion, admin]
+  rename: [redaktion, admin]
+  deactivate: [redaktion, admin]
 terms:
   - id: in_bearbeitung
     label: In Bearbeitung

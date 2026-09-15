@@ -1,5 +1,10 @@
 id: redaktionsstufen
 label: Redaktionsstufen
+rights:
+  use: [ehrenamtlich, redaktion, admin]
+  add: [redaktion, admin]
+  rename: [redaktion, admin]
+  deactivate: [redaktion, admin]
 terms:
   - id: ehrenamtlich
     label: Ehrenamtlich

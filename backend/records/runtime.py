@@ -13,9 +13,11 @@ import jsonschema
 from jsonschema import RefResolver
 
 from ..config import ROOT
+from ..github.errors import RepositoryNotFoundError
+from ..github.repository import DataRepository
 from ..modules import ModuleDefinition, get_path_value, path_exists, set_path_value
 from ..modules.access import SERVER_MANAGED_FIELDS, is_server_managed_field
-from ..vocabularies import VocabularyTermNotFound, load_vocabulary
+from ..vocabularies import VocabularyTermNotFound, load_vocabulary, read_repository_vocabulary
 
 
 TRANSPORT_FIELDS = frozenset({"base_revision", "revision"})
@@ -45,8 +47,9 @@ def utc_iso() -> str:
 
 
 class RecordRuntime:
-    def __init__(self, module: ModuleDefinition) -> None:
+    def __init__(self, module: ModuleDefinition, repository: DataRepository | None = None) -> None:
         self.module = module
+        self.repository = repository
         self.fields_by_path = {field.path: field for field in module.fields}
         self.fields_by_id = {field.id: field for field in module.fields}
 
@@ -56,7 +59,7 @@ class RecordRuntime:
             if is_server_managed_field(field.path) or (role is not None and not field.can_edit(role)):
                 continue
             if field.widget == "vocabulary_select" and field.vocabulary:
-                vocabulary = load_vocabulary(self.module.vocabularies[field.vocabulary]["path"], field.vocabulary)
+                vocabulary = self._vocabulary(field.vocabulary)
                 active = vocabulary.active_terms()
                 value = {"id": active[0].id, "vocabulary_id": vocabulary.id} if active else MISSING
             else:
@@ -110,7 +113,7 @@ class RecordRuntime:
                 if value.get("vocabulary_id") not in (None, field.vocabulary):
                     errors.append(f"{path}: Vocabulary-ID passt nicht zum konfigurierten Vokabular.")
                     return
-                vocabulary = load_vocabulary(self.module.vocabularies[field.vocabulary]["path"], field.vocabulary)
+                vocabulary = self._vocabulary(field.vocabulary)
                 try:
                     vocabulary.resolve(value["id"])
                 except VocabularyTermNotFound:
@@ -128,6 +131,17 @@ class RecordRuntime:
                 validate_field(field, get_path_value(record, field.path), field.path)
         if errors:
             raise RecordValidationError(errors)
+
+    def _vocabulary(self, vocabulary_id: str):
+        reference = self.module.vocabularies[vocabulary_id]
+        if self.repository is not None:
+            try:
+                return read_repository_vocabulary(
+                    self.repository, reference["repository_path"], vocabulary_id,
+                ).vocabulary
+            except RepositoryNotFoundError:
+                pass
+        return load_vocabulary(reference["path"], vocabulary_id)
 
     @cached_property
     def schema(self) -> dict[str, Any]:

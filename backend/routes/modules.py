@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -17,7 +19,18 @@ from ..records.generic_write import create_generic_record, update_generic_record
 from ..records.identity import reserve_generic_identity
 from ..records.module_index import index_path, query_index, read_module_index
 from ..records.runtime import RecordPermissionError, RecordRuntime, RecordUnknownFieldError, RecordValidationError
-from ..vocabularies import VocabularyError, load_vocabulary
+from ..vocabularies import (
+    VocabularyError,
+    VocabularyPermissionError,
+    VocabularyTermExistsError,
+    VocabularyTermNotFound,
+    VocabularyValidationError,
+    add_term,
+    deactivate_term,
+    load_vocabulary,
+    read_repository_vocabulary,
+    rename_term,
+)
 from .deps import require_authenticated_user, require_csrf
 from .records import get_data_repository
 
@@ -46,6 +59,32 @@ class IdentityReservationRequest(BaseModel):
 
     operation_id: str
     record: dict[str, Any] = Field(default_factory=dict)
+
+
+class VocabularyTermRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    active: bool = True
+    description: str | None = None
+    aliases: list[str] | None = None
+    sort_order: int | None = None
+
+
+class VocabularyAddRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    base_revision: str
+    term: VocabularyTermRequest
+
+
+class VocabularyPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    base_revision: str
+    label: str | None = None
+    active: bool | None = None
 
 
 def require_generic_write_enabled(request: Request) -> None:
@@ -99,23 +138,112 @@ def module_catalog(user: User = Depends(require_authenticated_user)) -> list[dic
     return modules
 
 
+def vocabulary_reference(vocabulary_id: str) -> dict[str, str]:
+    references = [module.vocabularies[vocabulary_id] for module in list_modules() if vocabulary_id in module.vocabularies]
+    if not references:
+        raise HTTPException(status_code=404, detail="Vokabular nicht gefunden.")
+    return references[0]
+
+
+def vocabulary_response(stored) -> dict[str, object]:
+    return {
+        "vocabulary": stored.vocabulary.descriptor(),
+        "meta": {"revision": stored.revision},
+    }
+
+
+def raise_vocabulary_write_error(exc: Exception) -> None:
+    if isinstance(exc, VocabularyPermissionError):
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    if isinstance(exc, VocabularyTermNotFound):
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if isinstance(exc, (VocabularyTermExistsError, RepositoryConflictError)):
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if isinstance(exc, VocabularyValidationError):
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if isinstance(exc, RepositoryNotFoundError):
+        raise HTTPException(status_code=404, detail="Vokabular nicht im Datenrepository gefunden.") from exc
+    if isinstance(exc, RepositoryError):
+        raise HTTPException(status_code=500, detail="Vokabular konnte nicht gespeichert werden.") from exc
+    raise exc
+
+
 @vocabulary_router.get("/{vocabulary_id}")
 def vocabulary_access(
     vocabulary_id: str,
     user: User = Depends(require_authenticated_user),
+    repository: DataRepository = Depends(get_data_repository),
 ) -> dict[str, object]:
-    referencing_modules = [
-        module
-        for module in list_modules()
-        if vocabulary_id in module.vocabularies and has_module_access(user, module.access_key)
-    ]
-    if not referencing_modules:
-        raise HTTPException(status_code=404, detail="Vokabular nicht gefunden.")
-    reference = referencing_modules[0].vocabularies[vocabulary_id]
+    reference = vocabulary_reference(vocabulary_id)
     try:
-        return load_vocabulary(reference["path"], vocabulary_id).descriptor()
+        try:
+            stored = read_repository_vocabulary(repository, reference["repository_path"], vocabulary_id)
+            vocabulary = stored.vocabulary
+            revision = stored.revision
+        except RepositoryNotFoundError:
+            vocabulary = load_vocabulary(reference["path"], vocabulary_id)
+            content = Path(reference["path"]).read_text(encoding="utf-8").encode("utf-8")
+            revision = hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest()
+        if not vocabulary.allows(user.role, "use"):
+            raise HTTPException(status_code=403, detail="Keine Berechtigung fuer dieses Vokabular.")
+        return {**vocabulary.descriptor(), "meta": {"revision": revision}}
     except VocabularyError as exc:
         raise HTTPException(status_code=500, detail="Vokabular ist ungueltig.") from exc
+    except RepositoryError as exc:
+        raise HTTPException(status_code=503, detail="Vokabular ist derzeit nicht verfuegbar.") from exc
+
+
+@vocabulary_router.post(
+    "/{vocabulary_id}/terms",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_csrf)],
+)
+def add_vocabulary_term(
+    vocabulary_id: str,
+    payload: VocabularyAddRequest,
+    request: Request,
+    user: User = Depends(require_authenticated_user),
+) -> dict[str, object]:
+    reference = vocabulary_reference(vocabulary_id)
+    term = payload.term.model_dump(exclude_none=True)
+    try:
+        stored = add_term(
+            get_data_repository(request), reference["repository_path"], vocabulary_id,
+            payload.base_revision, user.role, term,
+        )
+    except (VocabularyError, RepositoryError) as exc:
+        raise_vocabulary_write_error(exc)
+    return vocabulary_response(stored)
+
+
+@vocabulary_router.patch(
+    "/{vocabulary_id}/terms/{term_id}",
+    dependencies=[Depends(require_csrf)],
+)
+def patch_vocabulary_term(
+    vocabulary_id: str,
+    term_id: str,
+    payload: VocabularyPatchRequest,
+    request: Request,
+    user: User = Depends(require_authenticated_user),
+) -> dict[str, object]:
+    reference = vocabulary_reference(vocabulary_id)
+    try:
+        if payload.label is not None and payload.active is None:
+            stored = rename_term(
+                get_data_repository(request), reference["repository_path"], vocabulary_id,
+                payload.base_revision, user.role, term_id, payload.label,
+            )
+        elif payload.label is None and payload.active is False:
+            stored = deactivate_term(
+                get_data_repository(request), reference["repository_path"], vocabulary_id,
+                payload.base_revision, user.role, term_id,
+            )
+        else:
+            raise VocabularyValidationError("PATCH muss genau Label-Aenderung oder active=false enthalten.")
+    except (VocabularyError, RepositoryError) as exc:
+        raise_vocabulary_write_error(exc)
+    return vocabulary_response(stored)
 
 
 @router.get("/{module_key}/records")
@@ -128,7 +256,7 @@ def list_module_records(
     repository: DataRepository = Depends(get_data_repository),
 ) -> dict[str, object]:
     module = load_authorized_module(module_key, user)
-    runtime = RecordRuntime(module)
+    runtime = RecordRuntime(module, repository)
     try:
         if index_path(module):
             index = read_module_index(repository, module)
@@ -163,7 +291,7 @@ def get_module_record(
     repository: DataRepository = Depends(get_data_repository),
 ) -> dict[str, object]:
     module = load_authorized_module(module_key, user)
-    runtime = RecordRuntime(module)
+    runtime = RecordRuntime(module, repository)
     try:
         stored = read_generic_record(repository, module, record_id)
         runtime.validate(stored.data)
@@ -252,10 +380,14 @@ def update_module_record(
 
 
 @router.get("/{module_key}")
-def module_access(module_key: str, user: User = Depends(require_authenticated_user)) -> dict[str, object]:
+def module_access(
+    module_key: str,
+    user: User = Depends(require_authenticated_user),
+    repository: DataRepository = Depends(get_data_repository),
+) -> dict[str, object]:
     module = load_authorized_module(module_key, user)
     return {
         **module.descriptor_for_role(user.role),
-        "empty_record": RecordRuntime(module).empty_record(user.role),
+        "empty_record": RecordRuntime(module, repository).empty_record(user.role),
         "user": user.username,
     }

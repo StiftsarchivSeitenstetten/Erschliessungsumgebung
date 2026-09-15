@@ -54,6 +54,40 @@ export class VocabularyClient {
     return this.cache.get(vocabularyId);
   }
 
+  async write(vocabularyId, suffix, method, body, csrfToken) {
+    const response = await this.fetchImpl(`/api/vocabularies/${encodeURIComponent(vocabularyId)}${suffix}`, {
+      method,
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken || "" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error(`Vokabular ${vocabularyId} konnte nicht gespeichert werden.`);
+    const result = await response.json();
+    if (!result.vocabulary || result.vocabulary.id !== vocabularyId || !result.meta?.revision) {
+      throw new Error(`Ungültige Schreibantwort für Vokabular ${vocabularyId}.`);
+    }
+    this.cache.set(vocabularyId, Promise.resolve(result.vocabulary));
+    return result;
+  }
+
+  addTerm(vocabularyId, baseRevision, term, csrfToken) {
+    return this.write(vocabularyId, "/terms", "POST", { base_revision: baseRevision, term }, csrfToken);
+  }
+
+  renameTerm(vocabularyId, termId, baseRevision, label, csrfToken) {
+    return this.write(
+      vocabularyId, `/terms/${encodeURIComponent(termId)}`, "PATCH",
+      { base_revision: baseRevision, label }, csrfToken,
+    );
+  }
+
+  deactivateTerm(vocabularyId, termId, baseRevision, csrfToken) {
+    return this.write(
+      vocabularyId, `/terms/${encodeURIComponent(termId)}`, "PATCH",
+      { base_revision: baseRevision, active: false }, csrfToken,
+    );
+  }
+
   async hydrateDescriptor(moduleDescriptor) {
     const fields = walkFields(moduleDescriptor.fields);
     const ids = [...new Set(fields.filter(field => field.widget === "vocabulary_select").map(field => field.vocabulary))];

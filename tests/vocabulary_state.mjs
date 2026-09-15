@@ -57,6 +57,24 @@ assert.equal(requests, 2);
 assert.equal(descriptor.fields[0].vocabulary_terms[0].id, "letter");
 assert.equal(descriptor.fields[1].item_fields[0].vocabulary_terms[0].id, "sender");
 
+const writes = [];
+const writeClient = new VocabularyClient(async (url, options) => {
+  writes.push({ url, options });
+  const body = JSON.parse(options.body);
+  const term = body.term || { id: "letter", label: body.label || "Letter", active: body.active !== false };
+  return {
+    ok: true,
+    json: async () => ({ vocabulary: { id: "document_types", terms: [term] }, meta: { revision: `revision-${writes.length}` } }),
+  };
+});
+await writeClient.addTerm("document_types", "revision-0", { id: "diary", label: "Diary" }, "csrf");
+await writeClient.renameTerm("document_types", "diary", "revision-1", "Journal", "csrf");
+await writeClient.deactivateTerm("document_types", "diary", "revision-2", "csrf");
+assert.equal(writes[0].url, "/api/vocabularies/document_types/terms");
+assert.equal(writes[0].options.headers["X-CSRF-Token"], "csrf");
+assert.deepEqual(JSON.parse(writes[1].options.body), { base_revision: "revision-1", label: "Journal" });
+assert.deepEqual(JSON.parse(writes[2].options.body), { base_revision: "revision-2", active: false });
+
 const storage = new MemoryStorage();
 const moduleDescriptor = { module: "test", fields: [field] };
 const state = new FormState(moduleDescriptor, { data: { kind: { id: "letter", vocabulary_id: "document_types" } } });

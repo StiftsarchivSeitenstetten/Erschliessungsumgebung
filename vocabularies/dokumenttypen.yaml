@@ -1,6 +1,11 @@
 id: dokumenttypen
 label: Dokumenttypen
 description: Kleines Architekturvokabular für einen späteren Autographen-Piloten.
+rights:
+  use: [ehrenamtlich, redaktion, admin]
+  add: [redaktion, admin]
+  rename: [redaktion, admin]
+  deactivate: [redaktion, admin]
 terms:
   - id: brief
     label: Brief

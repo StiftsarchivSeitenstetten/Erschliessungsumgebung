@@ -52,7 +52,7 @@ def create_generic_record(
         validate_operation_id(operation_id)
     head = repository.get_branch_head()
     state = ModuleState(repository, module)
-    RecordRuntime(module).filter_for_edit(payload, user.role)
+    RecordRuntime(module, repository).filter_for_edit(payload, user.role)
     request_identity = dict(reserved_identity) if reserved_identity is not None else None
     create_request = {"record": deepcopy(payload), "identity": request_identity}
     existing_operation = state.create_operation(operation_id) if operation_id is not None else None
@@ -87,7 +87,7 @@ def create_generic_record(
     if not isinstance(record_id, str) or not record_id or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for char in record_id):
         raise RecordValidationError(["Serverseitige technische ID fehlt oder ist ungueltig."])
 
-    record = RecordRuntime(module).prepare_create(payload, user, server_values=values)
+    record = RecordRuntime(module, repository).prepare_create(payload, user, server_values=values)
     path = record_path(module, record_id)
     try:
         repository.read_file(path)
@@ -131,7 +131,7 @@ def update_generic_record(
     if previous.revision != base_revision:
         raise RepositoryConflictError("Datensatz wurde zwischenzeitlich geaendert.")
 
-    runtime = RecordRuntime(module)
+    runtime = RecordRuntime(module, repository)
     runtime.filter_for_edit(payload, user.role)
     require_complete_update(module, previous.data, payload, user.role)
     if module.signature_strategy.get("strategy") == "partitioned_sequence" and not module.signature_strategy.get("allow_update", False):
