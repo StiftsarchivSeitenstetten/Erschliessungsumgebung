@@ -138,6 +138,7 @@ class ModuleRegistryTest(unittest.TestCase):
         self.assertIn("erschliessung.beschriftung", module.form_fields)
         self.assertIn("id", module.search_fields)
         self.assertEqual(module.signature_strategy["bestand"], "9.4")
+        self.assertEqual(module.create_strategy["identity_assignment"], "on_create")
         self.assertEqual(module.storage["data_dir"], "data/fotos")
 
     def test_registry_allows_lookup_by_internal_module_id(self):
@@ -161,6 +162,7 @@ class ModuleRegistryTest(unittest.TestCase):
         self.assertTrue(module.get_field("beschreibung").presettable)
         self.assertIn("signatur.anzeige", module.search_config["fulltext"])
         self.assertEqual(module.list_config["columns"][0]["path"], "signatur.anzeige")
+        self.assertEqual(module.descriptor_for_role("redaktion")["create"]["identity_assignment"], "on_create")
         self.assertIn("standard", module.ui_profiles)
 
         descriptor = module.descriptor_for_role("ehrenamtlich")

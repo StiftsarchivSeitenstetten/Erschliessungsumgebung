@@ -371,6 +371,7 @@ def load_module(path: Path) -> ModuleDefinition:
         storage=raw.get("storage") or {},
         id_strategy=raw.get("id") or {},
         signature_strategy=signature,
+        create_strategy=raw.get("create") or {"identity_assignment": "on_create"},
         sections=sections,
         fields=fields,
         search_config=raw.get("search") or {"fulltext": list(_search_fields(raw))},

@@ -14,6 +14,7 @@ from ..modules import get_module, list_modules
 from ..permissions import has_module_access
 from ..records.generic_read import list_generic_records, list_values_for_role, read_generic_record
 from ..records.generic_write import create_generic_record, update_generic_record
+from ..records.identity import reserve_generic_identity
 from ..records.module_index import index_path, query_index, read_module_index
 from ..records.runtime import RecordPermissionError, RecordRuntime, RecordUnknownFieldError, RecordValidationError
 from ..vocabularies import VocabularyError, load_vocabulary
@@ -30,6 +31,15 @@ class GenericRecordRequest(BaseModel):
 
     record: dict[str, Any] = Field(default_factory=dict)
     base_revision: str | None = None
+    operation_id: str | None = None
+    identity: dict[str, Any] | None = None
+
+
+class IdentityReservationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: str
+    record: dict[str, Any] = Field(default_factory=dict)
 
 
 def require_generic_write_enabled(request: Request) -> None:
@@ -181,10 +191,40 @@ def create_module_record(
     provider = getattr(request.app.state, "generic_server_values_provider", None)
     try:
         defaults = provider(module, user, payload.record) if provider else {}
-        stored = create_generic_record(get_data_repository(request), module, payload.record, user, defaults)
+        stored = create_generic_record(
+            get_data_repository(request), module, payload.record, user, defaults,
+            operation_id=payload.operation_id, reserved_identity=payload.identity,
+        )
     except (RecordPermissionError, RecordValidationError, RepositoryError) as exc:
         raise_write_error(exc)
     return write_response(stored, module, user)
+
+
+@router.post(
+    "/{module_key}/reservations",
+    dependencies=[Depends(require_csrf)],
+)
+def reserve_module_identity(
+    module_key: str,
+    payload: IdentityReservationRequest,
+    request: Request,
+    user: User = Depends(require_authenticated_user),
+) -> dict[str, object]:
+    module = load_authorized_module(module_key, user)
+    require_generic_write_enabled(request)
+    try:
+        RecordRuntime(module).filter_for_edit(payload.record, user.role)
+        reservation = reserve_generic_identity(
+            get_data_repository(request), module, payload.operation_id, payload.record,
+        )
+    except (RecordPermissionError, RecordValidationError, RepositoryError) as exc:
+        raise_write_error(exc)
+    return {
+        "module": module.access_key,
+        "operation_id": reservation.operation_id,
+        "record_id": reservation.record_id,
+        "identity": reservation.identity,
+    }
 
 
 @router.put(
@@ -200,6 +240,8 @@ def update_module_record(
 ) -> dict[str, object]:
     module = load_authorized_module(module_key, user)
     require_generic_write_enabled(request)
+    if payload.operation_id is not None or payload.identity is not None:
+        raise HTTPException(status_code=422, detail="operation_id und identity sind nur fuer POST vorgesehen.")
     try:
         stored = update_generic_record(get_data_repository(request), module, record_id, payload.record, payload.base_revision or "", user)
     except (RecordPermissionError, RecordValidationError, RepositoryError) as exc:

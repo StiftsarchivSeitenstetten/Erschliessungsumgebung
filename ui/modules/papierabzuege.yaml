@@ -37,6 +37,9 @@ signature:
   pattern: "{bestand}.{objektgruppe}.{format}.{nummer}"
   status_values: [vorgeschlagen, vergeben]
 
+create:
+  identity_assignment: on_create
+
 form:
   sections:
     - id: identifikation

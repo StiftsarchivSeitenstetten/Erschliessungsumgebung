@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {RecordCreate} from "../app/generic/record-create.js";
+import {RecordCreate, reserveQueuedRecordIdentity, sendQueuedRecordCreate} from "../app/generic/record-create.js";
 import {RecordUpdate} from "../app/generic/record-update.js";
 import {FormState} from "../app/generic/form-state.js";
 
@@ -103,4 +103,44 @@ discard.formState.discardChanges();
 assert.deepEqual(discard.formState.current, {});
 assert.equal(discard.formState.isDirty(), false);
 
-console.log("POST snapshots, errors, discard, duplicate-create and following PUT assertions passed");
+const queuedEntry = {
+  operation_id: "operation-1",
+  module_id: "other-module",
+  record_id: null,
+  identity: null,
+  snapshot: {daten: {text: "queued value"}}
+};
+let reservationRequest;
+const reservation = await reserveQueuedRecordIdentity(queuedEntry, "csrf-reserve", async (url, options) => {
+  reservationRequest = {url, options};
+  return {ok: true, status: 200, json: async () => ({
+    module: "other-module", operation_id: "operation-1", record_id: "other-0002",
+    identity: {id: "other-0002", signatur: {anzeige: "OTHER.A.2"}}
+  })};
+});
+assert.equal(reservationRequest.url, "/api/modules/other-module/reservations");
+assert.equal(reservationRequest.options.method, "POST");
+assert.equal(reservationRequest.options.headers["X-CSRF-Token"], "csrf-reserve");
+assert.deepEqual(JSON.parse(reservationRequest.options.body), {
+  operation_id: "operation-1", record: {daten: {text: "queued value"}}
+});
+assert.equal(reservation.record_id, "other-0002");
+
+const reservedEntry = {...queuedEntry, record_id: reservation.record_id, identity: reservation.identity};
+let createRequest;
+const queuedCreated = await sendQueuedRecordCreate(reservedEntry, "csrf-create", async (url, options) => {
+  createRequest = {url, options};
+  return {ok: true, status: 201, json: async () => ({
+    module: "other-module", record_id: "other-0002",
+    record: {...reservedEntry.snapshot, ...reservedEntry.identity}, meta: {revision: "revision-c"}
+  })};
+});
+assert.equal(createRequest.url, "/api/modules/other-module/records");
+assert.equal(createRequest.options.method, "POST");
+assert.equal(createRequest.options.headers["X-CSRF-Token"], "csrf-create");
+assert.deepEqual(JSON.parse(createRequest.options.body), {
+  record: {daten: {text: "queued value"}}, operation_id: "operation-1", identity: reservation.identity
+});
+assert.equal(queuedCreated.meta.revision, "revision-c");
+
+console.log("POST snapshots, queued transports, reservation, errors, discard and following PUT assertions passed");

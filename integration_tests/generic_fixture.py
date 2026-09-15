@@ -81,6 +81,7 @@ def make_module(directory: Path):
         "id": {"strategy": "prefixed_sequence", "prefix": "integration-", "width": 4},
         "signature": {"strategy": "partitioned_sequence", "partitions": ["T"],
                       "pattern": "INTEGRATION.{partition}.{number}", "status_values": ["vergeben"]},
+        "create": {"identity_assignment": "on_create"},
         "form": {"sections": [{"id": "test", "label": "Integrationstest", "order": 0, "fields": fields}]},
         "access": {"fields": rights}, "search": {"fulltext": ["daten.text"], "filters": []},
         "list": {"columns": [{"label": "Testtext", "path": "daten.text"}]},

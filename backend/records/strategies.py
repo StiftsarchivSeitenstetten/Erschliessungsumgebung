@@ -67,3 +67,20 @@ def allocate_server_values(module: ModuleDefinition, payload: dict[str, Any], st
             raise RecordValidationError([f"Unbekannte Vergabestrategie: {config.get('strategy')}"])
         values.update(strategy(config, payload, state))
     return values
+
+
+def identity_request(module: ModuleDefinition, payload: dict[str, Any]) -> dict[str, Any]:
+    request: dict[str, Any] = {}
+    if module.id_strategy:
+        request["id"] = {"strategy": module.id_strategy.get("strategy"), "inputs": {}}
+    if module.signature_strategy:
+        config = module.signature_strategy
+        inputs: dict[str, Any] = {}
+        if config.get("strategy") == "partitioned_sequence":
+            path = config.get("partition_field", "signatur.format")
+            partition = get_path_value(payload, path, None)
+            if partition is None and len(config.get("partitions") or ()) == 1:
+                partition = config["partitions"][0]
+            inputs[path] = partition
+        request["signature"] = {"strategy": config.get("strategy"), "inputs": inputs}
+    return request

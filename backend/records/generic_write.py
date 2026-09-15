@@ -11,6 +11,7 @@ from ..github.errors import RepositoryConflictError, RepositoryNotFoundError
 from ..github.repository import DataRepository
 from ..modules import ModuleDefinition, get_path_value, path_exists
 from .generic_read import GenericStoredRecord, parse_record_file, record_path
+from .identity import reservation_from_state, validate_operation_id
 from .module_state import ModuleState
 from .module_index import index_write_files
 from .runtime import RecordRuntime, RecordValidationError
@@ -43,11 +44,27 @@ def create_generic_record(
     payload: dict[str, Any],
     user: Any,
     server_values: Mapping[str, Any] | None = None,
+    operation_id: str | None = None,
+    reserved_identity: Mapping[str, Any] | None = None,
 ) -> GenericStoredRecord:
     head = repository.get_branch_head()
     state = ModuleState(repository, module)
     values = dict(server_values or {})
-    values.update(allocate_server_values(module, payload, state))
+    identity_assignment = module.create_strategy.get("identity_assignment", "on_create")
+    if identity_assignment == "reserve_before_create":
+        validate_operation_id(operation_id or "")
+        reservation = reservation_from_state(state, module, operation_id or "", payload)
+        if reservation is None:
+            raise RecordValidationError(["Fuer diesen Create fehlt eine bestaetigte Identitaetsreservation."])
+        if reserved_identity is None or dict(reserved_identity) != reservation.identity:
+            raise RecordValidationError(["Reservierte Identitaet stimmt nicht mit dem Modul-State ueberein."])
+        values.update(reservation.identity)
+    elif identity_assignment == "on_create":
+        if reserved_identity is not None:
+            raise RecordValidationError(["Dieses Modul akzeptiert keine vorab reservierte Identitaet."])
+        values.update(allocate_server_values(module, payload, state))
+    else:
+        raise RecordValidationError([f"Unbekannte Create-Strategie: {identity_assignment}"])
     if module.record_type:
         values["datensatz_typ"] = module.record_type
     record_id = values.get("id")

@@ -25,6 +25,26 @@ export function createUpdateQueueEntry({operationId, moduleId, recordId, baseRev
   };
 }
 
+export function createCreateQueueEntry({operationId, moduleId, identityAssignment, snapshot, queueSequence = 0, now}) {
+  const timestamp = nowIso(now);
+  return {
+    operation_id: operationId,
+    module_id: moduleId,
+    operation: "create",
+    record_id: null,
+    identity: null,
+    base_revision: null,
+    snapshot: deepCopy(snapshot),
+    identity_assignment: identityAssignment,
+    created_at: timestamp,
+    updated_at: timestamp,
+    status: identityAssignment === "reserve_before_create" ? "reserving" : "queued",
+    attempt_count: 0,
+    last_error: null,
+    queue_sequence: queueSequence
+  };
+}
+
 function statusForError(error) {
   if (error.status === 401 || error.status === 403) return "auth_error";
   if (error.status === 409) return "conflict";
@@ -46,14 +66,19 @@ export function queueRecordKey(moduleId, recordId) {
 }
 
 export function queueEntryMatchesContext(entry, context, current) {
-  return Boolean(
+  const common = Boolean(
     context &&
     entry.operation_id === context.operationId &&
     entry.module_id === current.moduleId &&
-    entry.record_id === current.recordId &&
-    context.formState === current.formState &&
-    context.update === current.update
+    context.formState === current.formState
   );
+  if (!common) return false;
+  if (entry.operation === "create") {
+    return context.create === current.create && current.creating === true && (
+      current.recordId === null || entry.record_id === null || entry.record_id === current.recordId
+    );
+  }
+  return entry.record_id === current.recordId && context.update === current.update;
 }
 
 export function queueStatusMessage(entries, workerRunning = false) {
@@ -61,6 +86,8 @@ export function queueStatusMessage(entries, workerRunning = false) {
   const first = entries[0];
   const label = entries.length === 1 ? "1 Speichervorgang ausstehend" : `${entries.length} Speichervorgänge ausstehend`;
   if (first.status === "saving" && workerRunning) return `${label} – Übertragung läuft`;
+  if (first.status === "reserving" && workerRunning) return `${label} – Identität wird reserviert`;
+  if (first.status === "reserving") return `${label} – lokal gesichert, Identitätsreservation ausstehend`;
   if (first.status === "queued") return `${label} – lokal gesichert, Übertragung ausstehend`;
   if (first.status === "auth_error") return `${label} – pausiert: Anmeldung erforderlich`;
   if (first.status === "conflict") return `${label} – pausiert: Serverstand wurde geändert`;
@@ -69,7 +96,7 @@ export function queueStatusMessage(entries, workerRunning = false) {
   return `${label} – pausiert: Übertragung fehlgeschlagen`;
 }
 
-export function createSaveQueueProcessor({store, sendUpdate, onChange = async () => {}, onSuccess = async () => {}, onError = async () => {}, lockManager = null, now}) {
+export function createSaveQueueProcessor({store, sendUpdate, sendCreate, reserveIdentity, onChange = async () => {}, onReserved = async () => {}, onSuccess = async () => {}, onError = async () => {}, lockManager = null, now}) {
   let running = false;
   const eligibleOperationIds = new Set();
 
@@ -85,6 +112,25 @@ export function createSaveQueueProcessor({store, sendUpdate, onChange = async ()
     }
     const queueSequence = Math.max(0, ...entries.map(entry => Number(entry.queue_sequence) || 0)) + 1;
     const entry = createUpdateQueueEntry({operationId, moduleId, recordId, baseRevision, snapshot, queueSequence, now});
+    const persisted = await store.put(entry);
+    try {
+      await notify(persisted);
+    } catch (error) {
+      error.queuePersisted = true;
+      error.persistedEntry = deepCopy(persisted);
+      throw error;
+    }
+    eligibleOperationIds.add(persisted.operation_id);
+    return persisted;
+  }
+
+  async function enqueueCreate({operationId, moduleId, identityAssignment, snapshot}) {
+    if (!["on_create", "reserve_before_create"].includes(identityAssignment)) {
+      throw new Error(`Unbekannte Create-Strategie: ${identityAssignment}`);
+    }
+    const entries = await store.list();
+    const queueSequence = Math.max(0, ...entries.map(entry => Number(entry.queue_sequence) || 0)) + 1;
+    const entry = createCreateQueueEntry({operationId, moduleId, identityAssignment, snapshot, queueSequence, now});
     const persisted = await store.put(entry);
     try {
       await notify(persisted);
@@ -115,8 +161,34 @@ export function createSaveQueueProcessor({store, sendUpdate, onChange = async ()
       while (true) {
         const entries = await store.list();
         const next = entries[0];
-        if (!next || next.status !== "queued") return true;
+        if (!next || !["queued", "reserving"].includes(next.status)) return true;
         if (!eligibleOperationIds.has(next.operation_id)) return false;
+        if (next.status === "reserving") {
+          const reserving = await store.update(next.operation_id, {
+            attempt_count: next.attempt_count + 1,
+            updated_at: nowIso(now),
+            last_error: null
+          });
+          await notify(reserving);
+          try {
+            if (!reserveIdentity) throw new Error("Reservationshandler fehlt.");
+            const reservation = await reserveIdentity(deepCopy(reserving));
+            const queued = await store.update(reserving.operation_id, {
+              record_id: reservation.record_id,
+              identity: deepCopy(reservation.identity),
+              status: "queued",
+              updated_at: nowIso(now),
+              last_error: null
+            });
+            await onReserved(deepCopy(queued), reservation);
+            await notify(queued);
+            continue;
+          } catch (error) {
+            eligibleOperationIds.delete(reserving.operation_id);
+            await fail(reserving, error);
+            return false;
+          }
+        }
         const saving = await store.update(next.operation_id, {
           status: "saving",
           attempt_count: next.attempt_count + 1,
@@ -126,7 +198,9 @@ export function createSaveQueueProcessor({store, sendUpdate, onChange = async ()
         await notify(saving);
         let result;
         try {
-          result = await sendUpdate(deepCopy(saving));
+          const handler = saving.operation === "update" ? sendUpdate : sendCreate;
+          if (!handler) throw new Error(`Handler fuer Queue-Operation fehlt: ${saving.operation}`);
+          result = await handler(deepCopy(saving));
         } catch (error) {
           eligibleOperationIds.delete(saving.operation_id);
           await fail(saving, error);
@@ -163,5 +237,5 @@ export function createSaveQueueProcessor({store, sendUpdate, onChange = async ()
     ));
   }
 
-  return {enqueueUpdate, process, isRunning: () => running};
+  return {enqueueUpdate, enqueueCreate, process, isRunning: () => running};
 }

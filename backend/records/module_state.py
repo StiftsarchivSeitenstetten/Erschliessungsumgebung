@@ -48,3 +48,20 @@ class ModuleState:
 
     def content(self) -> str:
         return json.dumps(self.data, ensure_ascii=False, indent=2) + "\n"
+
+    def reservation(self, operation_id: str) -> dict[str, Any] | None:
+        reservations = self.data.get("identity_reservations") or {}
+        if not isinstance(reservations, dict):
+            raise RecordValidationError(["Identitaetsreservationen im Modul-State sind ungueltig."])
+        reservation = reservations.get(operation_id)
+        if reservation is None:
+            return None
+        if not isinstance(reservation, dict):
+            raise RecordValidationError(["Identitaetsreservation im Modul-State ist ungueltig."])
+        return deepcopy(reservation)
+
+    def set_reservation(self, operation_id: str, reservation: dict[str, Any]) -> None:
+        reservations = self.data.setdefault("identity_reservations", {})
+        if not isinstance(reservations, dict):
+            raise RecordValidationError(["Identitaetsreservationen im Modul-State sind ungueltig."])
+        reservations[operation_id] = deepcopy(reservation)

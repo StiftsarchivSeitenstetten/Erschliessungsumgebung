@@ -4,7 +4,7 @@
   "title": "Erschliessungsumgebung Module Configuration v1",
   "type": "object",
   "additionalProperties": true,
-  "required": ["config_version", "module", "schema", "storage", "id", "signature", "form", "access", "search", "list", "presets"],
+  "required": ["config_version", "module", "schema", "storage", "id", "signature", "create", "form", "access", "search", "list", "presets"],
   "properties": {
     "config_version": { "const": 1 },
     "module": {
@@ -94,6 +94,17 @@
           "items": { "type": "string", "minLength": 1 },
           "minItems": 1,
           "uniqueItems": true
+        }
+      }
+    },
+    "create": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity_assignment"],
+      "properties": {
+        "identity_assignment": {
+          "type": "string",
+          "enum": ["on_create", "reserve_before_create"]
         }
       }
     },

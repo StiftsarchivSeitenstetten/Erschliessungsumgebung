@@ -10,7 +10,7 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         html = (ROOT / "app" / "module" / "index.html").read_text(encoding="utf-8")
         script = (ROOT / "app" / "module" / "module.js").read_text(encoding="utf-8")
 
-        self.assertIn('src="module.js?v=put-queue-1"', html)
+        self.assertIn('src="module.js?v=create-queue-1"', html)
         self.assertIn('href="/arbeitsbereiche?view=generic"', html)
         self.assertIn('id="save-record"', html)
         self.assertIn('id="new-record"', html)
@@ -142,7 +142,7 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         for forbidden in ("foto_papierabzuege", "dargestellte_personen", "beschriftung", "fotograf"):
             self.assertNotIn(forbidden, create)
 
-    def test_generic_put_queue_is_persistent_and_module_neutral(self):
+    def test_generic_write_queue_is_persistent_shared_and_module_neutral(self):
         store = (ROOT / "app" / "generic" / "save-queue-store.js").read_text(encoding="utf-8")
         queue = (ROOT / "app" / "generic" / "save-queue.js").read_text(encoding="utf-8")
         module = (ROOT / "app" / "module" / "module.js").read_text(encoding="utf-8")
@@ -151,14 +151,19 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         self.assertIn('DEFAULT_STORE_NAME = "save_queue"', store)
         self.assertIn('keyPath: "operation_id"', store)
         self.assertIn("createUpdateQueueEntry", queue)
+        self.assertIn("createCreateQueueEntry", queue)
         self.assertIn('operation: "update"', queue)
+        self.assertIn('operation: "create"', queue)
+        self.assertIn('"on_create"', queue)
+        self.assertIn('"reserve_before_create"', queue)
+        self.assertIn('status: identityAssignment === "reserve_before_create" ? "reserving" : "queued"', queue)
         self.assertIn("attempt_count", queue)
         self.assertIn("last_error", queue)
         self.assertIn("createSaveQueueProcessor", queue)
         self.assertIn("initializeSaveQueue", module)
         self.assertIn("window.crypto.randomUUID()", module)
         self.assertNotIn("localStorage", store + queue)
-        for forbidden in ("foto_papierabzuege", "partition", "signature", "reservation"):
+        for forbidden in ("foto_papierabzuege", "papierabzuege", "dargestellte_personen", "beschriftung", "fotograf"):
             self.assertNotIn(forbidden, store + queue)
 
     def test_vocabulary_client_loads_generic_read_only_endpoint(self):

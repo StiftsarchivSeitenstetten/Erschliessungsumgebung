@@ -141,6 +141,13 @@ export class FormState {
     this.pendingSnapshot = null;
   }
 
+  applyServerValues(values) {
+    Object.entries(values || {}).forEach(([path, value]) => {
+      setPathValue(this.workingRecord, path, cloneValue(value));
+      if (this.pendingSnapshot !== null) setPathValue(this.pendingSnapshot, path, cloneValue(value));
+    });
+  }
+
   validate() {
     const errors = [];
     editableFields(this.moduleDescriptor).forEach((field) => {

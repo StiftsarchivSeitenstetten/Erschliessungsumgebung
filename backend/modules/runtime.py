@@ -87,6 +87,7 @@ class ModuleDefinition:
     storage: dict[str, Any]
     id_strategy: dict[str, Any]
     signature_strategy: dict[str, Any]
+    create_strategy: dict[str, Any]
     sections: tuple[ModuleSection, ...]
     fields: tuple[ModuleField, ...]
     search_config: dict[str, Any]
@@ -178,6 +179,7 @@ class ModuleDefinition:
             "storage": self.storage,
             "id_strategy": self.id_strategy,
             "signature_strategy": self.signature_strategy,
+            "create": self.create_strategy,
             "sections": [section.descriptor() for section in sorted(self.sections, key=lambda item: item.order)],
             "fields": [
                 field.descriptor_for_role(role)

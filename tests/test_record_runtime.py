@@ -154,6 +154,7 @@ def write_runtime_module(directory: Path, schema_path: Path) -> Path:
         "storage": {"data_dir": "data/test", "filename": {"strategy": "record_id_with_extension", "extension": ".md"}, "state": {"path": "state/runtime-test.json"}},
         "id": {"strategy": "prefixed_sequence", "prefix": "test-", "width": 4},
         "signature": {"strategy": "partitioned_sequence", "partitions": ["A"], "pattern": "T.{nummer}", "status_values": ["vergeben"]},
+        "create": {"identity_assignment": "on_create"},
         "form": {"sections": [{"id": "main", "label": "Main", "order": 10, "fields": fields}]},
         "access": {"fields": access},
         "search": {"fulltext": ["daten.name"], "filters": []},

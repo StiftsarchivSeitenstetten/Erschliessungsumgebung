@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+import yaml
 
 from backend.auth.service import create_user
 from backend.database import Base, SessionLocal, engine
@@ -37,16 +38,32 @@ class GenericWriteApiTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         self.test_module = load_module(write_runtime_module(root, write_runtime_schema(root)))
+        reserve_root = root / "reserve"
+        reserve_root.mkdir()
+        reserve_schema = write_runtime_schema(reserve_root)
+        reserve_config_path = write_runtime_module(reserve_root, reserve_schema)
+        reserve_config = yaml.safe_load(reserve_config_path.read_text(encoding="utf-8"))
+        reserve_config["module"].update({"id": "runtime_reserve", "access_key": "runtime_reserve"})
+        reserve_config["storage"]["data_dir"] = "data/reserve"
+        reserve_config["storage"]["state"]["path"] = "state/runtime-reserve.json"
+        reserve_config["id"]["prefix"] = "reserve-"
+        reserve_config["create"] = {"identity_assignment": "reserve_before_create"}
+        reserve_config_path.write_text(yaml.safe_dump(reserve_config, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        self.reserve_module = load_module(reserve_config_path)
         self.real_get_module = get_module
         self.module_patch = patch(
             "backend.routes.modules.get_module",
-            side_effect=lambda key: self.test_module if key == "runtime_test" else self.real_get_module(key),
+            side_effect=lambda key: (
+                self.test_module if key == "runtime_test" else
+                self.reserve_module if key == "runtime_reserve" else self.real_get_module(key)
+            ),
         )
         self.module_patch.start()
         self.app = create_app()
         self.repo = InMemoryGitRepository()
         self.repo.files["indexes/generic/fotos.json"] = dump_index(make_index(get_module("foto_papierabzuege"), []))
         self.repo.files["state/runtime-test.json"] = json.dumps({"next_record_id": 1, "next_signature_number": {"A": 1}})
+        self.repo.files["state/runtime-reserve.json"] = json.dumps({"next_record_id": 1, "next_signature_number": {"A": 1}})
         self.repo.files["state/foto-papierabzuege.json"] = json.dumps({"next_record_id": 4, "next_signature_number": {"A": 7, "B": 1, "C": 1, "D": 1, "E": 1, "F": 1}})
         self.app.state.data_repository = self.repo
         self.app.state.generic_writes_enabled = True
@@ -58,7 +75,7 @@ class GenericWriteApiTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def server_values(self, module, user, payload):
-        if module.access_key == "runtime_test":
+        if module.access_key in {"runtime_test", "runtime_reserve"}:
             return {}
         return {
             "schema_version": 1,
@@ -111,6 +128,13 @@ class GenericWriteApiTest(unittest.TestCase):
             headers=self.csrf_headers(),
         )
 
+    def reserve(self, operation_id, record=None, module="runtime_reserve"):
+        return self.client.post(
+            f"/api/modules/{module}/reservations",
+            json={"operation_id": operation_id, "record": valid_payload() if record is None else record},
+            headers=self.csrf_headers(),
+        )
+
     def full_photo_payload(self, record, role="ehrenamtlich"):
         module = get_module("foto_papierabzuege")
         payload = {}
@@ -139,6 +163,66 @@ class GenericWriteApiTest(unittest.TestCase):
         self.assertIsNone(stored["technik"]["geaendert_von"])
         self.assertEqual(self.repo.commits[0]["files"], ["data/test/test-0001.md", "state/runtime-test.json"])
         self.assertEqual(stored["signatur"]["anzeige"], "T.1")
+
+    def test_reservation_is_idempotent_and_final_create_reuses_identity(self):
+        self.login(modules=["runtime_reserve"])
+        first = self.reserve("operation-1")
+        self.assertEqual(first.status_code, 200, first.text)
+        identity = first.json()["identity"]
+        self.assertEqual(first.json()["record_id"], "reserve-0001")
+        self.assertEqual(identity["id"], "reserve-0001")
+        self.assertEqual(identity["signatur.anzeige"], "T.1")
+        state_after_reservation = json.loads(self.repo.files["state/runtime-reserve.json"])
+        self.assertEqual(state_after_reservation["next_record_id"], 2)
+        self.assertEqual(state_after_reservation["next_signature_number"]["A"], 2)
+        self.assertIn("operation-1", state_after_reservation["identity_reservations"])
+        commits_after_reservation = len(self.repo.commits)
+
+        repeated = self.reserve("operation-1")
+        self.assertEqual(repeated.status_code, 200, repeated.text)
+        self.assertEqual(repeated.json(), first.json())
+        self.assertEqual(len(self.repo.commits), commits_after_reservation)
+        self.assertEqual(json.loads(self.repo.files["state/runtime-reserve.json"]), state_after_reservation)
+
+        created = self.post(
+            module="runtime_reserve",
+            operation_id="operation-1",
+            identity=identity,
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        self.assertEqual(created.json()["record_id"], "reserve-0001")
+        self.assertEqual(json.loads(self.repo.files["state/runtime-reserve.json"]), state_after_reservation)
+        self.assertEqual(created.json()["meta"]["revision"], self.repo.read_file("data/reserve/reserve-0001.md").revision)
+
+        payload = valid_payload()
+        payload["daten"]["name"] = "Nach Create"
+        updated = self.put("reserve-0001", payload, created.json()["meta"]["revision"], module="runtime_reserve")
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(updated.json()["record"]["daten"]["name"], "Nach Create")
+
+    def test_reservation_enforces_strategy_access_identity_and_atomic_state(self):
+        self.assertEqual(self.client.post(
+            "/api/modules/runtime_reserve/reservations",
+            json={"operation_id": "unauthenticated", "record": valid_payload()},
+        ).status_code, 401)
+        self.login(modules=[])
+        self.assertEqual(self.reserve("forbidden").status_code, 403)
+
+        self.login(username="rita", role="redaktion", modules=["runtime_test", "runtime_reserve"])
+        self.assertEqual(self.reserve("wrong-strategy", module="runtime_test").status_code, 422)
+        self.assertEqual(self.reserve("unknown", module="does_not_exist").status_code, 404)
+        self.assertEqual(self.reserve("").status_code, 422)
+        before = deepcopy(self.repo.files)
+        self.repo._conflict_failures = 1
+        self.assertEqual(self.reserve("conflict").status_code, 409)
+        self.assertEqual(self.repo.files, before)
+
+        reserved = self.reserve("valid").json()
+        wrong_identity = {**reserved["identity"], "id": "reserve-9999"}
+        self.assertEqual(self.post(
+            module="runtime_reserve", operation_id="valid", identity=wrong_identity,
+        ).status_code, 422)
+        self.assertEqual(self.post(module="runtime_reserve", operation_id="missing", identity=reserved["identity"]).status_code, 422)
 
     def test_create_rejects_bad_schema_and_unauthorized_fields_without_commit(self):
         self.login()
