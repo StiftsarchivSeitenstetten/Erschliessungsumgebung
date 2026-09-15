@@ -187,7 +187,10 @@ async function runSaveStateTests() {
   assert.equal(elements["#titel"].value, "Photo B", "Photo A response does not overwrite Photo B");
 
   configureQueue([]);
-  startNewRecord(); state.format = "A"; formatInput.checked = true; elements["#beschriftung"].value = "New photo";
+  elements["#korrespondenzstueck"].checked = true;
+  startNewRecord();
+  assert.equal(elements["#korrespondenzstueck"].checked, false, "a new record resets the correspondence checkbox");
+  state.format = "A"; formatInput.checked = true; elements["#beschriftung"].value = "New photo";
   updateSignatureOutput();
   assert.equal(numberOutput.textContent, "-");
   assert.match(signatureOutput.textContent, /reserviert/);
