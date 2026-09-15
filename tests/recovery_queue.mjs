@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {FormState} from "../app/generic/form-state.js";
 import {classifyQueuedUpdateReadBack} from "../app/generic/record-update.js";
-import {createCreateQueueEntry, createSaveQueueProcessor, createUpdateQueueEntry, normalizeQueueEntry} from "../app/generic/save-queue.js";
+import {createCreateQueueEntry, createSaveQueueProcessor, createUpdateQueueEntry, normalizeQueueEntry} from "../app/generic/module-save-queue.js";
 
 const clone = value => structuredClone(value);
 class MemoryStore {

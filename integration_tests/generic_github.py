@@ -149,7 +149,7 @@ def exercise(repository, module, report):
         url = f"/api/modules/{MODULE_KEY}/records"
         payload = sample_payload()
         ok(client.post(url, json={"operation_id": "generic-write-disabled-check", "record": payload}, headers=headers), 503)
-        app.state.generic_writes_enabled = True
+        app.state.generic_write_modules = {MODULE_KEY}
 
         try:
             state_file = repository.read_file(STATE_PATH)
@@ -272,7 +272,7 @@ def exercise(repository, module, report):
         report["ref_conflict"] = "rejected before blob/tree/commit creation"
         report["final_state"] = json.loads(before_state.content)
         report["list_count"] = len(ok(client.get(url))["records"])
-        app.state.generic_writes_enabled = False
+        app.state.generic_write_modules = set()
 
 
 def run(report_path):

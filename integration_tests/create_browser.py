@@ -59,7 +59,7 @@ def main():
             import uvicorn
 
             app = configure_app(repository)
-            app.state.generic_writes_enabled = True
+            app.state.generic_write_modules = {MODULE_KEY}
 
             @app.middleware("http")
             async def allow_one_create(request, call_next):

@@ -148,11 +148,11 @@ class GenericFormRendererStaticTest(unittest.TestCase):
             self.assertNotIn(forbidden, create)
 
     def test_generic_write_queue_is_persistent_shared_and_module_neutral(self):
-        store = (ROOT / "app" / "generic" / "save-queue-store.js").read_text(encoding="utf-8")
-        queue = (ROOT / "app" / "generic" / "save-queue.js").read_text(encoding="utf-8")
+        store = (ROOT / "app" / "generic" / "module-save-queue-store.js").read_text(encoding="utf-8")
+        queue = (ROOT / "app" / "generic" / "module-save-queue.js").read_text(encoding="utf-8")
         module = (ROOT / "app" / "module" / "module.js").read_text(encoding="utf-8")
 
-        self.assertIn('DEFAULT_DATABASE_NAME = "Erschliessungsumgebung"', store)
+        self.assertIn('DEFAULT_DATABASE_NAME = "ErschliessungsumgebungModule"', store)
         self.assertIn('DEFAULT_STORE_NAME = "save_queue"', store)
         self.assertIn('keyPath: "operation_id"', store)
         self.assertIn("createUpdateQueueEntry", queue)
@@ -170,6 +170,10 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         self.assertIn("normalizeQueueEntry", queue)
         self.assertIn("resolveUpdate", queue)
         self.assertIn("initializeSaveQueue", module)
+        self.assertIn("module-save-queue-store.js", module)
+        self.assertIn("module-save-queue.js", module)
+        self.assertFalse((ROOT / "app" / "generic" / "save-queue-store.js").exists())
+        self.assertFalse((ROOT / "app" / "generic" / "save-queue.js").exists())
         self.assertIn("window.crypto.randomUUID()", module)
         self.assertNotIn("localStorage", store + queue)
         for forbidden in ("foto_papierabzuege", "papierabzuege", "dargestellte_personen", "beschriftung", "fotograf"):

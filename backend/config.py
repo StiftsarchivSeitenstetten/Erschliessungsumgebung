@@ -28,6 +28,11 @@ def _bool_from_env(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _set_from_env(name: str) -> frozenset[str]:
+    value = os.getenv(name, "")
+    return frozenset(item.strip() for item in value.split(",") if item.strip())
+
+
 @dataclass(frozen=True)
 class Settings:
     database_url: str
@@ -43,6 +48,7 @@ class Settings:
     github_data_owner: str = "StiftsarchivSeitenstetten"
     github_data_repo: str = "Erschliessungsdaten"
     github_data_branch: str = "main"
+    generic_write_modules: frozenset[str] = frozenset()
 
 
 def get_settings() -> Settings:
@@ -58,4 +64,5 @@ def get_settings() -> Settings:
         github_data_owner=os.getenv("GITHUB_DATA_OWNER", "StiftsarchivSeitenstetten"),
         github_data_repo=os.getenv("GITHUB_DATA_REPO", "Erschliessungsdaten"),
         github_data_branch=os.getenv("GITHUB_DATA_BRANCH", "main"),
+        generic_write_modules=_set_from_env("GENERIC_WRITE_MODULES"),
     )

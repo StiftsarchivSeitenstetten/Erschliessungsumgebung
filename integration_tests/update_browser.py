@@ -62,7 +62,7 @@ def main():
                        "generic_integration_test":make_indexed_test_module(Path(directory))}
             app = create_app()
             app.state.data_repository = repository
-            app.state.generic_writes_enabled = True
+            app.state.generic_write_modules = set(TARGETS)
             with SessionLocal() as db:
                 for role in ("ehrenamtlich", "redaktion"):
                     user = create_user(db, username=f"update-{role}", display_name=f"Update-Test {role}",

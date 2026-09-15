@@ -37,6 +37,7 @@ class GenericRecordsApiTest(unittest.TestCase):
         Base.metadata.drop_all(bind=engine)
         Base.metadata.create_all(bind=engine)
         self.app = create_app()
+        self.app.state.generic_write_modules = set()
         self.repository = InMemoryGitRepository()
         self.app.state.data_repository = self.repository
         self.client = TestClient(self.app)

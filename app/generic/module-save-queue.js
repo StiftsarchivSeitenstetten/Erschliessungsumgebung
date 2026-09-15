@@ -1,3 +1,4 @@
+// Queue worker used exclusively by the generic module application.
 function deepCopy(value) {
   if (typeof structuredClone === "function") return structuredClone(value);
   return JSON.parse(JSON.stringify(value));

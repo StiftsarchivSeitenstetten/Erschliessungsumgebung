@@ -213,7 +213,7 @@ class AutographApiTest(unittest.TestCase):
         self.repository = repository_for(self.module)
         self.app = create_app()
         self.app.state.data_repository = self.repository
-        self.app.state.generic_writes_enabled = True
+        self.app.state.generic_write_modules = {MODULE_AUTOGRAPHEN_9_6}
         self.client = TestClient(self.app)
 
     def login(self, role, username=None):
@@ -251,6 +251,17 @@ class AutographApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 201, response.text)
         self.assertEqual(response.json()["record"]["signatur"]["anzeige"], "9.6.1")
         self.assertEqual(json.loads(self.repository.files[self.module.storage["state"]["path"]])["next_signature_number"]["A"], 2)
+
+    def test_autograph_write_requires_explicit_module_allowlist(self):
+        self.app.state.generic_write_modules = set()
+        self.login("ehrenamtlich")
+        response = self.client.post(
+            "/api/modules/autographen_9_6/records",
+            json={"operation_id": "disabled-autograph", "record": sample_payload(internal=False)},
+            headers=self.csrf(),
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(self.repository.commits, [])
 
     def test_volunteer_cannot_read_or_write_internal_field(self):
         stored = create_generic_record(

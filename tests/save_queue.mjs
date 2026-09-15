@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import {FormState} from "../app/generic/form-state.js";
-import {createIndexedDbSaveQueueStore} from "../app/generic/save-queue-store.js";
+import {createIndexedDbSaveQueueStore} from "../app/generic/module-save-queue-store.js";
 import {
   createSaveQueueProcessor,
   createUpdateQueueEntry,
   queueEntryMatchesContext,
   queueStatusMessage
-} from "../app/generic/save-queue.js";
+} from "../app/generic/module-save-queue.js";
 
 const clone = value => structuredClone(value);
 
@@ -89,7 +89,7 @@ class FakeIndexedDB {
 const fakeIndexedDB = new FakeIndexedDB();
 const indexedStore = createIndexedDbSaveQueueStore({indexedDB: fakeIndexedDB});
 await indexedStore.open();
-assert.deepEqual(fakeIndexedDB.openCalls, [{name: "Erschliessungsumgebung", version: 1}]);
+assert.deepEqual(fakeIndexedDB.openCalls, [{name: "ErschliessungsumgebungModule", version: 1}]);
 assert.equal(fakeIndexedDB.database.objectStoreNames.contains("save_queue"), true);
 assert.equal(fakeIndexedDB.database.keyPaths.get("save_queue"), "operation_id");
 const indexedEntry = createUpdateQueueEntry({

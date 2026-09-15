@@ -124,7 +124,7 @@ def exercise(repository, report, partition="A"):
         url = f"/api/modules/{MODULE_KEY}/records"
         payload = sample_payload(partition)
         ok(client.post(url, json={"operation_id": f"photo-write-disabled-{record_id}", "record": payload}, headers=headers), 503)
-        app.state.generic_writes_enabled = True
+        app.state.generic_write_modules = {MODULE_KEY}
         created = ok(client.post(url, json={"operation_id": f"photo-live-create-{record_id}", "record": payload}, headers=headers), 201)
         check(created["record_id"] == record_id, "Falsche ID.")
         check(set(repository.commits[-1]["files"]) == {path, STATE_PATH, index_path(module)}, "Record, State und Index nicht gemeinsam committed.")
@@ -185,7 +185,7 @@ def exercise(repository, report, partition="A"):
         ok(client.get(f"/api/records/photos/signatures/{signature}"), 404)
         report["index"] = "unchanged; new record absent; legacy list/search/navigation omit it; signature lookup 404; direct ID read 200"
         report["state_after"] = expected_state
-        app.state.generic_writes_enabled = False
+        app.state.generic_write_modules = set()
 
 
 def run_live(report_path):

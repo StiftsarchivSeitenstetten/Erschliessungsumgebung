@@ -66,7 +66,7 @@ class GenericWriteApiTest(unittest.TestCase):
         self.repo.files["state/runtime-reserve.json"] = json.dumps({"next_record_id": 1, "next_signature_number": {"A": 1}})
         self.repo.files["state/foto-papierabzuege.json"] = json.dumps({"next_record_id": 4, "next_signature_number": {"A": 7, "B": 1, "C": 1, "D": 1, "E": 1, "F": 1}})
         self.app.state.data_repository = self.repo
-        self.app.state.generic_writes_enabled = True
+        self.app.state.generic_write_modules = {"runtime_test", "runtime_reserve", MODULE_FOTO_PAPIERABZUEGE}
         self.app.state.generic_server_values_provider = self.server_values
         self.client = TestClient(self.app)
         self.operation_counter = 0
@@ -168,6 +168,46 @@ class GenericWriteApiTest(unittest.TestCase):
         self.assertEqual(self.repo.commits[0]["files"], ["data/test/test-0001.md", "state/runtime-test.json"])
         self.assertEqual(stored["signatur"]["anzeige"], "T.1")
 
+    def test_write_allowlist_is_module_scoped_and_unknown_entries_grant_nothing(self):
+        self.login(modules=["runtime_test"])
+        self.app.state.generic_write_modules = {"runtime_test", "does_not_exist"}
+        self.assertEqual(self.post().status_code, 201)
+
+        self.login(username="foto-user", modules=[MODULE_FOTO_PAPIERABZUEGE])
+        photo_payload = self.full_photo_payload(sample_record("foto-000004", "A", 7))
+        before = deepcopy(self.repo.files)
+        blocked = self.post(photo_payload, module=MODULE_FOTO_PAPIERABZUEGE)
+        self.assertEqual(blocked.status_code, 503)
+        self.assertEqual(self.repo.files, before)
+
+        unknown = self.post(module="does_not_exist")
+        self.assertEqual(unknown.status_code, 404)
+
+        self.login(username="malformed-config-user", modules=["runtime_test"])
+        self.app.state.generic_write_modules = "runtime_test"
+        self.assertEqual(self.post().status_code, 503, "malformed server configuration must fail closed")
+
+    def test_generic_allowlist_does_not_gate_legacy_photo_write(self):
+        self.login(modules=[MODULE_FOTO_PAPIERABZUEGE])
+        self.app.state.generic_write_modules = set()
+        generic = self.post(
+            self.full_photo_payload(sample_record("foto-000004", "A", 7)),
+            module=MODULE_FOTO_PAPIERABZUEGE,
+        )
+        self.assertEqual(generic.status_code, 503)
+
+        legacy = self.client.post(
+            "/api/records/photos",
+            json={
+                "format": "A",
+                "erschliessung": sample_record("foto-000004", "A", 7)["erschliessung"],
+                "korrespondenzstueck": False,
+                "datierung": sample_record("foto-000004", "A", 7)["datierung"],
+            },
+            headers=self.csrf_headers(),
+        )
+        self.assertEqual(legacy.status_code, 201, legacy.text)
+
     def test_on_create_is_idempotent_across_backend_restart(self):
         self.login()
         first = self.post(operation_id="persistent-create")
@@ -183,7 +223,7 @@ class GenericWriteApiTest(unittest.TestCase):
 
         restarted = create_app()
         restarted.state.data_repository = self.repo
-        restarted.state.generic_writes_enabled = True
+        restarted.state.generic_write_modules = {"runtime_test"}
         restarted.state.generic_server_values_provider = self.server_values
         with TestClient(restarted) as client:
             login = client.post("/api/auth/login", json={"login": "anna", "password": "SehrGeheim123"})

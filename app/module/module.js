@@ -3,8 +3,8 @@ import { FormState } from "../generic/form-state.js?v=recovery-1";
 import { ResultState, renderRecordList } from "../generic/record-list.js?v=create-1";
 import { RecordCreate, reserveQueuedRecordIdentity, sendQueuedRecordCreate } from "../generic/record-create.js?v=recovery-1";
 import { RecordUpdate, classifyQueuedUpdateReadBack, readQueuedRecordUpdate, sendQueuedRecordUpdate } from "../generic/record-update.js?v=recovery-1";
-import { createIndexedDbSaveQueueStore } from "../generic/save-queue-store.js?v=put-queue-1";
-import { createSaveQueueProcessor, queueEntryMatchesContext, queueRecordKey, queueStatusMessage } from "../generic/save-queue.js?v=recovery-1";
+import { createIndexedDbSaveQueueStore } from "../generic/module-save-queue-store.js?v=queue-isolation-1";
+import { createSaveQueueProcessor, queueEntryMatchesContext, queueRecordKey, queueStatusMessage } from "../generic/module-save-queue.js?v=queue-isolation-1";
 import { PresetStore, presettableFields } from "../generic/preset-store.js?v=preset-1";
 import { VocabularyClient } from "../generic/vocabulary-client.js?v=vocabulary-2";
 

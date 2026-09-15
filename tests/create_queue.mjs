@@ -6,7 +6,7 @@ import {
   createCreateQueueEntry,
   queueEntryMatchesContext,
   queueStatusMessage
-} from "../app/generic/save-queue.js";
+} from "../app/generic/module-save-queue.js";
 
 const clone = value => structuredClone(value);
 class MemoryStore {

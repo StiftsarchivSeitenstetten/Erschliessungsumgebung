@@ -48,7 +48,10 @@ GITHUB_PRIVATE_KEY_PATH=/home/ACCOUNT/private/erschliessungsumgebung/github-app.
 GITHUB_DATA_OWNER=StiftsarchivSeitenstetten
 GITHUB_DATA_REPO=Erschliessungsdaten
 GITHUB_DATA_BRANCH=main
+GENERIC_WRITE_MODULES=
 ```
+
+`GENERIC_WRITE_MODULES` bleibt bis zur getrennten Modulfreigabe leer. Später werden dort ausschließlich geprüfte Modulschlüssel kommasepariert eingetragen. Der Foto-Pilot benötigt diese Freigabe für seine Legacy-Endpunkte nicht.
 
 `DB_USER`, `DB_PASSWORD`, `DB_HOST` und `DB_NAME` sind Platzhalter. Keine
 echten Zugangsdaten in Dateien im Webverzeichnis speichern.

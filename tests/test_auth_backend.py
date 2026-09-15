@@ -18,6 +18,7 @@ from backend.auth.service import create_user  # noqa: E402
 from backend.auth.sessions import utcnow  # noqa: E402
 from backend.database import Base, SessionLocal, engine  # noqa: E402
 from backend.main import create_app  # noqa: E402
+from backend.config import get_settings  # noqa: E402
 from backend.github.repository import InMemoryGitRepository  # noqa: E402
 from backend.models import ModuleAccess, SessionToken, User  # noqa: E402
 from backend.permissions import MODULE_FOTO_PAPIERABZUEGE, can_edit_record, has_module_access  # noqa: E402
@@ -67,6 +68,16 @@ class AuthBackendTest(unittest.TestCase):
             self.assertNotEqual(user.password_hash, "SehrGeheim123")
             self.assertTrue(user.password_hash.startswith("$argon2"))
             self.assertTrue(verify_password("SehrGeheim123", user.password_hash))
+
+    def test_generic_write_module_configuration_is_fail_closed_and_comma_separated(self):
+        with patch.dict(os.environ, {"GENERIC_WRITE_MODULES": ""}):
+            self.assertEqual(get_settings().generic_write_modules, frozenset())
+            self.assertEqual(create_app().state.generic_write_modules, frozenset())
+        with patch.dict(os.environ, {"GENERIC_WRITE_MODULES": " autographen_9_6, runtime_test ,, "}):
+            self.assertEqual(
+                get_settings().generic_write_modules,
+                frozenset({"autographen_9_6", "runtime_test"}),
+            )
 
     def test_login_with_username_and_me(self):
         self.create_user()

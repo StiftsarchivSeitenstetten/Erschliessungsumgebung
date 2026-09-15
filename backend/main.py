@@ -16,6 +16,7 @@ from .routes import auth, modules, records
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title="Erschliessungsumgebung")
+    app.state.generic_write_modules = settings.generic_write_modules
 
     init_db()
 

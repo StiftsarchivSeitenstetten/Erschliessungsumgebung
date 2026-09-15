@@ -90,9 +90,10 @@ class VocabularyPatchRequest(BaseModel):
     active: bool | None = None
 
 
-def require_generic_write_enabled(request: Request) -> None:
-    if not getattr(request.app.state, "generic_writes_enabled", False):
-        raise HTTPException(status_code=503, detail="Generische Schreib-API ist noch nicht freigeschaltet.")
+def require_generic_write_enabled(request: Request, module_key: str) -> None:
+    allowed_modules = getattr(request.app.state, "generic_write_modules", frozenset())
+    if not isinstance(allowed_modules, (set, frozenset)) or module_key not in allowed_modules:
+        raise HTTPException(status_code=503, detail="Generische Schreib-API ist fuer dieses Modul noch nicht freigeschaltet.")
 
 
 def write_response(stored, module, user: User) -> dict[str, object]:
@@ -378,7 +379,7 @@ def create_module_record(
     user: User = Depends(require_authenticated_user),
 ) -> dict[str, object]:
     module = load_authorized_module(module_key, user)
-    require_generic_write_enabled(request)
+    require_generic_write_enabled(request, module.access_key)
     provider = getattr(request.app.state, "generic_server_values_provider", None)
     try:
         defaults = dict(module.create_strategy.get("server_values") or {})
@@ -404,7 +405,7 @@ def reserve_module_identity(
     user: User = Depends(require_authenticated_user),
 ) -> dict[str, object]:
     module = load_authorized_module(module_key, user)
-    require_generic_write_enabled(request)
+    require_generic_write_enabled(request, module.access_key)
     try:
         RecordRuntime(module).filter_for_edit(payload.record, user.role)
         reservation = reserve_generic_identity(
@@ -432,7 +433,7 @@ def update_module_record(
     user: User = Depends(require_authenticated_user),
 ) -> dict[str, object]:
     module = load_authorized_module(module_key, user)
-    require_generic_write_enabled(request)
+    require_generic_write_enabled(request, module.access_key)
     try:
         stored = update_generic_record(get_data_repository(request), module, record_id, payload.record, payload.base_revision or "", user)
     except (RecordPermissionError, RecordValidationError, RepositoryError) as exc:

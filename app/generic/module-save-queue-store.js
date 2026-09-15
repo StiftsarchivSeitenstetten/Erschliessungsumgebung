@@ -1,4 +1,4 @@
-const DEFAULT_DATABASE_NAME = "Erschliessungsumgebung";
+const DEFAULT_DATABASE_NAME = "ErschliessungsumgebungModule";
 const DEFAULT_DATABASE_VERSION = 1;
 const DEFAULT_STORE_NAME = "save_queue";
 

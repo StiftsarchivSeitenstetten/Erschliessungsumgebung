@@ -42,7 +42,7 @@ def make_app():
     repository = make_repository(module)
     app = create_app()
     app.state.data_repository = repository
-    app.state.generic_writes_enabled = True
+    app.state.generic_write_modules = {"autographen_9_6"}
     with SessionLocal() as db:
         for role in ("redaktion", "ehrenamtlich"):
             create_user(

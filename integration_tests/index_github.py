@@ -148,7 +148,7 @@ def api_checks(repository, photo_module, test_module, report):
             pass
         else:
             raise RuntimeError("Test-ID bereits vorhanden.")
-        app.state.generic_writes_enabled = True
+        app.state.generic_write_modules = {photo_module.access_key, test_module.access_key}
         created = ok(client.post(url, json={"operation_id": f"index-live-create-{new_id}", "record": payload}, headers=headers), 201)
         check(created["record_id"] == new_id, "Falsche Test-ID.")
         check(set(repository.commits[-1]["files"]) == {repository.new_record_path, STATE_PATH, index_path(test_module)}, "Create nicht atomar mit State/Index.")
@@ -181,7 +181,7 @@ def api_checks(repository, photo_module, test_module, report):
         report["second_module"] = {"created_id": new_id, "signature": created["record"]["signatur"]["anzeige"],
                                    "state_after": expected_state, "atomic_create_update": True, "stale_revision": 409,
                                    "hidden_field_no_hit_or_output": True}
-        app.state.generic_writes_enabled = False
+        app.state.generic_write_modules = set()
 
 
 def run(report_path):

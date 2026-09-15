@@ -69,6 +69,7 @@ class GenericNavigationTest(unittest.TestCase):
         subprocess.run([node, "tests/record_create.mjs"], cwd=ROOT, check=True, capture_output=True)
         subprocess.run([node, "tests/create_queue.mjs"], cwd=ROOT, check=True, capture_output=True)
         subprocess.run([node, "tests/recovery_queue.mjs"], cwd=ROOT, check=True, capture_output=True)
+        subprocess.run([node, "tests/queue_isolation.mjs"], cwd=ROOT, check=True, capture_output=True)
         source = (ROOT / "app/generic/record-create.js").read_text()
         self.assertIn('method: "POST"', source)
         for forbidden in ("foto_papierabzuege", "beschriftung", "fotograf", "signatur.format"):
