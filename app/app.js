@@ -848,7 +848,8 @@ async function refreshQueueStatus(entries = null) {
   const count = queueEntries.length;
   const first = queueEntries[0] || null;
   const label = count === 1 ? "1 Speichervorgang ausstehend" : `${count} Speichervorgänge ausstehend`;
-  const paused = Boolean(first && !["queued", "reserving"].includes(first.status));
+  const activelySaving = Boolean(first?.status === "saving" && saveQueueProcessor?.isRunning());
+  const paused = Boolean(first && !["queued", "reserving"].includes(first.status) && !activelySaving);
   queueStatus.dataset.count = String(count);
   queueStatus.dataset.paused = paused ? "true" : "false";
   if (!first) {
@@ -859,6 +860,8 @@ async function refreshQueueStatus(entries = null) {
     queueStatus.textContent = `${label} – pausiert: Serverstand wurde geändert`;
   } else if (first.status === "validation_error") {
     queueStatus.textContent = `${label} – pausiert: lokaler Stand muss bearbeitet werden`;
+  } else if (activelySaving) {
+    queueStatus.textContent = `${label} – Übertragung läuft`;
   } else if (first.status === "saving" || first.last_error?.uncertain) {
     queueStatus.textContent = `${label} – pausiert: Ergebnis der letzten Übertragung ist ungeklärt`;
   } else if (first.status === "error") {

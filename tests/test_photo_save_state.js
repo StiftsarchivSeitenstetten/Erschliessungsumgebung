@@ -181,6 +181,8 @@ async function runSaveStateTests() {
   const background = saveQueueProcessor.process();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(state.saveState, SAVE_STATES.SAVING, "queued changes become visibly saving");
+  assert.match(queueStatus.textContent, /Übertragung läuft/, "an active worker is not reported as paused");
+  assert.equal(queueRecoveryActions.hidden, true, "recovery actions stay hidden during active saving");
   applyLoadedRecord(testRecord("Photo B", "foto-000002", 2), "rev-b");
   release(); await background;
   assert.equal(state.editingRecord.id, "foto-000002");
