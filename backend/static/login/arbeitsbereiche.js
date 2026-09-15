@@ -40,7 +40,7 @@ async function loadVocabularyCatalog() {
 }
 
 function moduleUrl(module) {
-  if (new URLSearchParams(location.search).get("view") === "generic") {
+  if (module.entrypoint === "generic" || new URLSearchParams(location.search).get("view") === "generic") {
     return `/app/module/?module=${encodeURIComponent(module.id)}`;
   }
   return `/app/?module=${encodeURIComponent(module.id)}`;

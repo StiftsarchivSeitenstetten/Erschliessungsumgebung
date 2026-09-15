@@ -9,6 +9,7 @@ module:
   short_label: "Fotoerschließung"
   category: "Fotobestand"
   icon: photo
+  entrypoint: legacy
   order: 10
 
 schema:

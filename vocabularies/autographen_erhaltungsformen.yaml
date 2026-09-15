@@ -1,0 +1,13 @@
+id: autographen_erhaltungsformen
+label: Erhaltungsformen (Autographen)
+rights:
+  use: [ehrenamtlich, redaktion, admin]
+  add: [redaktion, admin]
+  rename: [redaktion, admin]
+  deactivate: [redaktion, admin]
+terms:
+  - {id: original, label: Original, active: true, sort_order: 10}
+  - {id: abschrift, label: Abschrift, active: true, sort_order: 20}
+  - {id: kopie, label: Kopie, active: true, sort_order: 30}
+  - {id: fragment, label: Fragment, active: true, sort_order: 40}
+  - {id: unbekannt, label: Unbekannt, active: true, sort_order: 50}

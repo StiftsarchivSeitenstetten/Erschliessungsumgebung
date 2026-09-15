@@ -1,0 +1,15 @@
+id: autographen_beteiligtenrollen
+label: Beteiligtenrollen (Autographen)
+rights:
+  use: [ehrenamtlich, redaktion, admin]
+  add: [redaktion, admin]
+  rename: [redaktion, admin]
+  deactivate: [redaktion, admin]
+terms:
+  - {id: absender, label: Absender, active: true, sort_order: 10}
+  - {id: empfaenger, label: Empfänger, active: true, sort_order: 20}
+  - {id: verfasser, label: Verfasser, active: true, sort_order: 30}
+  - {id: adressat, label: Adressat, active: true, sort_order: 40}
+  - {id: unterzeichner, label: Unterzeichner, active: true, sort_order: 50}
+  - {id: erwaehnte_person, label: Erwähnte Person, active: true, sort_order: 60}
+  - {id: sonstige_rolle, label: Sonstige Rolle, active: true, sort_order: 70}

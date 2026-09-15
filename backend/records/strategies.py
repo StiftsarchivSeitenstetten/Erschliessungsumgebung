@@ -69,6 +69,11 @@ def allocate_server_values(module: ModuleDefinition, payload: dict[str, Any], st
     return values
 
 
+def suggest_server_values(module: ModuleDefinition, payload: dict[str, Any], state: ModuleState) -> dict[str, Any]:
+    """Preview the next configured identity without persisting or reserving it."""
+    return allocate_server_values(module, payload, state)
+
+
 def identity_request(module: ModuleDefinition, payload: dict[str, Any]) -> dict[str, Any]:
     request: dict[str, Any] = {}
     if module.id_strategy:

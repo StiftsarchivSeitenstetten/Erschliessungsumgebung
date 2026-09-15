@@ -81,6 +81,7 @@ class ModuleDefinition:
     short_label: str | None
     category: str | None
     icon: str | None
+    entrypoint: str
     order: int
     schema_path: Path
     fachkonfiguration_path: Path | None
@@ -158,6 +159,7 @@ class ModuleDefinition:
             "description": self.description,
             "category": self.category,
             "icon": self.icon,
+            "entrypoint": self.entrypoint,
             "order": self.order,
         }
 

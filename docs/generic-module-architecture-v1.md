@@ -718,6 +718,14 @@ Abschlussprüfung: 184 Python-Unittests einschließlich ausführbarer JavaScript
 
 ## Refactoring-Plan
 
+### Zweites reales Modul: Autographen 9.6
+
+`autographen_9_6` ist vollständig über `schemas/autograph.schema.json`, `ui/modules/autographen.yaml` und drei versionierte Vokabulare registriert. Das Modul verwendet die gemeinsame RecordRuntime, Form-/Widget-Registry, Create-/PUT-Queue, Recovery, Repository-Persistenz, Indexsuche und Presets. Beteiligte sind geordnete Repeatable Objects mit verschachtelten, aus dem Item-Schema angereicherten Feldern für den gemeinsamen `agent`, eine Vocabulary-Rolle und eine Notiz. Ort und Datumsbereich verwenden ebenfalls Core-Datentypen. Das interne Redaktionsfeld wird serverseitig für Ehrenamtliche gefiltert und abgewiesen und ist kein Suchfeld.
+
+Drei dabei sichtbar gewordene Erweiterungen sind modulneutral: Schema-Metadaten werden nun rekursiv bis in Repeater-Items und externe Core-Referenzen aufgelöst; Volltextwerte kontrollierter Felder enthalten neben der stabilen Term-ID das beim Indexaufbau gültige Label und dessen Aliasse; und Module können einen rein lesenden Identitätsvorschlag anfordern. Ein solcher Vorschlag berechnet Werte aus einer nicht persistierten State-Kopie, reserviert nichts und wird für sichtbare Descriptor-Felder in den Neuanlage-Ausgangswert projiziert. Deklarative `create.server_values` liefern konstante, nicht vom Client manipulierbare Schema-/Modulwerte. Die endgültige Autographen-ID und Signatur entstehen erst atomar durch `on_create`.
+
+Weitere Einzelheiten stehen in `docs/autographen-9-6.md`.
+
 1. Modul-Registry einführen, die bestehende Modulkonfigurationen laden kann, ohne die Foto-Funktion zu verändern.
 2. Rollen und Darstellungsprofile im Konfigurationsmodell trennen. Rollen bestimmen Rechte; Profile bestimmen nur Darstellung.
 3. Foto-API intern schrittweise über generische Modulmetadaten führen, während `/api/records/photos` als stabile Kompatibilitätsroute bestehen bleibt.

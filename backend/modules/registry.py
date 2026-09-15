@@ -58,19 +58,32 @@ def _load_schema(path: Path) -> dict[str, Any]:
     return data
 
 
-def _schema_for_path(schema: dict[str, Any], path: str) -> dict[str, Any]:
+def _resolved_schema(schema: dict[str, Any], resolver: jsonschema.RefResolver | None) -> dict[str, Any]:
+    current = schema
+    while resolver is not None and isinstance(current, dict) and "$ref" in current:
+        current = resolver.resolve(current["$ref"])[1]
+    return current if isinstance(current, dict) else {}
+
+
+def _schema_for_path(
+    schema: dict[str, Any], path: str, resolver: jsonschema.RefResolver | None = None,
+) -> dict[str, Any]:
     current = schema
     for part in path.split("."):
+        current = _resolved_schema(current, resolver)
         properties = current.get("properties") if isinstance(current, dict) else None
         if not isinstance(properties, dict) or part not in properties:
             return {}
         current = properties[part]
-    return current if isinstance(current, dict) else {}
+    return _resolved_schema(current, resolver)
 
 
-def _schema_requires_path(schema: dict[str, Any], path: str) -> bool:
+def _schema_requires_path(
+    schema: dict[str, Any], path: str, resolver: jsonschema.RefResolver | None = None,
+) -> bool:
     current = schema
     for part in path.split("."):
+        current = _resolved_schema(current, resolver)
         if not isinstance(current, dict) or part not in set(current.get("required") or []):
             return False
         properties = current.get("properties")
@@ -331,14 +344,32 @@ def _sections_and_fields(raw: dict[str, Any], rights: dict[str, dict[str, Any]])
 
 
 def _enrich_fields_from_schema(fields: tuple[ModuleField, ...], schema: dict[str, Any]) -> tuple[ModuleField, ...]:
+    core = _load_schema(CORE_DATATYPES_SCHEMA_PATH)
+    resolver = jsonschema.RefResolver.from_schema(schema, store={core["$id"]: core})
+
+    def enrich(field: ModuleField, property_schema: dict[str, Any]) -> ModuleField:
+        property_schema = _resolved_schema(property_schema, resolver)
+        item_schema = _resolved_schema(property_schema.get("items", {}), resolver)
+        item_fields = tuple(
+            replace(
+                enrich(item, _schema_for_path(item_schema, item.path, resolver)),
+                required=_schema_requires_path(item_schema, item.path, resolver),
+            )
+            for item in field.item_fields
+        )
+        return replace(
+            field,
+            required=False,
+            options=field.options or _schema_options(property_schema),
+            item_fields=item_fields,
+        )
+
     enriched: list[ModuleField] = []
     for field in fields:
-        property_schema = _schema_for_path(schema, field.path)
-        options = field.options or _schema_options(property_schema)
+        property_schema = _schema_for_path(schema, field.path, resolver)
         enriched.append(replace(
-            field,
-            required=_schema_requires_path(schema, field.path),
-            options=options,
+            enrich(field, property_schema),
+            required=_schema_requires_path(schema, field.path, resolver),
         ))
     return tuple(enriched)
 
@@ -374,6 +405,7 @@ def load_module(path: Path) -> ModuleDefinition:
         short_label=module_data.get("short_label"),
         category=module_data.get("category"),
         icon=module_data.get("icon"),
+        entrypoint=module_data.get("entrypoint", "legacy"),
         order=int(module_data.get("order", 1000)),
         fachkonfiguration_path=fachkonfiguration_path,
         record_type=module_data.get("record_type") or raw.get("datensatz_typ") or fachkonfiguration.get("datensatz_typ"),

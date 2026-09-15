@@ -13,13 +13,15 @@ from ..config import ROOT
 from ..github.errors import RepositoryConflictError, RepositoryError, RepositoryNotFoundError
 from ..github.repository import DataRepository
 from ..models import User
-from ..modules import get_module, list_modules
+from ..modules import get_module, list_modules, set_path_value
 from ..permissions import has_module_access
 from ..records.generic_read import list_generic_records, list_values_for_role, read_generic_record
 from ..records.generic_write import create_generic_record, update_generic_record
 from ..records.identity import reserve_generic_identity
 from ..records.module_index import index_path, query_index, read_module_index
+from ..records.module_state import ModuleState
 from ..records.runtime import RecordPermissionError, RecordRuntime, RecordUnknownFieldError, RecordValidationError
+from ..records.strategies import suggest_server_values
 from ..vocabularies import (
     VocabularyError,
     VocabularyPermissionError,
@@ -315,7 +317,10 @@ def list_module_records(
         if index_path(module):
             index = read_module_index(repository, module)
             try:
-                items = query_index(module, index, user.role, q=q, lookup_field=lookup_field, lookup_value=lookup_value)
+                items = query_index(
+                    module, index, user.role, q=q, lookup_field=lookup_field,
+                    lookup_value=lookup_value,
+                )
             except RecordValidationError as exc:
                 raise HTTPException(status_code=422, detail=exc.errors) from exc
             return {"module": module.access_key, "records": items}
@@ -376,7 +381,9 @@ def create_module_record(
     require_generic_write_enabled(request)
     provider = getattr(request.app.state, "generic_server_values_provider", None)
     try:
-        defaults = provider(module, user, payload.record) if provider else {}
+        defaults = dict(module.create_strategy.get("server_values") or {})
+        if provider:
+            defaults.update(provider(module, user, payload.record))
         stored = create_generic_record(
             get_data_repository(request), module, payload.record, user, defaults,
             operation_id=payload.operation_id, reserved_identity=payload.identity,
@@ -440,8 +447,23 @@ def module_access(
     repository: DataRepository = Depends(get_data_repository),
 ) -> dict[str, object]:
     module = load_authorized_module(module_key, user)
+    runtime = RecordRuntime(module, repository)
+    empty_record = runtime.empty_record(user.role)
+    identity_suggestion: dict[str, Any] | None = None
+    if module.create_strategy.get("show_identity_suggestion"):
+        suggested_values = suggest_server_values(module, empty_record, ModuleState(repository, module))
+        identity_suggestion = {}
+        for path, value in suggested_values.items():
+            try:
+                field = module.get_field_by_path(path)
+            except KeyError:
+                continue
+            if field.can_view(user.role):
+                set_path_value(empty_record, path, value)
+                identity_suggestion[path] = value
     return {
         **module.descriptor_for_role(user.role),
-        "empty_record": RecordRuntime(module, repository).empty_record(user.role),
+        "empty_record": empty_record,
+        "identity_suggestion": identity_suggestion,
         "user": user.username,
     }

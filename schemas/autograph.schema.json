@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stiftsarchiv-seitenstetten.github.io/erschliessungsumgebung/schemas/autograph.schema.json",
+  "title": "Autographenerschliessung",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "datensatz_typ", "modul", "signatur", "erschliessung", "technik"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "type": "string", "pattern": "^autograph-[0-9]{6}$" },
+    "datensatz_typ": { "const": "autograph" },
+    "modul": { "const": "autographen_9_6" },
+    "signatur": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bestand", "format", "nummer", "zusatz", "anzeige", "status"],
+      "properties": {
+        "bestand": { "const": "9.6" },
+        "format": { "const": "A" },
+        "nummer": { "type": "integer", "minimum": 1 },
+        "zusatz": { "type": ["string", "null"] },
+        "anzeige": { "type": "string", "pattern": "^9\\.6\\.[1-9][0-9]*$" },
+        "status": { "const": "vergeben" }
+      }
+    },
+    "erschliessung": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dokumenttyp", "erhaltungsform", "beteiligte"],
+      "properties": {
+        "dokumenttyp": { "$ref": "https://stiftsarchiv-seitenstetten.github.io/erschliessungsumgebung/schemas/core-datatypes.schema.json#/$defs/term_ref" },
+        "erhaltungsform": { "$ref": "https://stiftsarchiv-seitenstetten.github.io/erschliessungsumgebung/schemas/core-datatypes.schema.json#/$defs/term_ref" },
+        "beteiligte": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["agent", "rolle"],
+            "properties": {
+              "agent": { "$ref": "https://stiftsarchiv-seitenstetten.github.io/erschliessungsumgebung/schemas/core-datatypes.schema.json#/$defs/agent" },
+              "rolle": { "$ref": "https://stiftsarchiv-seitenstetten.github.io/erschliessungsumgebung/schemas/core-datatypes.schema.json#/$defs/term_ref" },
+              "notiz": { "type": ["string", "null"] }
+            }
+          },
+          "default": []
+        },
+        "ort": { "$ref": "https://stiftsarchiv-seitenstetten.github.io/erschliessungsumgebung/schemas/core-datatypes.schema.json#/$defs/place" },
+        "regest": { "type": ["string", "null"] },
+        "bemerkungen": { "type": ["string", "null"] },
+        "altsignatur": { "type": ["string", "null"] },
+        "interne_bemerkung": { "type": ["string", "null"] }
+      }
+    },
+    "datierung": {
+      "oneOf": [
+        { "$ref": "https://stiftsarchiv-seitenstetten.github.io/erschliessungsumgebung/schemas/core-datatypes.schema.json#/$defs/date_range" },
+        { "type": "null" }
+      ]
+    },
+    "redaktion": { "type": "object", "additionalProperties": false },
+    "bearbeitung": { "type": "object", "additionalProperties": false },
+    "publikation": { "type": "object", "additionalProperties": false },
+    "technik": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["erstellt_am", "erstellt_von", "geaendert_am", "geaendert_von"],
+      "properties": {
+        "erstellt_am": { "type": ["string", "null"] },
+        "erstellt_von": { "type": ["string", "null"] },
+        "geaendert_am": { "type": ["string", "null"] },
+        "geaendert_von": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

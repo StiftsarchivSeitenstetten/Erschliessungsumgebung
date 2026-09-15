@@ -1,0 +1,14 @@
+id: autographen_dokumenttypen
+label: Dokumenttypen (Autographen)
+rights:
+  use: [ehrenamtlich, redaktion, admin]
+  add: [redaktion, admin]
+  rename: [redaktion, admin]
+  deactivate: [redaktion, admin]
+terms:
+  - {id: brief, label: Brief, active: true, sort_order: 10}
+  - {id: postkarte, label: Postkarte, active: true, sort_order: 20}
+  - {id: manuskript, label: Manuskript, active: true, sort_order: 30}
+  - {id: notiz, label: Notiz, active: true, sort_order: 40}
+  - {id: widmung, label: Widmung, active: true, sort_order: 50}
+  - {id: sonstiges_dokument, label: Sonstiges Dokument, active: true, sort_order: 60}

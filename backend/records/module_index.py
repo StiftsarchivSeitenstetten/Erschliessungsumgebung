@@ -11,6 +11,7 @@ from jsonschema import RefResolver
 
 from ..config import ROOT
 from ..github.errors import RepositoryError, RepositoryNotFoundError
+from ..vocabularies import VocabularyError
 from .generic_read import parse_record_file, record_path
 from .runtime import RecordRuntime, RecordValidationError
 
@@ -66,8 +67,9 @@ def normalized_text(value):
 
 
 class IndexPlan:
-    def __init__(self, module):
+    def __init__(self, module, repository=None):
         self.module = module
+        self.runtime = RecordRuntime(module, repository)
         target = index_path(module)
         if target and (PurePosixPath(target).is_absolute() or ".." in PurePosixPath(target).parts or
                        target == (module.storage.get("state") or {}).get("path") or
@@ -99,6 +101,28 @@ class IndexPlan:
             "fulltext": self.fulltext, "lookup": self.lookups, "filters": self.filters, "sort": self.sort,
             "schema": schema}, sort_keys=True).encode()).hexdigest()
 
+    def normalized(self, path, value):
+        """Add current labels and aliases when an indexed field is a term reference."""
+        try:
+            field = self.module.get_field_by_path(path)
+        except KeyError:
+            field = None
+        if field is None or field.widget != "vocabulary_select" or not field.vocabulary:
+            return normalized_text(value)
+
+        def labelled(item):
+            if isinstance(item, list):
+                return [labelled(child) for child in item]
+            if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+                return item
+            try:
+                term = self.runtime._vocabulary(field.vocabulary).resolve(item["id"])
+            except VocabularyError:
+                return item
+            return [item, term.label, *term.aliases]
+
+        return normalized_text(labelled(value))
+
     def visible(self, path, role):
         if path == "id":
             return True
@@ -107,14 +131,14 @@ class IndexPlan:
 
     def entry(self, record, revision):
         values = {path: path_value(record, path) for path in self.paths}
-        search = {path: normalized_text(values[path]) for path in self.fulltext}
+        search = {path: self.normalized(path, values[path]) for path in self.fulltext}
         return {"record_id": record["id"], "revision": revision, "values": values,
                 "lookup": {path: normalized_text(values[path]) for path in self.lookups},
                 "search": search, "search_text": " ".join(search.values())}
 
 
-def build_index_entry(module, record, revision):
-    return IndexPlan(module).entry(record, revision)
+def build_index_entry(module, record, revision, repository=None):
+    return IndexPlan(module, repository).entry(record, revision)
 
 
 def make_index(module, entries, plan=None):
@@ -130,8 +154,8 @@ def dump_index(index):
     return json.dumps(index, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
 
 
-def build_module_index(module, files):
-    plan = IndexPlan(module)
+def build_module_index(module, files, repository=None):
+    plan = IndexPlan(module, repository)
     runtime = RecordRuntime(module)
     entries = []
     for file in files:
@@ -172,7 +196,7 @@ def index_write_files(repository, module, record, content, *, create):
     if not path:
         return {}
     index = read_module_index(repository, module)
-    entry = build_index_entry(module, record, blob_revision(content))
+    entry = build_index_entry(module, record, blob_revision(content), repository)
     existing = [item for item in index["records"] if item["record_id"] == record["id"]]
     if create and existing:
         raise RecordValidationError(["Technische ID bereits im Index; Rebuild erforderlich."])
@@ -187,7 +211,7 @@ def rebuild_module_index(repository, module):
         raise RecordValidationError(["Kein Indexpfad konfiguriert."])
     files = repository.list_directory(module.storage["data_dir"])
     extension = module.storage.get("filename", {}).get("extension", ".md")
-    index = build_module_index(module, [file for file in files if file.path.endswith(extension)])
+    index = build_module_index(module, [file for file in files if file.path.endswith(extension)], repository)
     content = dump_index(index)
     try:
         if repository.read_file(path).content == content:

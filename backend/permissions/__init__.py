@@ -1,6 +1,7 @@
 """Central authorization rules."""
 
 from .rules import (
+    MODULE_AUTOGRAPHEN_9_6,
     MODULE_FOTO_PAPIERABZUEGE,
     ROLE_ADMIN,
     ROLE_EHRENAMTLICH,
@@ -11,6 +12,7 @@ from .rules import (
 )
 
 __all__ = [
+    "MODULE_AUTOGRAPHEN_9_6",
     "MODULE_FOTO_PAPIERABZUEGE",
     "ROLE_ADMIN",
     "ROLE_EHRENAMTLICH",

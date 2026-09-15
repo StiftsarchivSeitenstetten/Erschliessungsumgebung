@@ -213,6 +213,7 @@ async function handleQueueSuccess(entry, data) {
       context.update.revision = data.meta.revision;
     }
     renderCurrentRecord();
+    showView();
     updatePayloadPreview();
     $("#save-status").textContent = context.formState.isDirty()
       ? "Zwischenstand gespeichert; weitere Änderungen sind noch nicht gespeichert."

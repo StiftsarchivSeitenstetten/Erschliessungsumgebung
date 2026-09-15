@@ -1,0 +1,230 @@
+config_version: 1
+
+module:
+  id: autographen_9_6
+  access_key: autographen_9_6
+  label: "Autographen 9.6"
+  description: "Erschließung von Autographen aus Bestand 9.6."
+  record_type: autograph
+  short_label: "Autographen 9.6"
+  category: "Handschriften"
+  icon: autograph
+  entrypoint: generic
+  order: 20
+
+schema:
+  path: "../../schemas/autograph.schema.json"
+
+storage:
+  data_dir: data/autographen
+  filename:
+    strategy: record_id_with_extension
+    extension: ".md"
+  state:
+    path: state/autographen-9-6.json
+  index:
+    path: indexes/generic/autographen-9-6.json
+
+id:
+  strategy: prefixed_sequence
+  prefix: "autograph-"
+  width: 6
+
+signature:
+  strategy: partitioned_sequence
+  bestand: "9.6"
+  partitions: [A]
+  pattern: "{bestand}.{nummer}"
+  status_values: [vergeben]
+
+create:
+  identity_assignment: on_create
+  show_identity_suggestion: true
+  server_values:
+    schema_version: 1
+    modul: autographen_9_6
+    signatur.zusatz: null
+
+form:
+  sections:
+    - id: signatur
+      label: "Signatur"
+      order: 10
+      help: "Der Vorschlag reserviert keine Nummer; die endgültige Signatur vergibt der Server beim Anlegen."
+      fields:
+        - path: signatur.anzeige
+          widget: text
+          label: "Signaturvorschlag"
+          order: 10
+    - id: dokument
+      label: "Dokument"
+      order: 20
+      fields:
+        - path: erschliessung.dokumenttyp
+          widget: vocabulary_select
+          vocabulary: autographen_dokumenttypen
+          label: "Dokumenttyp"
+          order: 10
+        - path: erschliessung.erhaltungsform
+          widget: vocabulary_select
+          vocabulary: autographen_erhaltungsformen
+          label: "Erhaltungsform"
+          order: 20
+        - path: erschliessung.ort.name
+          widget: text
+          label: "Ort"
+          order: 30
+    - id: beteiligte
+      label: "Beteiligte"
+      order: 30
+      fields:
+        - path: erschliessung.beteiligte
+          widget: repeater
+          label: "Beteiligte Personen, Körperschaften oder Familien"
+          order: 10
+          item_fields:
+            - path: agent.type
+              widget: select
+              label: "Agententyp"
+              order: 10
+              options:
+                - {value: person, label: Person}
+                - {value: organization, label: Körperschaft}
+                - {value: family, label: Familie}
+            - path: agent.name
+              widget: text
+              label: "Name"
+              order: 20
+            - path: rolle
+              widget: vocabulary_select
+              vocabulary: autographen_beteiligtenrollen
+              label: "Rolle"
+              order: 30
+            - path: notiz
+              widget: text
+              label: "Notiz"
+              order: 40
+    - id: datierung
+      label: "Datierung"
+      order: 40
+      fields:
+        - path: datierung
+          widget: date_range
+          label: "Datum oder Datumsbereich"
+          order: 10
+    - id: inhalt
+      label: "Inhalt / Regest"
+      order: 50
+      fields:
+        - path: erschliessung.regest
+          widget: textarea
+          label: "Regest"
+          order: 10
+          rows: 5
+    - id: weitere_angaben
+      label: "Weitere Angaben"
+      order: 60
+      fields:
+        - path: erschliessung.bemerkungen
+          widget: textarea
+          label: "Bemerkungen"
+          order: 10
+          rows: 4
+        - path: erschliessung.altsignatur
+          widget: text
+          label: "Altsignatur"
+          order: 20
+          presettable: true
+    - id: interne_redaktion
+      label: "Interne Redaktion"
+      order: 70
+      fields:
+        - path: erschliessung.interne_bemerkung
+          widget: textarea
+          label: "Interne Bemerkung"
+          order: 10
+          rows: 4
+
+access:
+  fields:
+    signatur.anzeige:
+      view: [ehrenamtlich, redaktion, admin]
+      edit: []
+    erschliessung.dokumenttyp: &all_edit
+      view: [ehrenamtlich, redaktion, admin]
+      edit: [ehrenamtlich, redaktion, admin]
+    erschliessung.erhaltungsform: *all_edit
+    erschliessung.ort.name: *all_edit
+    erschliessung.beteiligte: *all_edit
+    datierung: *all_edit
+    erschliessung.regest: *all_edit
+    erschliessung.bemerkungen: *all_edit
+    erschliessung.altsignatur: *all_edit
+    erschliessung.interne_bemerkung:
+      view: [redaktion, admin]
+      edit: [redaktion, admin]
+
+search:
+  lookup:
+    - signatur.anzeige
+  fulltext:
+    - id
+    - signatur.anzeige
+    - erschliessung.dokumenttyp
+    - erschliessung.beteiligte.agent.name
+    - erschliessung.ort.name
+    - erschliessung.regest
+    - erschliessung.altsignatur
+  filters:
+    - path: erschliessung.dokumenttyp
+      label: "Dokumenttyp"
+      widget: vocabulary_select
+  default_sort:
+    path: signatur.anzeige
+    direction: asc
+
+list:
+  columns:
+    - label: "Signatur"
+      path: signatur.anzeige
+      sortable: true
+      default_sort: asc
+    - label: "Datierung"
+      path: datierung
+      sortable: true
+    - label: "Beteiligte"
+      path: erschliessung.beteiligte.agent.name
+      sortable: false
+    - label: "Regest"
+      path: erschliessung.regest
+      sortable: false
+  default_sort:
+    path: signatur.anzeige
+    direction: asc
+
+presets:
+  enabled_fields:
+    - erschliessung.altsignatur
+  disabled_fields:
+    - id
+    - signatur
+    - technik
+
+vocabularies:
+  autographen_dokumenttypen:
+    path: "../../vocabularies/autographen_dokumenttypen.yaml"
+  autographen_erhaltungsformen:
+    path: "../../vocabularies/autographen_erhaltungsformen.yaml"
+  autographen_beteiligtenrollen:
+    path: "../../vocabularies/autographen_beteiligtenrollen.yaml"
+
+ui_profiles:
+  standard:
+    label: "Standard"
+    technical_preview: false
+  barrierearm:
+    label: "Barrierearm"
+    technical_preview: false
+  redaktion:
+    label: "Redaktionelle Darstellung"
+    technical_preview: true
