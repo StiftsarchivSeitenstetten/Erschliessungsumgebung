@@ -350,6 +350,10 @@ label,
   margin-top: 20px;
 }
 
+.signature-output.single-column {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .signature-output > div {
   border: 2px solid var(--line);
   border-radius: 8px;

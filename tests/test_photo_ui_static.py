@@ -83,6 +83,19 @@ class PhotoUiStaticTest(unittest.TestCase):
         self.assertIn("minmax(0, 13fr) minmax(0, 7fr)", style)
         self.assertIn('body:not(.barrierearm) .status-band[data-recovery="false"]', style)
 
+    def test_volunteer_signature_and_accessible_metadata_reduction_are_ui_only(self):
+        html = (ROOT / "app" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "app" / "app.js").read_text(encoding="utf-8")
+        style = (ROOT / "app" / "style.css").read_text(encoding="utf-8")
+        self.assertIn('id="number-output-field"', html)
+        self.assertIn('id="signature-output-field"', html)
+        for field in ("herkunft", "sammler", "fotograf", "rechteinhaber", "orte", "schlagworte", "altsignaturen"):
+            self.assertIn(f'id="field-{field}"', html)
+        self.assertIn('state.user?.role === "ehrenamtlich"', script)
+        self.assertIn('profile === "barrierearm"', script)
+        self.assertIn('["sammler", "fotograf", "rechteinhaber", "orte", "schlagworte"]', script)
+        self.assertIn('.signature-output.single-column', style)
+
 
 if __name__ == "__main__":
     unittest.main()

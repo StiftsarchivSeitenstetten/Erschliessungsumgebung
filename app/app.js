@@ -1676,9 +1676,21 @@ function setProfile(profile) {
   });
   localStorage.setItem(PROFILE_KEY, profile);
   applyFieldPermissions(profile);
+  applyRoleVisibility(profile);
   applyTechnicalVisibility(profile);
   buildPresetEditor();
   syncPresetEditor();
+}
+
+function applyRoleVisibility(profile) {
+  const isVolunteer = state.user?.role === "ehrenamtlich";
+  document.querySelector("#number-output-field").hidden = isVolunteer;
+  document.querySelector(".signature-output").classList.toggle("single-column", isVolunteer);
+
+  const hideReducedMetadata = isVolunteer && profile === "barrierearm";
+  ["sammler", "fotograf", "rechteinhaber", "orte", "schlagworte"].forEach((field) => {
+    document.querySelector(`#field-${field}`).hidden = hideReducedMetadata;
+  });
 }
 
 function applyTechnicalVisibility(profile) {

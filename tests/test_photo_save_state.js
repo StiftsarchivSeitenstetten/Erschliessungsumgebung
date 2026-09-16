@@ -9,7 +9,17 @@ class Element {
   constructor(selector = "") {
     this.selector = selector; this.value = ""; this.checked = false; this.disabled = false;
     this.hidden = false; this.dataset = {}; this.textContent = ""; this.rows = []; this.children = {}; this._innerHTML = "";
-    this.classList = { add() {}, remove() {}, toggle() {} };
+    const classes = new Set();
+    this.classList = {
+      add(...names) { names.forEach((name) => classes.add(name)); },
+      remove(...names) { names.forEach((name) => classes.delete(name)); },
+      toggle(name, force) {
+        if (force === undefined) force = !classes.has(name);
+        if (force) classes.add(name); else classes.delete(name);
+        return force;
+      },
+      contains(name) { return classes.has(name); }
+    };
   }
   addEventListener() {}
   append(...items) { if (this.selector === "#personen-list") this.rows.push(...items); }
@@ -26,6 +36,7 @@ class Element {
   }
   get innerHTML() { return this._innerHTML; }
   querySelector(selector) { return this.children[selector] || new Element(selector); }
+  querySelectorAll() { return []; }
 }
 
 const selectors = [
@@ -36,7 +47,9 @@ const selectors = [
   "#record-nav-bottom", "#personen-list", "#beschriftung", "#titel", "#beschreibung", "#herkunft", "#sammler",
   "#fotograf", "#rechteinhaber", "#orte", "#schlagworte", "#altsignaturen", "#interne-bemerkung",
   "#korrespondenzstueck", "#datierung-von", "#datierung-bis", "#datierung-hinweis", "#date-warnings", "#original-datum",
-  "#legacy-status-panel", "#mode-new", "#mode-edit"
+  "#legacy-status-panel", "#mode-new", "#mode-edit", "#number-output-field", "#signature-output-field",
+  ".signature-output", "#field-herkunft", "#field-sammler",
+  "#field-fotograf", "#field-rechteinhaber", "#field-orte", "#field-schlagworte", "#field-altsignaturen"
 ];
 const elements = Object.fromEntries(selectors.map((selector) => [selector, new Element(selector)]));
 elements["#record-form"].reset = () => {
@@ -62,9 +75,15 @@ let operationNumber = 0;
 const window = {
   location: { href: "http://localhost/app/?record=foto-000001", pathname: "/app/", search: "?record=foto-000001" },
   history: { replaceState() {} }, navigator: {}, addEventListener() {}, confirm() { return true; }, setTimeout,
-  crypto: { randomUUID() { operationNumber += 1; return `operation-${operationNumber}`; } }
+  crypto: { randomUUID() { operationNumber += 1; return `operation-${operationNumber}`; } },
+  resetOperationNumber() { operationNumber = 0; }
 };
-const localStorage = { getItem() { return "redaktion"; }, setItem() {}, removeItem() {} };
+let storedProfile = "redaktion";
+const localStorage = {
+  getItem() { return storedProfile; },
+  setItem(_key, value) { storedProfile = value; },
+  removeItem() {}
+};
 
 class MemoryStore {
   constructor(events) { this.entries = new Map(); this.events = events; }
@@ -115,11 +134,58 @@ async function runSaveStateTests() {
     datensatz_typ: "foto", module_id: "foto_papierabzuege",
     signature: { formats: ["A"], pattern: "{bestand}.{objektgruppe}.{format}.{nummer}", bestand: "9", objektgruppe: "4.2" },
     defaults: { redaktion_stufe: "erschlossen", bearbeitung_status: "offen", publikation_status: "intern" },
-    ui_profiles: { redaktion: { editable_fields: Object.keys(fieldMap), technical_preview: true } }
+    presettable_fields: [],
+    ui_profiles: {
+      standard: { editable_fields: Object.keys(fieldMap), technical_preview: false },
+      barrierearm: { editable_fields: Object.keys(fieldMap), technical_preview: false },
+      redaktion: { editable_fields: Object.keys(fieldMap), technical_preview: true }
+    }
   };
   state.user = { role: "redaktion", ui_profile: "redaktion", csrf_cookie_name: "csrf" };
   state.records = [testRecord("A"), testRecord("Other", "foto-000002", 2)];
   refreshRecords = async () => {};
+
+  const preserved = testRecord("Preserved");
+  preserved.erschliessung.sammler = "Bestehender Sammler";
+  preserved.erschliessung.fotograf = "Bestehender Fotograf";
+  preserved.erschliessung.rechteinhaber = "Bestehender Rechteinhaber";
+  preserved.erschliessung.orte = ["Bestehender Ort"];
+  preserved.erschliessung.schlagworte = ["Bestehendes Schlagwort"];
+  state.user = { role: "ehrenamtlich", ui_profile: "ehrenamt-barrierearm", csrf_cookie_name: "csrf" };
+  applyLoadedRecord(preserved, "rev-preserved");
+  setProfile("barrierearm");
+  assert.equal(elements["#number-output-field"].hidden, true, "volunteers do not see the next number");
+  assert.equal(elements[".signature-output"].classList.contains("single-column"), true, "volunteer signature uses the full row");
+  for (const field of ["sammler", "fotograf", "rechteinhaber", "orte", "schlagworte"]) {
+    assert.equal(elements["#field-" + field].hidden, true, "accessible volunteer view hides " + field);
+  }
+  assert.equal(elements["#field-herkunft"].hidden, false);
+  assert.equal(elements["#field-altsignaturen"].hidden, false);
+  const preservedPayload = readRecord();
+  assert.equal(preservedPayload.erschliessung.sammler, "Bestehender Sammler");
+  assert.equal(preservedPayload.erschliessung.fotograf, "Bestehender Fotograf");
+  assert.equal(preservedPayload.erschliessung.rechteinhaber, "Bestehender Rechteinhaber");
+  assert.deepEqual(preservedPayload.erschliessung.orte, ["Bestehender Ort"]);
+  assert.deepEqual(preservedPayload.erschliessung.schlagworte, ["Bestehendes Schlagwort"]);
+  configureQueue([]);
+  elements["#beschriftung"].value = "Erlaubte Änderung";
+  updateDirtyState();
+  await finalizeRecord();
+  const preservedSave = (await saveQueueStore.list())[0].snapshot.erschliessung;
+  assert.equal(preservedSave.sammler, "Bestehender Sammler", "queued volunteer saves preserve hidden collector data");
+  assert.equal(preservedSave.fotograf, "Bestehender Fotograf", "queued volunteer saves preserve hidden photographer data");
+  assert.equal(preservedSave.rechteinhaber, "Bestehender Rechteinhaber", "queued volunteer saves preserve hidden rights data");
+  assert.deepEqual(preservedSave.orte, ["Bestehender Ort"], "queued volunteer saves preserve hidden places");
+  assert.deepEqual(preservedSave.schlagworte, ["Bestehendes Schlagwort"], "queued volunteer saves preserve hidden keywords");
+  window.resetOperationNumber();
+  state.currentQueueOperationId = null;
+  state.queuedSnapshot = null;
+  state.user = { role: "redaktion", ui_profile: "redaktion", csrf_cookie_name: "csrf" };
+  setProfile("redaktion");
+  assert.equal(elements["#number-output-field"].hidden, false, "editorial users retain the number display");
+  for (const field of ["sammler", "fotograf", "rechteinhaber", "orte", "schlagworte"]) {
+    assert.equal(elements["#field-" + field].hidden, false, "editorial view retains " + field);
+  }
 
   state.mode = "new";
   state.format = "A";
