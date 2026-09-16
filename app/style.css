@@ -520,6 +520,34 @@ body.barrierearm button {
   font-size: 1.08em;
 }
 
+body.barrierearm #finalize {
+  background: #aa1717;
+  border-color: #701010;
+}
+
+body.barrierearm #finalize:hover,
+body.barrierearm #finalize:active {
+  background: #781010;
+}
+
+body.barrierearm #finalize:disabled {
+  background: #7f2323;
+  opacity: 1;
+}
+
+body.barrierearm #mode-new,
+body.barrierearm #new-record {
+  background: #146b2e;
+  border-color: #0c471e;
+}
+
+body.barrierearm #mode-new:hover,
+body.barrierearm #mode-new:active,
+body.barrierearm #new-record:hover,
+body.barrierearm #new-record:active {
+  background: #0c471e;
+}
+
 body.barrierearm input,
 body.barrierearm textarea,
 body.barrierearm .status-band,

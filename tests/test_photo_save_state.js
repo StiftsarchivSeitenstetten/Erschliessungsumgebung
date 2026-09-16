@@ -22,6 +22,7 @@ class Element {
     };
   }
   addEventListener() {}
+  focus(options) { this.focusOptions = options; }
   append(...items) { if (this.selector === "#personen-list") this.rows.push(...items); }
   setAttribute() {}
   set innerHTML(value) {
@@ -75,6 +76,7 @@ let operationNumber = 0;
 const window = {
   location: { href: "http://localhost/app/?record=foto-000001", pathname: "/app/", search: "?record=foto-000001" },
   history: { replaceState() {} }, navigator: {}, addEventListener() {}, confirm() { return true; }, setTimeout,
+  scrollCalls: [], scrollTo(options) { this.scrollCalls.push(options); },
   crypto: { randomUUID() { operationNumber += 1; return `operation-${operationNumber}`; } },
   resetOperationNumber() { operationNumber = 0; }
 };
@@ -438,6 +440,20 @@ async function runSaveStateTests() {
   }));
   await normalizePersistedQueueEntries();
   assert.equal((await saveQueueStore.get("legacy-auth")).status, "auth_error", "reload normalizes persisted HTTP failures");
+
+  state.format = null;
+  state.signatureManuallyEdited = true;
+  signatureOutput.value = "alte manuelle Signatur";
+  document.body.classList.add("barrierearm");
+  startNewRecord({ skipConfirmation: true, scrollToTop: true });
+  assert.equal(state.currentDraft, null, "new record clears the previous draft");
+  assert.equal(state.signatureManuallyEdited, false, "new record clears manual override state");
+  assert.notEqual(signatureOutput.value, "alte manuelle Signatur", "old signature is not retained");
+  assert.deepEqual(window.scrollCalls, [{ top: 0, behavior: "auto" }], "accessible form returns to page top");
+  assert.deepEqual(elements["#mode-new"].focusOptions, { preventScroll: true }, "focus lands on visible form mode control");
+  document.body.classList.remove("barrierearm");
+  startNewRecord({ skipConfirmation: true, scrollToTop: true });
+  assert.equal(window.scrollCalls.length, 1, "standard form does not gain the scroll behavior");
 }
 return runSaveStateTests();
 `;

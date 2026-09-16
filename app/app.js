@@ -245,7 +245,7 @@ function bindEvents() {
   retryQueueButton.addEventListener("click", retryFirstQueueEntry);
   openQueuedSnapshotButton.addEventListener("click", openFirstQueuedSnapshot);
   discardQueuedSaveButton.addEventListener("click", discardFirstQueueEntry);
-  document.querySelector("#new-record").addEventListener("click", startNewRecord);
+  document.querySelector("#new-record").addEventListener("click", () => startNewRecord({ scrollToTop: true }));
   document.querySelector("#reset-session").addEventListener("click", resetLocalSessionRecords);
   document.querySelector("#add-person").addEventListener("click", () => {
     addPersonRow();
@@ -1506,6 +1506,10 @@ function startNewRecord(options = {}) {
   updateSignatureOutput();
   if (state.format) refreshSignatureSuggestion(state.format);
   updateArchivisDate();
+  if (options.scrollToTop && document.body.classList.contains("barrierearm")) {
+    document.querySelector("#mode-new").focus({ preventScroll: true });
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }
 }
 
 function resetLocalSessionRecords() {

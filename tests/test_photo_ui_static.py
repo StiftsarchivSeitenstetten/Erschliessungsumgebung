@@ -96,6 +96,16 @@ class PhotoUiStaticTest(unittest.TestCase):
         self.assertIn('["sammler", "fotograf", "rechteinhaber", "orte", "schlagworte"]', script)
         self.assertIn('.signature-output.single-column', style)
 
+    def test_accessible_photo_buttons_and_new_record_navigation_are_scoped(self):
+        script = (ROOT / "app" / "app.js").read_text(encoding="utf-8")
+        style = (ROOT / "app" / "style.css").read_text(encoding="utf-8")
+        self.assertIn('body.barrierearm #finalize', style)
+        self.assertIn('body.barrierearm #mode-new', style)
+        self.assertIn('body.barrierearm #new-record', style)
+        self.assertIn('startNewRecord({ scrollToTop: true })', script)
+        self.assertIn('options.scrollToTop && document.body.classList.contains("barrierearm")', script)
+        self.assertIn('document.querySelector("#mode-new").focus({ preventScroll: true })', script)
+
 
 if __name__ == "__main__":
     unittest.main()
