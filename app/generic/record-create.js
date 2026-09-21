@@ -12,7 +12,7 @@ export class RecordCreate {
 
   async save(mode, csrfToken) {
     if (!this.canSave(mode)) return null;
-    const body = JSON.stringify({operation_id: this.operationId, record: this.formState.beginSave()});
+    const body = JSON.stringify({operation_id: this.operationId, record: this.formState.beginCreateSave()});
     this.saving = true;
     try {
       let response;

@@ -113,6 +113,12 @@ const descriptor = {
   user: "rita",
   sections: [
     {
+      id: "dokument",
+      label: "Dokument",
+      order: 5,
+      fields: ["dokumenttyp", "erhaltungsform", "ort"],
+    },
+    {
       id: "beteiligte",
       label: "Beteiligte",
       order: 10,
@@ -134,12 +140,51 @@ const descriptor = {
   fields: [
     {
       ...all,
+      id: "dokumenttyp",
+      path: "erschliessung.dokumenttyp",
+      label: "Dokumenttyp",
+      widget: "vocabulary_select",
+      vocabulary: "autographen_dokumenttypen",
+      vocabulary_terms: [
+        { id: "brief", label: "Brief", active: true },
+      ],
+      section: "dokument",
+      order: 10,
+      required: true,
+    },
+    {
+      ...all,
+      id: "erhaltungsform",
+      path: "erschliessung.erhaltungsform",
+      label: "Erhaltungsform",
+      widget: "vocabulary_select",
+      vocabulary: "autographen_erhaltungsformen",
+      vocabulary_terms: [
+        { id: "original", label: "Original", active: true },
+      ],
+      section: "dokument",
+      order: 20,
+      required: true,
+    },
+    {
+      ...all,
+      id: "ort",
+      path: "erschliessung.ort.name",
+      label: "Ort",
+      widget: "text",
+      section: "dokument",
+      order: 30,
+      required: false,
+    },
+    {
+      ...all,
       id: "beteiligte",
       path: "erschliessung.beteiligte",
       label: "Beteiligte",
       widget: "repeater",
       section: "beteiligte",
       order: 10,
+      required: true,
       item_fields: [
         {
           ...all,
@@ -215,6 +260,17 @@ const state = new FormState(
   descriptor,
   {
     erschliessung: {
+      dokumenttyp: {
+        id: "brief",
+        vocabulary_id: "autographen_dokumenttypen",
+      },
+      erhaltungsform: {
+        id: "original",
+        vocabulary_id: "autographen_erhaltungsformen",
+      },
+      ort: {
+        name: "",
+      },
       beteiligte: [],
       altsignatur: null,
     },
@@ -425,6 +481,98 @@ assert.equal(
   "Manuell geändert",
 );
 
+const emptyPlaceState = new FormState(
+  descriptor,
+  {
+    erschliessung: {
+      dokumenttyp: {
+        id: "brief",
+        vocabulary_id: "autographen_dokumenttypen",
+      },
+      erhaltungsform: {
+        id: "original",
+        vocabulary_id: "autographen_erhaltungsformen",
+      },
+      ort: {
+        name: "",
+      },
+      beteiligte: [],
+    },
+  },
+);
+
+const emptyPlacePayload = emptyPlaceState.beginCreateSave();
+assert.equal(
+  Object.hasOwn(emptyPlacePayload.erschliessung, "ort"),
+  false,
+);
+assert.deepEqual(emptyPlacePayload.erschliessung.beteiligte, []);
+emptyPlaceState.confirmSave({
+  id: "autograph-000001",
+  erschliessung: emptyPlacePayload.erschliessung,
+});
+assert.equal(
+  Object.hasOwn(emptyPlaceState.current.erschliessung, "ort"),
+  false,
+);
+assert.equal(emptyPlaceState.isDirty(), false);
+
+const filledPlaceState = new FormState(
+  descriptor,
+  {
+    erschliessung: {
+      dokumenttyp: {
+        id: "brief",
+        vocabulary_id: "autographen_dokumenttypen",
+      },
+      erhaltungsform: {
+        id: "original",
+        vocabulary_id: "autographen_erhaltungsformen",
+      },
+      ort: {
+        name: "Wien",
+      },
+      beteiligte: [],
+    },
+  },
+);
+
+assert.deepEqual(
+  filledPlaceState.beginCreateSave().erschliessung.ort,
+  { name: "Wien" },
+);
+
+const falsyState = new FormState(
+  {
+    fields: [
+      { path: "required_text", visible: true, editable: true, required: true },
+      { path: "optional_text", visible: true, editable: true, required: false },
+      { path: "optional_flag", visible: true, editable: true, required: false },
+      { path: "optional_count", visible: true, editable: true, required: false },
+      { path: "optional_values", visible: true, editable: true, required: false },
+    ],
+  },
+  {
+    required_text: "",
+    optional_text: "",
+    optional_flag: false,
+    optional_count: 0,
+    optional_values: ["vorhanden"],
+  },
+);
+
+assert.deepEqual(
+  falsyState.beginCreateSave(),
+  {
+    required_text: "",
+    optional_flag: false,
+    optional_count: 0,
+    optional_values: ["vorhanden"],
+  },
+);
+
+console.log(`CREATE_PAYLOAD:${JSON.stringify(emptyPlacePayload)}`);
+
 console.log(
-  "Autograph generic form, repeaters, date range and preset: ok",
+  "Autograph generic form, create payload, repeaters, date range and preset: ok",
 );

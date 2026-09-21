@@ -304,12 +304,24 @@ class AutographModuleTest(unittest.TestCase):
         if not Path(node).exists():
             self.skipTest("Node.js required")
 
-        subprocess.run(
+        result = subprocess.run(
             [node, "tests/autograph_form.mjs"],
             cwd=ROOT,
             check=True,
             capture_output=True,
+            text=True,
         )
+        payload_line = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("CREATE_PAYLOAD:")
+        )
+        payload = json.loads(payload_line.removeprefix("CREATE_PAYLOAD:"))
+
+        self.assertNotIn("ort", payload["erschliessung"])
+        stored = self.create(payload, operation_id="autograph-browser-create")
+        self.runtime.validate(stored.data)
+        self.assertNotIn("ort", stored.data["erschliessung"])
 
 
 class AutographApiTest(unittest.TestCase):

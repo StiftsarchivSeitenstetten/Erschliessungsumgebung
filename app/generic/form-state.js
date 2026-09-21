@@ -26,6 +26,45 @@ export function buildEditableSnapshot(moduleDescriptor, recordData = {}) {
   return snapshot;
 }
 
+function isEmptyOptionalCreateValue(value) {
+  return value === null || value === undefined || value === "" ||
+    (Array.isArray(value) && value.length === 0) ||
+    (value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0);
+}
+
+function deletePathAndEmptyParents(data, path) {
+  const parts = path.split(".");
+
+  function remove(current, index) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) return false;
+    const key = parts[index];
+    if (index === parts.length - 1) delete current[key];
+    else if (remove(current[key], index + 1)) delete current[key];
+    return Object.keys(current).length === 0;
+  }
+
+  remove(data, 0);
+}
+
+function hasPath(data, path) {
+  let current = data;
+  for (const part of path.split(".")) {
+    if (!current || typeof current !== "object" || !Object.prototype.hasOwnProperty.call(current, part)) return false;
+    current = current[part];
+  }
+  return true;
+}
+
+export function buildCreateSnapshot(moduleDescriptor, recordData = {}) {
+  const snapshot = buildEditableSnapshot(moduleDescriptor, recordData);
+  editableFields(moduleDescriptor).forEach((field) => {
+    if (!field.required && isEmptyOptionalCreateValue(getPathValue(snapshot, field.path))) {
+      deletePathAndEmptyParents(snapshot, field.path);
+    }
+  });
+  return snapshot;
+}
+
 export function editableSnapshotsEqual(moduleDescriptor, left, right) {
   return valuesEqual(buildEditableSnapshot(moduleDescriptor, left), buildEditableSnapshot(moduleDescriptor, right));
 }
@@ -86,6 +125,7 @@ export class FormState {
     this.serverSnapshot = cloneValue(recordData) || {};
     this.workingRecord = cloneValue(recordData) || {};
     this.pendingSnapshot = null;
+    this.pendingCreatePayload = null;
   }
 
   discardChanges() {
@@ -127,7 +167,14 @@ export class FormState {
 
   beginSave() {
     this.pendingSnapshot = cloneValue(this.workingRecord) || {};
+    this.pendingCreatePayload = null;
     return this.buildPayload(this.pendingSnapshot);
+  }
+
+  beginCreateSave() {
+    this.pendingSnapshot = cloneValue(this.workingRecord) || {};
+    this.pendingCreatePayload = buildCreateSnapshot(this.moduleDescriptor, this.pendingSnapshot);
+    return cloneValue(this.pendingCreatePayload);
   }
 
   confirmSave(confirmedRecord) {
@@ -137,6 +184,7 @@ export class FormState {
     const confirmed = cloneValue(confirmedRecord) || {};
     const acknowledged = cloneValue(confirmed) || {};
     editableFields(this.moduleDescriptor).forEach((field) => {
+      if (this.pendingCreatePayload !== null && !hasPath(this.pendingCreatePayload, field.path)) return;
       setPathValue(acknowledged, field.path, cloneValue(getPathValue(pending, field.path)));
     });
     const nextWorking = cloneValue(acknowledged) || {};
@@ -149,10 +197,12 @@ export class FormState {
     this.serverSnapshot = acknowledged;
     this.workingRecord = nextWorking;
     this.pendingSnapshot = null;
+    this.pendingCreatePayload = null;
   }
 
   cancelSave() {
     this.pendingSnapshot = null;
+    this.pendingCreatePayload = null;
   }
 
   applyServerValues(values) {

@@ -281,7 +281,8 @@ async function openQueuedSnapshot(entry, push = true) {
   currentFormState = new FormState(currentDescriptor, baseline);
   currentFormState.loadWorkingSnapshot(entry.snapshot);
   if (entry.identity) currentFormState.applyServerValues(entry.identity);
-  currentFormState.beginSave();
+  if (entry.operation === "create") currentFormState.beginCreateSave();
+  else currentFormState.beginSave();
   if (entry.operation === "create") {
     currentCreate = new RecordCreate(currentDescriptor.module, currentFormState);
     currentCreate.recordId = entry.record_id;
@@ -637,7 +638,7 @@ $("#save-record").addEventListener("click", async () => {
       throw new Error("Lokale Speicherwarteschlange nicht verfügbar. Es wurde nichts an den Server gesendet.");
     }
     const operationId = window.crypto.randomUUID();
-    const snapshot = currentFormState.beginSave();
+    const snapshot = wasCreate ? currentFormState.beginCreateSave() : currentFormState.beginSave();
     const identityAssignment = currentDescriptor.create?.identity_assignment || "on_create";
     queueContexts.set(operationId, {
       operationId,
