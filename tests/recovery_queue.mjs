@@ -220,6 +220,55 @@ for (const status of [403, 422]) {
   if (status === 422) assert.equal(await processor.retryFirst(), false);
 }
 
+const validationStore = new MemoryStore();
+const validationUiStates = [];
+let validationProcessor;
+validationProcessor = createSaveQueueProcessor({
+  store: validationStore,
+  sendUpdate: async () => {
+    const error = new Error("invalid");
+    error.status = 422;
+    throw error;
+  },
+  onChange: async (entry, entries) => {
+    const first = entries[0];
+    validationUiStates.push({
+      notifiedStatus: entry?.status || null,
+      queueStatus: first?.status || null,
+      running: validationProcessor.isRunning(),
+      discardDisabled: !first || validationProcessor.isRunning(),
+      retryDisabled: !first || validationProcessor.isRunning() ||
+        ["conflict", "validation_error"].includes(first.status),
+    });
+  },
+});
+await validationProcessor.enqueueUpdate({
+  operationId: "validation-ui",
+  moduleId: "module",
+  recordId: "validation-record",
+  baseRevision: "base",
+  snapshot: { daten: { text: "keep" } },
+});
+await validationProcessor.process();
+assert.equal(
+  validationUiStates.some(state => state.queueStatus === "saving" && state.running),
+  true,
+);
+assert.equal(
+  validationUiStates.some(state => state.notifiedStatus === "validation_error" && state.running),
+  true,
+);
+const finalValidationUi = validationUiStates.at(-1);
+assert.deepEqual(finalValidationUi, {
+  notifiedStatus: null,
+  queueStatus: "validation_error",
+  running: false,
+  discardDisabled: false,
+  retryDisabled: true,
+});
+assert.equal(validationProcessor.isRunning(), false);
+assert.equal(await validationProcessor.retryFirst(), false);
+
 const networkStore = new MemoryStore();
 const networkProcessor = createSaveQueueProcessor({store: networkStore, sendUpdate: async () => { throw new Error("network"); }});
 await networkProcessor.enqueueUpdate({operationId: "network", moduleId: "module", recordId: "N", baseRevision: "n", snapshot: {daten: {text: "keep"}}});

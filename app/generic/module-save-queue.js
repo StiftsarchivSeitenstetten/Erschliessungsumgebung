@@ -278,6 +278,7 @@ export function createSaveQueueProcessor({store, sendUpdate, sendCreate, reserve
       }
     } finally {
       running = false;
+      await notify(null);
     }
   }
 
