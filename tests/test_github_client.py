@@ -139,6 +139,7 @@ class GitHubClientTest(unittest.TestCase):
         self.assertEqual(repository.read_file("data/fotos/foto-000001.md").content, "hello")
         new_head = repository.commit_files(expected_head="base", files={"data/fotos/foto-000002.md": "new"}, message="Test")
         self.assertEqual(new_head, "commit-new")
+        self.assertEqual(repository.get_commit_parent(new_head), "base")
         self.assertIn(("PATCH", "/repos/example/repo/git/refs/heads/main", {"sha": "commit-new", "force": False}), repository.client.calls)
 
 
@@ -209,6 +210,8 @@ class GitDataClient:
             return {"type": "file", "content": base64.b64encode(b"hello").decode("ascii"), "sha": "file-sha"}
         if method == "GET" and path == "/repos/example/repo/git/commits/base":
             return {"tree": {"sha": "tree-base"}}
+        if method == "GET" and path == "/repos/example/repo/git/commits/commit-new":
+            return {"parents": [{"sha": "base"}]}
         if method == "POST" and path == "/repos/example/repo/git/blobs":
             return {"sha": "blob-new"}
         if method == "POST" and path == "/repos/example/repo/git/trees":

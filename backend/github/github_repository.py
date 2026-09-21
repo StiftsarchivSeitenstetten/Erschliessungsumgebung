@@ -110,6 +110,13 @@ class GitHubDataRepository:
             files.append(RepositoryFile(path=item["path"], content=content, revision=item["sha"]))
         return files
 
+    def get_commit_parent(self, commit_sha: str) -> str:
+        response = self.request("GET", f"{self.repo_path}/git/commits/{commit_sha}")
+        parents = response.get("parents") or []
+        if len(parents) != 1 or not isinstance(parents[0].get("sha"), str):
+            raise RepositoryNotFoundError(f"Commit-Parent fehlt: {commit_sha}")
+        return parents[0]["sha"]
+
     def commit_files(self, *, expected_head: str, files: dict[str, str], message: str) -> str:
         current_head = self.get_branch_head()
         if current_head != expected_head:

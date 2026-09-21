@@ -27,6 +27,9 @@ class DataRepository(Protocol):
     def list_directory(self, path: str) -> list[RepositoryFile]:
         ...
 
+    def get_commit_parent(self, commit_sha: str) -> str:
+        ...
+
     def commit_files(self, *, expected_head: str, files: dict[str, str], message: str) -> str:
         ...
 
@@ -67,6 +70,12 @@ class InMemoryGitRepository:
         ]
         return files
 
+    def get_commit_parent(self, commit_sha: str) -> str:
+        for commit in self.commits:
+            if commit["head"] == commit_sha:
+                return str(commit["parent"])
+        raise RepositoryNotFoundError(commit_sha)
+
     def commit_files(self, *, expected_head: str, files: dict[str, str], message: str) -> str:
         if self._conflict_failures > 0:
             self._conflict_failures -= 1
@@ -74,7 +83,8 @@ class InMemoryGitRepository:
             raise RepositoryConflictError("Branch wurde parallel aktualisiert.")
         if expected_head != self.head:
             raise RepositoryConflictError("Branch wurde parallel aktualisiert.")
+        parent = self.head
         self.files.update(files)
         self.head = f"commit-{next(self._counter)}"
-        self.commits.append({"head": self.head, "message": message, "files": sorted(files)})
+        self.commits.append({"head": self.head, "parent": parent, "message": message, "files": sorted(files)})
         return self.head
