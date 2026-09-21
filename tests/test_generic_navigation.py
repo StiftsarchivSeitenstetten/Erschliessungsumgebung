@@ -115,6 +115,12 @@ class GenericNavigationTest(unittest.TestCase):
         self.assertIn("saveQueueProcessor?.retryFirst()", script)
         self.assertIn("openQueuedSnapshot", script)
         self.assertIn("saveQueueProcessor.discard", script)
+        open_recovery = script[script.index("async function openQueuedSnapshot"):script.index("function scheduleQueueProcessing")]
+        self.assertIn("updateQueueStatus(queueEntries);", open_recovery)
+        discard_recovery = script[script.index('$("#discard-queue-entry").addEventListener'):script.index("run(init);")]
+        self.assertLess(discard_recovery.index("await saveQueueProcessor.discard"), discard_recovery.index("queueContexts.delete"))
+        self.assertIn("updateSaveButton();", discard_recovery)
+        self.assertIn('module-save-queue.js?v=queue-recovery-2', script)
         self.assertIn('new FormState(currentDescriptor, currentDescriptor.empty_record || {})', script)
         self.assertIn("currentFormState.reset(currentFormState.current)", script)
         self.assertIn("currentCreate || currentUpdate", script)

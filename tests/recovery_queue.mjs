@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {FormState} from "../app/generic/form-state.js";
+import {RecordCreate} from "../app/generic/record-create.js";
 import {classifyQueuedUpdateReadBack} from "../app/generic/record-update.js";
 import {createCreateQueueEntry, createSaveQueueProcessor, createUpdateQueueEntry, normalizeQueueEntry} from "../app/generic/module-save-queue.js";
 
@@ -275,17 +276,104 @@ await networkProcessor.enqueueUpdate({operationId: "network", moduleId: "module"
 await networkProcessor.process();
 assert.equal((await networkStore.list())[0].last_error.uncertain, true);
 
-// Opening restores the generic editable snapshot; explicit discard removes only local data.
-const opened = new FormState(descriptor, {id: "record-1", daten: {text: "server"}});
-opened.loadWorkingSnapshot({daten: {text: "local"}});
-assert.equal(opened.getValue("daten.text"), "local");
-assert.equal(opened.isDirty(), true);
-const discardStore = new MemoryStore([updateEntry("validation_error")]);
-let remoteOnDiscard = false;
-const discardProcessor = createSaveQueueProcessor({store: discardStore, sendUpdate: async () => { remoteOnDiscard = true; }});
-await discardProcessor.initializeRecovery();
-await discardProcessor.discard((await discardStore.list())[0].operation_id);
-assert.equal((await discardStore.list()).length, 0);
-assert.equal(remoteOnDiscard, false);
+// Full validation recovery: open, edit, explicitly discard the old operation, then save as a new Create.
+const recoveryDescriptor = {module: "module", fields: [
+  {path: "daten.text", visible: true, editable: true, required: true},
+  {path: "erschliessung.ort.name", visible: true, editable: true},
+]};
+const oldOperationId = "validation-create-old";
+const validationCreate = {
+  ...createCreateQueueEntry({
+    operationId: oldOperationId,
+    moduleId: "module",
+    identityAssignment: "on_create",
+    snapshot: {daten: {text: "draft"}, erschliessung: {ort: {name: ""}}},
+    queueSequence: 1,
+  }),
+  status: "validation_error",
+};
+const recoveryStore = new MemoryStore([validationCreate]);
+const recoveryContexts = new Map();
+let recoveryEntries = [];
+let recoveryControls = {};
+let recoveryState = null;
+let recoveryCreate = null;
+let backendCreates = 0;
+let sentCreate = null;
+let recoveryProcessor;
+
+function updateRecoveryControls(entries) {
+  recoveryEntries = entries;
+  const first = entries[0];
+  const running = recoveryProcessor.isRunning();
+  recoveryControls = {
+    retryDisabled: !first || running || ["conflict", "validation_error"].includes(first.status),
+    openDisabled: !first,
+    discardDisabled: !first || running,
+  };
+}
+
+function recoverySaveDisabled() {
+  const hasContext = [...recoveryContexts.values()].some(context => (
+    context.formState === recoveryState && context.create === recoveryCreate
+  ));
+  return hasContext || !recoveryCreate?.canSave("edit");
+}
+
+recoveryProcessor = createSaveQueueProcessor({
+  store: recoveryStore,
+  sendCreate: async entry => {
+    backendCreates += 1;
+    sentCreate = entry;
+    return {record_id: "created-1", record: entry.snapshot, meta: {revision: "created-r1"}};
+  },
+  onChange: async (_entry, entries) => updateRecoveryControls(entries),
+});
+await recoveryProcessor.initializeRecovery();
+assert.equal(recoveryProcessor.isRunning(), false);
+assert.deepEqual(recoveryControls, {retryDisabled: true, openDisabled: false, discardDisabled: false});
+assert.equal(await recoveryProcessor.retryFirst(), false);
+
+// Mirror openQueuedSnapshot(): restore the persisted Create and explicitly refresh queue controls.
+recoveryControls.discardDisabled = true; // stale DOM state from the worker callback
+recoveryState = new FormState(recoveryDescriptor, {});
+recoveryState.loadWorkingSnapshot(validationCreate.snapshot);
+recoveryState.beginCreateSave();
+recoveryCreate = new RecordCreate("module", recoveryState);
+recoveryContexts.set(oldOperationId, {operationId: oldOperationId, formState: recoveryState, create: recoveryCreate});
+updateRecoveryControls(recoveryEntries);
+assert.equal(recoveryControls.discardDisabled, false, "opening recomputes stale queue controls with running=false");
+assert.equal(recoverySaveDisabled(), true, "the old queue context prevents a duplicate Create");
+
+recoveryState.setValue("daten.text", "corrected");
+assert.equal(recoveryState.hasUnpersistedChanges(), true);
+assert.equal(recoverySaveDisabled(), true, "editing does not bypass the old queue context");
+
+const openedContext = recoveryContexts.get(oldOperationId);
+if (openedContext.formState === recoveryState) recoveryState.cancelSave();
+await recoveryProcessor.discard(oldOperationId);
+recoveryContexts.delete(oldOperationId);
+assert.equal((await recoveryStore.list()).length, 0);
+assert.equal(recoveryContexts.has(oldOperationId), false);
+assert.equal(recoveryState.getValue("daten.text"), "corrected", "discard keeps the edited working record");
+assert.equal(backendCreates, 0, "discard does not call the backend");
+assert.equal(recoverySaveDisabled(), false, "normal Save is enabled after removing the old context");
+
+const newOperationId = "validation-create-new";
+const correctedSnapshot = recoveryState.beginCreateSave();
+await recoveryProcessor.enqueueCreate({
+  operationId: newOperationId,
+  moduleId: "module",
+  identityAssignment: "on_create",
+  snapshot: correctedSnapshot,
+});
+assert.equal((await recoveryStore.list())[0].operation_id, newOperationId);
+assert.notEqual(newOperationId, oldOperationId);
+await recoveryProcessor.process();
+assert.equal(backendCreates, 1, "the recovery flow sends exactly one corrected Create");
+assert.equal(sentCreate.operation_id, newOperationId);
+assert.notEqual(sentCreate.operation_id, oldOperationId);
+assert.deepEqual(sentCreate.snapshot, {daten: {text: "corrected"}}, "the new Create uses current cleanup rules");
+assert.equal((await recoveryStore.list()).length, 0);
 
 console.log("Recovery reload, read-back, idempotent create/reservation, auth, errors, FIFO, open and discard assertions passed");

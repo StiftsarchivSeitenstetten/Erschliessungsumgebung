@@ -10,7 +10,7 @@ class GenericFormRendererStaticTest(unittest.TestCase):
         html = (ROOT / "app" / "module" / "index.html").read_text(encoding="utf-8")
         script = (ROOT / "app" / "module" / "module.js").read_text(encoding="utf-8")
 
-        self.assertIn('src="module.js?v=recovery-1"', html)
+        self.assertIn('src="module.js?v=recovery-2"', html)
         self.assertIn('href="/arbeitsbereiche?view=generic"', html)
         self.assertIn('id="save-record"', html)
         self.assertIn('id="new-record"', html)

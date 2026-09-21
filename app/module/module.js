@@ -4,7 +4,7 @@ import { ResultState, renderRecordList } from "../generic/record-list.js?v=creat
 import { RecordCreate, reserveQueuedRecordIdentity, sendQueuedRecordCreate } from "../generic/record-create.js?v=recovery-1";
 import { RecordUpdate, classifyQueuedUpdateReadBack, readQueuedRecordUpdate, sendQueuedRecordUpdate } from "../generic/record-update.js?v=recovery-1";
 import { createIndexedDbSaveQueueStore } from "../generic/module-save-queue-store.js?v=queue-isolation-1";
-import { createSaveQueueProcessor, queueEntryMatchesContext, queueRecordKey, queueStatusMessage } from "../generic/module-save-queue.js?v=queue-isolation-1";
+import { createSaveQueueProcessor, queueEntryMatchesContext, queueRecordKey, queueStatusMessage } from "../generic/module-save-queue.js?v=queue-recovery-2";
 import { PresetStore, presettableFields } from "../generic/preset-store.js?v=preset-1";
 import { VocabularyClient } from "../generic/vocabulary-client.js?v=vocabulary-2";
 import { reviewDateTextFields } from "../generic/widget-registry.js?v=vocabulary-2";
@@ -123,11 +123,11 @@ function queueFailureMessage(entry) {
 }
 
 async function handleQueueChange(entry, entries) {
-  updateQueueStatus(entries);
   const existingOperationIds = new Set(entries.map(item => item.operation_id));
   for (const operationId of queueContexts.keys()) {
     if (!existingOperationIds.has(operationId)) queueContexts.delete(operationId);
   }
+  updateQueueStatus(entries);
   const context = entry ? queueContexts.get(entry.operation_id) : null;
   if (context) context.status = entry.status;
   if (!entry || !queueEntryMatchesCurrent(entry)) return;
@@ -314,6 +314,7 @@ async function openQueuedSnapshot(entry, push = true) {
   renderCurrentRecord();
   showView();
   updatePayloadPreview();
+  updateQueueStatus(queueEntries);
   if (push) updateUrl();
 }
 
@@ -699,8 +700,9 @@ $("#discard-queue-entry").addEventListener("click", () => run(async () => {
   if (!entry || !window.confirm("Lokale Speicherung wirklich verwerfen? Der gespeicherte Snapshot geht dabei unwiderruflich verloren.")) return;
   const context = queueContexts.get(entry.operation_id);
   if (context?.formState === currentFormState) currentFormState.cancelSave();
-  queueContexts.delete(entry.operation_id);
   await saveQueueProcessor.discard(entry.operation_id);
+  queueContexts.delete(entry.operation_id);
+  updateSaveButton();
   $("#save-status").textContent = "Lokale Speicherung verworfen; es wurde keine Backend-Operation ausgelöst.";
   scheduleQueueProcessing();
 }));
