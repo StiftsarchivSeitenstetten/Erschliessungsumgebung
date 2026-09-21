@@ -364,6 +364,33 @@ class GenericWriteApiTest(unittest.TestCase):
         self.assertEqual(json.loads(self.repo.files["state/runtime-test.json"])["next_record_id"], 3)
         self.assertEqual(len(self.repo.commits), 2)
 
+    def test_create_internal_repository_error_is_logged_without_exposing_details(self):
+        self.login()
+        internal_message = "interner Diagnosewert"
+        payload_marker = "NICHT_INS_SERVERLOG"
+        record = valid_payload()
+        record["daten"]["name"] = payload_marker
+
+        with patch(
+            "backend.routes.modules.create_generic_record",
+            side_effect=RepositoryError(internal_message),
+        ), self.assertLogs("backend.routes.modules", level="ERROR") as captured:
+            response = self.post(record)
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json(), {"detail": "Datensatz konnte nicht gespeichert werden."})
+        self.assertNotIn(internal_message, response.text)
+        self.assertEqual(len(captured.records), 1)
+        logged = captured.records[0]
+        self.assertEqual(logged.getMessage(), "Generischer CREATE für Modul runtime_test fehlgeschlagen")
+        self.assertIsNotNone(logged.exc_info)
+        self.assertIsInstance(logged.exc_info[1], RepositoryError)
+        self.assertEqual(str(logged.exc_info[1]), internal_message)
+        logged_output = "\n".join(captured.output)
+        self.assertIn("Traceback", logged_output)
+        self.assertIn(internal_message, logged_output)
+        self.assertNotIn(payload_marker, logged_output)
+
     def test_photo_partitions_use_independent_counters_and_server_ids(self):
         self.login(modules=[MODULE_FOTO_PAPIERABZUEGE])
         expected = [("A", 7), ("B", 1), ("C", 1), ("A", 8), ("D", 1), ("E", 1), ("F", 1)]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,8 @@ from ..vocabularies import (
 from .deps import require_authenticated_user, require_csrf
 from .records import get_data_repository
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/modules", tags=["modules"])
 vocabulary_router = APIRouter(prefix="/api/vocabularies", tags=["vocabularies"])
@@ -390,6 +393,10 @@ def create_module_record(
             operation_id=payload.operation_id, reserved_identity=payload.identity,
         )
     except (RecordPermissionError, RecordValidationError, RepositoryError) as exc:
+        if isinstance(exc, RepositoryError) and not isinstance(
+            exc, (RepositoryConflictError, RepositoryNotFoundError)
+        ):
+            logger.exception("Generischer CREATE für Modul %s fehlgeschlagen", module_key)
         raise_write_error(exc)
     return {**write_response(stored, module, user), "operation_id": payload.operation_id}
 
