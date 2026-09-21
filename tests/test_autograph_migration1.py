@@ -111,9 +111,28 @@ class AutographMigration1Test(unittest.TestCase):
         record, _ = transform_row(self.row(), 1, self.module)
         self.assertEqual(validate_record(record, RecordRuntime(self.module), "9.6.1"), [])
 
+    def test_migration_document_types_exist_in_real_vocabulary(self):
+        runtime = RecordRuntime(self.module)
+        record, _ = transform_row(self.row(), 1, self.module)
+        for term_id in (
+            "brief",
+            "visitenkarte",
+            "unbekannt",
+            "karte",
+            "partezettel",
+            "foto",
+            "sterbebildchen",
+            "ausweis",
+            "manuskript",
+        ):
+            with self.subTest(term_id=term_id):
+                record["erschliessung"]["dokumenttyp"]["id"] = term_id
+                runtime.validate_vocabulary_references(record)
+
     def test_vocabulary_error_reports_source_and_generated_values(self):
         source = self.row(Kategorie="Visitenkarte")
         record, _ = transform_row(source, 1, self.module)
+        record["erschliessung"]["dokumenttyp"]["id"] = "urkunde"
         errors = validate_record(record, RecordRuntime(self.module), "9.6.1", source.values)
         self.assertEqual(len(errors), 1)
         self.assertEqual(errors[0]["error_type"], "vocabulary")
@@ -121,11 +140,11 @@ class AutographMigration1Test(unittest.TestCase):
         self.assertEqual(errors[0]["source_value"], "Visitenkarte")
         self.assertEqual(
             errors[0]["generated_value"],
-            {"id": "visitenkarte", "vocabulary_id": "autographen_dokumenttypen"},
+            {"id": "urkunde", "vocabulary_id": "autographen_dokumenttypen"},
         )
         self.assertEqual(
             errors[0]["message"],
-            "erschliessung.dokumenttyp: Unbekannte Term-ID 'visitenkarte'.",
+            "erschliessung.dokumenttyp: Unbekannte Term-ID 'urkunde'.",
         )
 
     def test_signature_selection_rejects_duplicates_missing_and_263(self):

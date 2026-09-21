@@ -12,3 +12,10 @@ terms:
   - {id: notiz, label: Notiz, active: true, sort_order: 40}
   - {id: widmung, label: Widmung, active: true, sort_order: 50}
   - {id: sonstiges_dokument, label: Sonstiges Dokument, active: true, sort_order: 60}
+  - {id: visitenkarte, label: Visitenkarte, active: true, sort_order: 70}
+  - {id: unbekannt, label: Unbekannt, active: true, sort_order: 80}
+  - {id: karte, label: Karte, active: true, sort_order: 90}
+  - {id: partezettel, label: Partezettel, active: true, sort_order: 100}
+  - {id: foto, label: Foto, active: true, sort_order: 110}
+  - {id: sterbebildchen, label: Sterbebildchen, active: true, sort_order: 120}
+  - {id: ausweis, label: Ausweis, active: true, sort_order: 130}
