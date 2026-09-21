@@ -52,6 +52,40 @@ class ApplySafetyError(MigrationError):
     """A failed invariant that must stop preflight or apply."""
 
 
+class ReadOnlyRepositoryCache:
+    """Per-run cache that structurally forbids writes during preflight planning."""
+
+    def __init__(self, repository: DataRepository) -> None:
+        self.repository = repository
+        self.files: dict[str, RepositoryFile | None] = {}
+        self.directories: dict[str, tuple[RepositoryFile, ...]] = {}
+
+    def get_branch_head(self) -> str:
+        return self.repository.get_branch_head()
+
+    def read_file(self, path: str) -> RepositoryFile:
+        if path not in self.files:
+            try:
+                self.files[path] = self.repository.read_file(path)
+            except RepositoryNotFoundError:
+                self.files[path] = None
+        file = self.files[path]
+        if file is None:
+            raise RepositoryNotFoundError(path)
+        return file
+
+    def list_directory(self, path: str) -> list[RepositoryFile]:
+        if path not in self.directories:
+            self.directories[path] = tuple(self.repository.list_directory(path))
+        return list(self.directories[path])
+
+    def get_commit_parent(self, commit_sha: str) -> str:
+        return self.repository.get_commit_parent(commit_sha)
+
+    def commit_files(self, *, expected_head: str, files: dict[str, str], message: str) -> str:
+        raise ApplySafetyError("Read-only Preflight darf commit_files() nicht aufrufen.")
+
+
 @dataclass(frozen=True)
 class ApplyConfiguration:
     expected_source_sha256: str = EXPECTED_SOURCE_SHA256
@@ -294,28 +328,29 @@ def build_preflight(
 ) -> PreflightResult:
     source = source.resolve()
     artifacts_dir = artifacts_dir.resolve()
+    read_repository = ReadOnlyRepositoryCache(repository)
     verify_qa_artifacts(artifacts_dir)
     source_hash, module, records, schema_errors, vocabulary_errors, warnings = _validate_source_records(
-        source, repository, configuration,
+        source, read_repository, configuration,
     )
-    checked_head = repository.get_branch_head()
+    checked_head = read_repository.get_branch_head()
     if checked_head != configuration.expected_data_head:
         raise ApplySafetyError(
             f"Datenbranch-Head ist {checked_head}, erwartet {configuration.expected_data_head}."
         )
-    state, state_file, current_index = _assert_empty_repository_state(repository, module)
+    state, state_file, current_index = _assert_empty_repository_state(read_repository, module)
     plan = _build_write_plan(
         source_hash,
         checked_head,
         module,
         records,
-        repository,
+        read_repository,
         schema_errors,
         vocabulary_errors,
         warnings,
         configuration,
     )
-    final_head = repository.get_branch_head()
+    final_head = read_repository.get_branch_head()
     if final_head != checked_head:
         raise ApplySafetyError(
             f"Datenbranch-Head hat sich waehrend des Preflights geaendert: {checked_head} -> {final_head}."

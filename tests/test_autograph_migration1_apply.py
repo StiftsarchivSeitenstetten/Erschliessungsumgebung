@@ -135,6 +135,8 @@ class AutographMigration1ApplyTest(unittest.TestCase):
             "data/autographen/autograph-000002.md",
             self.index_path,
         })
+        for reference in self.module.vocabularies.values():
+            self.assertLessEqual(repository.read_file_calls.count(reference["repository_path"]), 1)
 
     def test_wrong_source_hash_aborts_without_repository_write(self):
         repository = self.repository()
