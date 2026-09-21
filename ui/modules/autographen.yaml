@@ -112,14 +112,6 @@ form:
           widget: date_range
           label: "Datum oder Datumsbereich"
           order: 10
-    - id: merkmale
-      label: "Merkmale"
-      order: 45
-      fields:
-        - path: korrespondenzstueck
-          widget: checkbox
-          label: "Korrespondenzstück"
-          order: 10
     - id: inhalt
       label: "Inhalt / Regest"
       order: 50
@@ -165,7 +157,6 @@ access:
     erschliessung.ort.name: *all_edit
     erschliessung.beteiligte: *all_edit
     datierung: *all_edit
-    korrespondenzstueck: *all_edit
     erschliessung.regest: *all_edit
     erschliessung.bemerkungen: *all_edit
     erschliessung.altsignatur: *all_edit
