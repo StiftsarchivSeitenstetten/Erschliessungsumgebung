@@ -108,11 +108,34 @@
           "enum": ["on_create", "reserve_before_create"]
         },
         "show_identity_suggestion": { "type": "boolean" },
+        "reserve_on_start": { "type": "boolean", "default": false },
+        "next_record": {
+          "type": "object", "additionalProperties": false,
+          "required": ["carry_fields", "focus_field"],
+          "properties": {
+            "carry_fields": {"type": "array", "items": {"$ref": "#/$defs/field_path"}, "uniqueItems": true},
+            "focus_field": {"$ref": "#/$defs/field_path"}
+          }
+        },
+        "workflow": {
+          "type": "object", "additionalProperties": false,
+          "required": ["status_path", "draft_status", "completed_status", "roles"],
+          "properties": {
+            "status_path": {"$ref": "#/$defs/field_path"},
+            "draft_status": {"type": "string"},
+            "completed_status": {"type": "string"},
+            "roles": {"$ref": "#/$defs/roles"}
+          }
+        },
         "server_values": {
           "type": "object",
           "additionalProperties": true
         }
-      }
+      },
+      "allOf": [{
+        "if": { "required": ["reserve_on_start"], "properties": { "reserve_on_start": { "const": true } } },
+        "then": { "properties": { "identity_assignment": { "const": "reserve_before_create" } } }
+      }]
     },
     "form": {
       "type": "object",
@@ -224,7 +247,7 @@
     "field_path": { "type": "string", "pattern": "^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+|\\[\\])*$" },
     "widget": {
       "type": "string",
-      "enum": ["text", "textarea", "select", "checkbox", "repeater", "date", "date_range", "vocabulary_select"]
+      "enum": ["text", "textarea", "select", "checkbox", "repeater", "date", "date_range", "vocabulary_select", "decimal", "text_select"]
     },
     "section": {
       "type": "object",
@@ -284,7 +307,11 @@
           "type": "array",
           "items": { "$ref": "#/$defs/field" }
         }
-      }
+      },
+      "allOf": [{
+        "if": { "properties": { "widget": { "const": "text_select" } }, "required": ["widget"] },
+        "then": { "properties": { "options": { "items": { "properties": { "value": { "type": "string" } } } } } }
+      }]
     },
     "option": {
       "type": "object",

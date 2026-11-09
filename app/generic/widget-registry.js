@@ -8,6 +8,7 @@ import {
 } from "./path-utils.js";
 import { canonicalTermReference, vocabularyFieldOptions, vocabularyTermId } from "./vocabulary-client.js?v=vocabulary-2";
 import "./date-text.js";
+import { decimalIssue, parseDecimal } from "./numeric-input.js?v=thoma-review-1";
 
 const dateText = globalThis.DateTextFields;
 
@@ -161,6 +162,60 @@ const checkboxWidget = {
   }
 };
 
+const decimalWidget = {
+  render(context) {
+    const input = element("input", {
+      id: context.inputId, type: "text", inputmode: "decimal",
+      "data-widget-control": "main", disabled: !editable(context)
+    });
+    input.value = String(context.value ?? "");
+    const message = element("p", { className: "errors", id: `${context.inputId}-error`, role: "status" });
+    input.setAttribute("aria-describedby", `${context.inputId}-error`);
+    const review = () => {
+      const issue = decimalIssue(context.field, parseDecimal(input.value));
+      input.setAttribute("aria-invalid", String(Boolean(issue)));
+      input.setCustomValidity?.(issue);
+      message.textContent = issue;
+      message.hidden = !issue;
+    };
+    input.addEventListener("input", review);
+    review();
+    return element("div", {}, [input, message]);
+  },
+  readValue(context, root) {
+    const input = root.querySelector("[data-widget-control='main']");
+    const value = parseDecimal(input.value);
+    const issue = decimalIssue(context.field, value);
+    input.setAttribute("aria-invalid", String(Boolean(issue)));
+    input.setCustomValidity?.(issue);
+    return value;
+  },
+  setValue(_context, root, value) {
+    const input = root.querySelector("[data-widget-control='main']");
+    input.value = String(value ?? "");
+    input.dispatchEvent(new Event("input"));
+  }
+};
+
+const textSelectWidget = {
+  render(context) {
+    const input = element("input", {
+      id: context.inputId, type: "text", list: `${context.inputId}-options`,
+      "data-widget-control": "main", disabled: !editable(context)
+    });
+    input.value = String(context.value ?? "");
+    const suggestions = element("datalist", { id: `${context.inputId}-options` });
+    (context.field.options || []).forEach(option => suggestions.append(element("option", { value: option.value })));
+    return element("div", {}, [input, suggestions]);
+  },
+  readValue(_context, root) {
+    return root.querySelector("[data-widget-control='main']").value;
+  },
+  setValue(_context, root, value) {
+    root.querySelector("[data-widget-control='main']").value = value ?? "";
+  }
+};
+
 const selectWidget = {
   render(context) {
     const select = element("select", { id: context.inputId, "data-widget-control": "main", disabled: !editable(context) });
@@ -305,8 +360,21 @@ function renumberRepeaterItems(list) {
   });
 }
 
-function renderRepeaterItem(context, item, index, originalIndex = null, inputIndex = index) {
-  const group = element("fieldset", { className: "generic-repeater-item", "data-original-index": originalIndex });
+export function repeaterItemDefaults(fields) {
+  const item = {};
+  (fields || []).filter(field => field.visible !== false).forEach(field => {
+    if (Object.prototype.hasOwnProperty.call(field, "default")) {
+      setLocalPathValue(item, field.path, cloneValue(field.default));
+    }
+  });
+  return item;
+}
+
+const repeaterRenderedValues = new WeakMap();
+
+function renderRepeaterItem(context, item, index, inputIndex = index) {
+  const group = element("fieldset", { className: "generic-repeater-item" });
+  repeaterRenderedValues.set(group, cloneValue(item));
   group.append(element("legend", { textContent: `Eintrag ${index + 1}` }));
   context.field.item_fields.forEach((itemField) => {
     if (itemField.visible === false) return;
@@ -330,13 +398,13 @@ const repeaterWidget = {
     const list = element("div", { className: "generic-repeater", id: context.inputId, "data-widget-control": "repeater" });
     const values = Array.isArray(context.value) ? context.value : [];
     let nextItemId = values.length;
-    values.forEach((item, index) => list.append(renderRepeaterItem(context, item, index, index)));
+    values.forEach((item, index) => list.append(renderRepeaterItem(context, item, index)));
     if (!values.length) list.append(element("p", { className: "generic-empty", textContent: "Keine Einträge." }));
     if (editable(context)) {
       const addButton = element("button", { type: "button", className: "secondary", textContent: "Eintrag hinzufügen" });
       addButton.addEventListener("click", () => {
         list.querySelector(".generic-empty")?.remove();
-        list.insertBefore(renderRepeaterItem(context, {}, list.querySelectorAll(".generic-repeater-item").length, null, nextItemId++), addButton);
+        list.insertBefore(renderRepeaterItem(context, repeaterItemDefaults(context.field.item_fields), list.querySelectorAll(":scope > .generic-repeater-item").length, nextItemId++), addButton);
       });
       list.append(addButton);
     }
@@ -345,10 +413,10 @@ const repeaterWidget = {
   readValue(context, root) {
     const list = root.querySelector("[data-widget-control='repeater']");
     return Array.from(list.querySelectorAll(":scope > .generic-repeater-item")).map((group) => {
-      const originalIndex = group.getAttribute("data-original-index");
-      const originalItem = originalIndex === null ? {} : context.originalValue?.[Number(originalIndex)] || {};
+      const originalItem = repeaterRenderedValues.get(group) || {};
       const item = cloneValue(originalItem);
       context.field.item_fields.forEach((itemField) => {
+        if (itemField.visible === false || itemField.editable !== true) return;
         const fieldRoot = group.querySelector(`[data-field-id='${itemField.id}']`);
         if (!fieldRoot) return;
         setLocalPathValue(item, itemField.path, context.readField(itemField, fieldRoot, getPathValue(originalItem, itemField.path)));
@@ -396,6 +464,8 @@ export function createDefaultWidgetRegistry() {
   registry.register("textarea", textareaWidget);
   registry.register("checkbox", checkboxWidget);
   registry.register("select", selectWidget);
+  registry.register("decimal", decimalWidget);
+  registry.register("text_select", textSelectWidget);
   registry.register("date", dateWidget);
   registry.register("date_range", dateRangeWidget);
   registry.register("vocabulary_select", vocabularySelectWidget);

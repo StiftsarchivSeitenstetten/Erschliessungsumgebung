@@ -1,6 +1,7 @@
 """The generic write routes are exercised only with an in-memory repository."""
 
 from copy import deepcopy
+from dataclasses import replace
 import json
 from pathlib import Path
 import tempfile
@@ -29,6 +30,41 @@ from tests.test_records_api import sample_record
 class FailingRepository(InMemoryGitRepository):
     def commit_files(self, *, expected_head, files, message):
         raise RepositoryError("Test-Persistenzfehler")
+
+
+class RecordContentTest(unittest.TestCase):
+    def test_yaml_roundtrip_preserves_types_and_discards_markdown_body(self):
+        record = {
+            "id": "000001", "datum": "2026-11-09",
+            "zeit": "2026-11-09T10:00:00Z", "zahlentext": "12.50",
+            "text": "Größe und Breite\nZweite Zeile: Ölbild\n",
+            "masse": [{"hoehe": 12.5, "breite": 8, "bemerkung": None}],
+            "kennung": "Thoma000001", "leer": {}, "liste": [],
+        }
+        previous = "---\nid: alt\n---\nMarkdown-Body\n"
+        for extension in (".yaml", ".yml"):
+            with self.subTest(extension=extension):
+                content = render_record_content(record, previous, path=f"data/test/000001{extension}")
+                self.assertFalse(content.startswith("---"))
+                self.assertNotIn("Markdown-Body", content)
+                self.assertIn("Größe", content)
+                parsed = parse_record_content(content)
+                self.assertEqual(parsed, record)
+                self.assertIs(type(parsed["datum"]), str)
+                self.assertIs(type(parsed["zeit"]), str)
+                self.assertIs(type(parsed["id"]), str)
+                self.assertIs(type(parsed["masse"][0]["hoehe"]), float)
+                self.assertIs(type(parsed["masse"][0]["breite"]), int)
+
+    def test_markdown_output_and_body_are_unchanged(self):
+        record = {"id": "test-0001", "text": "Ölbild"}
+        expected = "---\n" + yaml.safe_dump(record, allow_unicode=True, sort_keys=False) + "---\n"
+        self.assertEqual(render_record_content(record), expected)
+        body = "\n# Überschrift\n\nFreitext\n---\nWeiterer Text\n"
+        self.assertEqual(
+            render_record_content(record, "---\nid: alt\n---\n" + body, path="data/test/test-0001.md"),
+            expected + body,
+        )
 
 
 class GenericWriteApiTest(unittest.TestCase):
@@ -291,6 +327,24 @@ class GenericWriteApiTest(unittest.TestCase):
         updated = self.put("reserve-0001", payload, created.json()["meta"]["revision"], module="runtime_reserve")
         self.assertEqual(updated.status_code, 200, updated.text)
         self.assertEqual(updated.json()["record"]["daten"]["name"], "Nach Create")
+
+    def test_early_reservation_descriptor_never_displays_unreserved_suggestions(self):
+        self.login(modules=["runtime_reserve"])
+        self.reserve_module = replace(self.reserve_module, create_strategy={
+            "identity_assignment": "reserve_before_create",
+            "reserve_on_start": True,
+            "show_identity_suggestion": True,
+        })
+        before = deepcopy(self.repo.files)
+        response = self.client.get("/api/modules/runtime_reserve")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIsNone(response.json()["identity_suggestion"])
+        self.assertNotIn("id", response.json()["empty_record"])
+        self.assertEqual(self.repo.files, before)
+        reserved = self.reserve("early-without-description", record={})
+        self.assertEqual(reserved.status_code, 200, reserved.text)
+        self.assertEqual(reserved.json()["record_id"], "reserve-0001")
+
 
     def test_reservation_enforces_strategy_access_identity_and_atomic_state(self):
         self.assertEqual(self.client.post(
@@ -599,6 +653,52 @@ class GenericWriteApiTest(unittest.TestCase):
         response = self.put("test-0001", valid_payload(), revision)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertTrue(self.repo.files[path].endswith("Zusaetzlicher Freitext.\n"))
+
+    def test_yaml_create_update_revision_index_and_conflict(self):
+        self.login()
+        for extension in (".yaml", ".yml"):
+            with self.subTest(extension=extension):
+                storage = deepcopy(self.test_module.storage)
+                storage["filename"]["extension"] = extension
+                storage["index"] = {"path": "indexes/generic/runtime-test.json"}
+                self.test_module = replace(self.test_module, storage=storage)
+                index_path = storage["index"]["path"]
+                self.repo.files[index_path] = dump_index(make_index(self.test_module, []))
+                payload = valid_payload()
+                payload["daten"]["name"] = "Größe\nÖlbild"
+                created = self.post(payload)
+                self.assertEqual(created.status_code, 201, created.text)
+                data = created.json()
+                record_id = data["record_id"]
+                path = f"data/test/{record_id}{extension}"
+                revision = data["meta"]["revision"]
+                self.assertFalse(self.repo.files[path].startswith("---"))
+                self.assertEqual(parse_record_content(self.repo.files[path])["daten"]["name"], payload["daten"]["name"])
+                self.assertEqual(revision, self.repo.read_file(path).revision)
+                entry = json.loads(self.repo.files[index_path])["records"][0]
+                self.assertEqual(entry["record_id"], record_id)
+                self.assertEqual(entry["revision"], revision)
+                self.assertEqual(self.repo.commits[-1]["files"], sorted([path, index_path, storage["state"]["path"]]))
+
+                payload["daten"]["name"] = "Überarbeitet"
+                updated = self.put(record_id, payload, revision)
+                self.assertEqual(updated.status_code, 200, updated.text)
+                new_revision = updated.json()["meta"]["revision"]
+                self.assertNotEqual(new_revision, revision)
+                self.assertEqual(new_revision, self.repo.read_file(path).revision)
+                self.assertFalse(self.repo.files[path].startswith("---"))
+                entry = json.loads(self.repo.files[index_path])["records"][0]
+                self.assertEqual(entry["revision"], new_revision)
+                self.assertEqual(entry["values"]["daten.name"], "Überarbeitet")
+                self.assertEqual(self.repo.commits[-1]["files"], sorted([path, index_path]))
+                loaded = self.client.get(f"/api/modules/runtime_test/records/{record_id}")
+                self.assertEqual(loaded.status_code, 200, loaded.text)
+                self.assertEqual(loaded.json()["record"]["daten"]["name"], "Überarbeitet")
+                before = deepcopy(self.repo.files)
+                commits = len(self.repo.commits)
+                self.assertEqual(self.put(record_id, payload, revision).status_code, 409)
+                self.assertEqual(self.repo.files, before)
+                self.assertEqual(len(self.repo.commits), commits)
 
     def test_photo_module_create_update_and_permissions_stay_in_memory(self):
         self.login(modules=[MODULE_FOTO_PAPIERABZUEGE])

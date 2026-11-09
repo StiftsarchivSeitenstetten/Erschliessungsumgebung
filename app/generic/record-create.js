@@ -65,10 +65,11 @@ export async function reserveQueuedRecordIdentity(entry, csrfToken, request = (u
     method: "POST",
     credentials: "same-origin",
     headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken},
-    body: JSON.stringify({operation_id: entry.operation_id, record: entry.snapshot})
+    body: JSON.stringify({operation_id: entry.operation_id, record: entry.identity_inputs ?? entry.snapshot})
   });
   const data = await checkedJson(response);
-  if (data.module !== entry.module_id || data.operation_id !== entry.operation_id || !data.record_id || !data.identity) {
+  if (data.module !== entry.module_id || data.operation_id !== entry.operation_id || !data.record_id ||
+      !data.identity || typeof data.identity !== "object" || Array.isArray(data.identity) || data.identity.id !== data.record_id) {
     throw new Error("Reservationsantwort unvollständig. Der Queue-Eintrag bleibt erhalten.");
   }
   return data;
@@ -79,7 +80,7 @@ export async function sendQueuedRecordCreate(entry, csrfToken, request = (url, o
     method: "POST",
     credentials: "same-origin",
     headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken},
-    body: JSON.stringify({record: entry.snapshot, operation_id: entry.operation_id, identity: entry.identity})
+    body: JSON.stringify({...(entry.action ? {action: entry.action} : {}), record: entry.snapshot, operation_id: entry.operation_id, identity: entry.identity})
   });
   const data = await checkedJson(response);
   if (data.module !== entry.module_id || data.operation_id !== entry.operation_id || !data.record_id || !data.record || !data.meta?.revision) {

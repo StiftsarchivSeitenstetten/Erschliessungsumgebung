@@ -1,4 +1,4 @@
-import { SERVER_MANAGED_PATHS } from "./form-state.js";
+import { SERVER_MANAGED_PATHS } from "./form-state.js?v=thoma-review-1";
 import { cloneValue, getPathValue, valuesEqual } from "./path-utils.js";
 
 const STORAGE_PREFIX = "erschliessung.genericPreset.v1";

@@ -87,3 +87,31 @@ assert.ok(cells[0].children[0].href.includes('record=other-2'));
 renderRecordList(container,descriptor,[],()=>{});
 assert.equal(container.textContent,'Keine Treffer.');
 console.log('Configured table rendering and record opening assertions passed');
+
+const inventory = new ResultState("sammlung_thoma");
+inventory.contextTracked = true;
+inventory.searchContext = false;
+inventory.replace(["Thoma000010", "Thoma000001", "Thoma000003"].map(record_id => ({record_id})), {});
+inventory.recordId = "Thoma000003";
+assert.equal(inventory.neighbor(-1), "Thoma000001");
+assert.equal(inventory.neighbor(1), "Thoma000010");
+inventory.searchContext = true;
+assert.equal(inventory.neighbor(-1), "Thoma000001");
+assert.equal(inventory.neighbor(1), null);
+assert.match(inventory.queryString(), /search=1/);
+inventory.recordId = "outside";
+assert.equal(inventory.neighbor(1), null);
+inventory.searchContext = false;
+inventory.records = ["autograph-10", "autograph-2", "autograph-1"].map(record_id => ({record_id}));
+inventory.recordId = "autograph-2";
+assert.equal(inventory.neighbor(1), "autograph-10");
+inventory.creating = true;
+assert.equal(inventory.neighbor(1), null);
+
+const optionalState = new FormState({fields:[
+  {path:'erschliessung.ort.name', visible:true, editable:true, required:false},
+  {path:'erschliessung.interne_bemerkung', visible:true, editable:true, required:false}
+]}, {erschliessung:{interne_bemerkung:'Bestand'}});
+optionalState.setValue('erschliessung.ort.name','');
+optionalState.setValue('erschliessung.interne_bemerkung','');
+assert.deepEqual(optionalState.buildPayload(), {erschliessung:{interne_bemerkung:''}});

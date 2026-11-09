@@ -46,6 +46,7 @@ vocabulary_router = APIRouter(prefix="/api/vocabularies", tags=["vocabularies"])
 
 
 class GenericUpdateRequest(BaseModel):
+    action: str | None = None
     model_config = ConfigDict(extra="forbid")
 
     record: dict[str, Any] = Field(default_factory=dict)
@@ -53,6 +54,7 @@ class GenericUpdateRequest(BaseModel):
 
 
 class GenericCreateRequest(BaseModel):
+    action: str | None = None
     model_config = ConfigDict(extra="forbid")
 
     operation_id: str
@@ -390,7 +392,7 @@ def create_module_record(
             defaults.update(provider(module, user, payload.record))
         stored = create_generic_record(
             get_data_repository(request), module, payload.record, user, defaults,
-            operation_id=payload.operation_id, reserved_identity=payload.identity,
+            operation_id=payload.operation_id, reserved_identity=payload.identity, action=payload.action,
         )
     except (RecordPermissionError, RecordValidationError, RepositoryError) as exc:
         if isinstance(exc, RepositoryError) and not isinstance(
@@ -399,6 +401,38 @@ def create_module_record(
             logger.exception("Generischer CREATE für Modul %s fehlgeschlagen", module_key)
         raise_write_error(exc)
     return {**write_response(stored, module, user), "operation_id": payload.operation_id}
+
+
+class ValidateActionRequest(GenericCreateRequest):
+    record_id: str | None = None
+    base_revision: str | None = None
+
+
+@router.post("/{module_key}/validate-action", dependencies=[Depends(require_csrf)])
+def validate_record_action(module_key: str, payload: ValidateActionRequest, request: Request,
+                          user: User = Depends(require_authenticated_user)):
+    module = load_authorized_module(module_key, user)
+    require_generic_write_enabled(request, module.access_key)
+    repository = get_data_repository(request)
+    runtime = RecordRuntime(module, repository)
+    try:
+        if payload.record_id:
+            from ..records.generic_read import read_generic_record
+            stored = read_generic_record(repository, module, payload.record_id)
+            if stored.revision != payload.base_revision:
+                raise RepositoryConflictError("Datensatz wurde zwischenzeitlich geaendert.")
+            runtime.prepare_update(stored.data, payload.record, user, action=payload.action)
+        else:
+            from ..records.module_state import ModuleState
+            from ..records.identity import reservation_from_state
+            reservation = reservation_from_state(ModuleState(repository, module), module, payload.operation_id, payload.record)
+            if reservation is None or reservation.identity != payload.identity:
+                raise RecordValidationError(["Bestaetigte Reservierung fehlt."])
+            values = {**module.create_strategy.get("server_values", {}), **reservation.identity, "datensatz_typ": module.record_type}
+            runtime.prepare_create(payload.record, user, values, action=payload.action)
+    except (RecordPermissionError, RecordValidationError, RepositoryError) as exc:
+        raise_write_error(exc)
+    return {"valid": True}
 
 
 @router.post(
@@ -442,7 +476,7 @@ def update_module_record(
     module = load_authorized_module(module_key, user)
     require_generic_write_enabled(request, module.access_key)
     try:
-        stored = update_generic_record(get_data_repository(request), module, record_id, payload.record, payload.base_revision or "", user)
+        stored = update_generic_record(get_data_repository(request), module, record_id, payload.record, payload.base_revision or "", user, action=payload.action)
     except (RecordPermissionError, RecordValidationError, RepositoryError) as exc:
         raise_write_error(exc)
     return write_response(stored, module, user)
@@ -464,7 +498,7 @@ def module_access(
         partition_path = module.signature_strategy.get("partition_field", "signatur.format")
         set_path_value(empty_record, partition_path, signature_partition)
     can_suggest = signature_partition is not None or len(partitions) <= 1
-    if module.create_strategy.get("show_identity_suggestion") and can_suggest:
+    if module.create_strategy.get("show_identity_suggestion") and not module.create_strategy.get("reserve_on_start") and can_suggest:
         try:
             suggested_values = suggest_server_values(module, empty_record, ModuleState(repository, module))
         except RecordValidationError as exc:

@@ -4,6 +4,8 @@ export class ResultState {
   constructor(module, sort = null) {
     this.module = module;
     this.sort = sort;
+    this.searchContext = true;
+    this.contextTracked = false;
     this.q = "";
     this.lookupField = "";
     this.lookupValue = "";
@@ -14,8 +16,11 @@ export class ResultState {
   }
   get position() { return this.records.findIndex(row => row.record_id === this.recordId); }
   neighbor(offset) {
-    const position = this.position;
-    return position < 0 ? null : this.records[position + offset]?.record_id || null;
+    if (this.creating) return null;
+    const records = this.searchContext ? this.records : [...this.records].sort((a, b) =>
+      a.record_id.localeCompare(b.record_id, 'de', {numeric: true}) || (a.record_id < b.record_id ? -1 : a.record_id > b.record_id ? 1 : 0));
+    const position = records.findIndex(row => row.record_id === this.recordId);
+    return position < 0 ? null : records[position + offset]?.record_id || null;
   }
   replace(records, query) {
     this.records = records;
@@ -24,6 +29,7 @@ export class ResultState {
   }
   queryString() {
     const query = new URLSearchParams();
+    if (this.contextTracked && this.searchContext) query.set("search", "1");
     if (this.q) query.set("q", this.q);
     if (this.lookupField && this.lookupValue) {
       query.set("lookup_field", this.lookupField);
@@ -55,7 +61,7 @@ export function listValue(value) {
   return formatStructuredValue(value);
 }
 
-export function renderRecordList(container, descriptor, records, openRecord) {
+export function renderRecordList(container, descriptor, records, openRecord, contextQuery = "") {
   container.replaceChildren();
   if (!records.length) {
     container.textContent = "Keine Treffer.";
@@ -75,7 +81,9 @@ export function renderRecordList(container, descriptor, records, openRecord) {
   records.forEach(record => {
     const row = body.insertRow();
     const link = document.createElement("a");
-    const query = new URLSearchParams({ module: descriptor.module, record: record.record_id });
+    const query = new URLSearchParams(contextQuery);
+    query.set("module", descriptor.module);
+    query.set("record", record.record_id);
     link.href = `/app/module/?${query}`;
     link.textContent = listValue(record.values?.[columns[0].path]) || record.record_id;
     link.dataset.recordId = record.record_id;

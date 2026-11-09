@@ -81,6 +81,7 @@ class IndexPlan:
         self.filters = [field["path"] for field in module.search_config.get("filters", [])]
         self.sort = module.list_config.get("default_sort") or module.search_config.get("default_sort") or {"path": "id", "direction": "asc"}
         self.paths = sorted(set(self.columns + self.fulltext + self.lookups + self.filters + [self.sort["path"]]))
+        self.fields_by_path = {path: module.field_for_path(path) for path in self.paths}
         schema = json.loads(module.schema_path.read_text(encoding="utf-8"))
         core = json.loads((ROOT / "schemas/core-datatypes.schema.json").read_text(encoding="utf-8"))
         resolver = RefResolver.from_schema(schema, store={core["$id"]: core})
@@ -126,8 +127,19 @@ class IndexPlan:
     def visible(self, path, role):
         if path == "id":
             return True
-        candidates = [field for field in self.module.fields if path == field.path or path.startswith(field.path + ".")]
-        return bool(candidates) and max(candidates, key=lambda field: len(field.path)).can_view(role)
+        field = self.fields_by_path.get(path)
+        return field is not None and field.can_view(role)
+
+    def role_value(self, path, value, role):
+        field = self.fields_by_path.get(path)
+        return field.visible_value(value, role) if field is not None else deepcopy(value)
+
+    def role_text(self, path, entry, role, kind="search"):
+        field = self.fields_by_path.get(path)
+        if field is not None and field.has_hidden_items(role):
+            value = self.role_value(path, entry["values"][path], role)
+            return self.normalized(path, value) if kind == "search" else normalized_text(value)
+        return entry[kind][path]
 
     def entry(self, record, revision):
         values = {path: path_value(record, path) for path in self.paths}
@@ -249,17 +261,18 @@ def query_index(module, index, role, *, q="", lookup_field=None, lookup_value=No
     terms = normalized_text(q).split()
     entries = []
     for entry in index["records"]:
-        text = " ".join(value for path, value in entry["search"].items() if plan.visible(path, role))
+        text = " ".join(plan.role_text(path, entry, role)
+            for path in entry["search"] if plan.visible(path, role))
         if not all(term in text for term in terms):
             continue
-        if lookup_field is not None and entry["lookup"][lookup_field] != normalized_text(lookup_value):
+        if lookup_field is not None and plan.role_text(lookup_field, entry, role, "lookup") != normalized_text(lookup_value):
             continue
         entries.append(entry)
     sort_path = plan.sort["path"]
     if not plan.visible(sort_path, role):
         sort_path = "id"
-    entries.sort(key=lambda entry: (natural_key(entry["record_id"] if sort_path == "id" else entry["values"][sort_path]), entry["record_id"]),
+    entries.sort(key=lambda entry: (natural_key(entry["record_id"] if sort_path == "id" else plan.role_value(sort_path, entry["values"][sort_path], role)), entry["record_id"]),
                  reverse=plan.sort.get("direction") == "desc")
     return [{"record_id": entry["record_id"],
-             "values": {path: entry["values"][path] for path in plan.columns if plan.visible(path, role)},
+             "values": {path: plan.role_value(path, entry["values"][path], role) for path in plan.columns if plan.visible(path, role)},
              "meta": {"revision": entry["revision"]}} for entry in entries]

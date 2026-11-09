@@ -1,4 +1,5 @@
 import { cloneValue, getPathValue, setPathValue, valuesEqual } from "./path-utils.js";
+import { decimalIssue } from "./numeric-input.js?v=thoma-review-1";
 
 export const SERVER_MANAGED_PATHS = new Set([
   "id",
@@ -21,9 +22,85 @@ function editableFields(moduleDescriptor) {
 export function buildEditableSnapshot(moduleDescriptor, recordData = {}) {
   const snapshot = {};
   editableFields(moduleDescriptor).forEach((field) => {
-    setPathValue(snapshot, field.path, cloneValue(getPathValue(recordData, field.path)));
+    const value = getPathValue(recordData, field.path);
+    setPathValue(snapshot, field.path, editableFieldValue(field, value));
   });
   return snapshot;
+}
+
+function hasProtectedItems(field) {
+  return (field.item_fields || []).some(child => child.visible === false || child.editable !== true || hasProtectedItems(child));
+}
+
+function editableFieldValue(field, value) {
+  requireCanonicalRepeater(field, value);
+  if (field.widget !== "repeater" || !Array.isArray(value) || !hasProtectedItems(field)) return cloneValue(value);
+  return value.map(item => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return cloneValue(item);
+    const result = {};
+    editableFields({fields: field.item_fields || []}).forEach(child => {
+      const childValue = getPathValue(item, child.path);
+      if (childValue !== undefined) setPathValue(result, child.path, editableFieldValue(child, childValue));
+    });
+    return result;
+  });
+}
+
+function requireCanonicalRepeater(field, value, {snapshot = false, path = field.path} = {}) {
+  if (field.widget !== "repeater" || !hasProtectedItems(field)) return;
+  if (field.repeater_policy !== "constants") throw new Error(`${path}: Geschützte Wiederholfelder ohne erforderliche Schema-Konstanten werden nicht unterstützt.`);
+  for (const [index, item] of (Array.isArray(value) ? value : []).entries()) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const children = field.item_fields || [];
+    const declared = new Set(children.map(child => child.path));
+    const checkPaths = (node, prefix = "") => {
+      for (const [key, entry] of Object.entries(node)) {
+        const relative = prefix ? `${prefix}.${key}` : key;
+        if (declared.has(relative)) continue;
+        if (!children.some(child => child.path.startsWith(relative + ".")) || !entry || typeof entry !== "object" || Array.isArray(entry)) {
+          throw new Error(`${path}.${index}.${relative}: Nicht deklarierte lokale Zeileninformation kann nicht sicher wiederhergestellt werden.`);
+        }
+        checkPaths(entry, relative);
+      }
+    };
+    checkPaths(item);
+    for (const child of children) {
+      const current = getPathValue(item, child.path);
+      const fullPath = `${path}.${index}.${child.path}`;
+      if (child.editable === true && child.visible !== false) {
+        requireCanonicalRepeater(child, current, {snapshot, path: fullPath});
+      } else if (child.visible !== false) {
+        if (!child.required || !Object.hasOwn(child, "const")) throw new Error(`${fullPath}: Erforderliches Schema-const fehlt.`);
+        if (current !== undefined && (snapshot || !valuesEqual(current, child.const))) throw new Error(`${fullPath}: Geschützter lokaler Wert kann nicht übernommen werden.`);
+      } else if (current !== undefined) {
+        throw new Error(`${fullPath}: Unsichtbarer lokaler Wert kann nicht übernommen werden.`);
+      }
+    }
+  }
+}
+
+export function validateRepeaterSnapshot(moduleDescriptor, snapshot) {
+  editableFields(moduleDescriptor).forEach(field => requireCanonicalRepeater(field,
+    getPathValue(snapshot, field.path), {snapshot: true}));
+}
+
+// Display-only values come exclusively from visible required schema constants.
+// No row from a baseline is ever paired with an edited row.
+function restoreProtectedValues(field, value) {
+  requireCanonicalRepeater(field, value);
+  if (field.widget !== "repeater" || !Array.isArray(value) || !hasProtectedItems(field)) return cloneValue(value);
+  return value.map(item => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return cloneValue(item);
+    const result = cloneValue(item);
+    (field.item_fields || []).forEach(child => {
+      if (child.visible === false) return;
+      const current = getPathValue(result, child.path);
+      if (child.editable === true) {
+        if (current !== undefined) setPathValue(result, child.path, restoreProtectedValues(child, current));
+      } else setPathValue(result, child.path, cloneValue(child.const));
+    });
+    return result;
+  });
 }
 
 function isEmptyOptionalCreateValue(value) {
@@ -78,6 +155,14 @@ function optionValues(field) {
 }
 
 function validateField(field, value, path, errors) {
+  if (field.visible === false || field.editable !== true) return;
+  if (field.widget === "decimal") {
+    const message = decimalIssue(field, value);
+    if (message) errors.push({ path, message, input: true });
+  }
+  if (field.widget === "text_select" && field.required && (typeof value !== "string" || !value.trim())) {
+    errors.push({ path, message: "Pflichtfeld ist leer.", input: true });
+  }
   if (field.required && isEmptyRequired(value)) {
     errors.push({ path, message: "Pflichtfeld ist leer." });
   }
@@ -122,6 +207,7 @@ export class FormState {
   }
 
   reset(recordData = this.serverSnapshot) {
+    this.canonicalRecord = cloneValue(recordData) || {};
     this.serverSnapshot = cloneValue(recordData) || {};
     this.workingRecord = cloneValue(recordData) || {};
     this.pendingSnapshot = null;
@@ -156,22 +242,32 @@ export class FormState {
   }
 
   buildPayload(recordData = this.workingRecord) {
-    return buildEditableSnapshot(this.moduleDescriptor, recordData);
+    const snapshot = buildEditableSnapshot(this.moduleDescriptor, recordData);
+    editableFields(this.moduleDescriptor).forEach(field => {
+      if (!field.required && !hasPath(this.canonicalRecord, field.path) && isEmptyOptionalCreateValue(getPathValue(snapshot, field.path))) {
+        deletePathAndEmptyParents(snapshot, field.path);
+      }
+    });
+    return snapshot;
   }
 
   loadWorkingSnapshot(snapshot) {
+    validateRepeaterSnapshot(this.moduleDescriptor, snapshot);
     editableFields(this.moduleDescriptor).forEach((field) => {
-      setPathValue(this.workingRecord, field.path, cloneValue(getPathValue(snapshot, field.path)));
+      setPathValue(this.workingRecord, field.path, restoreProtectedValues(field,
+        getPathValue(snapshot, field.path)));
     });
   }
 
-  beginSave() {
+  beginSave(options) {
+    this.requireValidInputs(options);
     this.pendingSnapshot = cloneValue(this.workingRecord) || {};
     this.pendingCreatePayload = null;
     return this.buildPayload(this.pendingSnapshot);
   }
 
-  beginCreateSave() {
+  beginCreateSave(options) {
+    this.requireValidInputs(options);
     this.pendingSnapshot = cloneValue(this.workingRecord) || {};
     this.pendingCreatePayload = buildCreateSnapshot(this.moduleDescriptor, this.pendingSnapshot);
     return cloneValue(this.pendingCreatePayload);
@@ -182,18 +278,21 @@ export class FormState {
     const pending = this.pendingSnapshot;
     const latest = this.workingRecord;
     const confirmed = cloneValue(confirmedRecord) || {};
+    this.buildPayload(confirmed);
     const acknowledged = cloneValue(confirmed) || {};
     editableFields(this.moduleDescriptor).forEach((field) => {
-      if (this.pendingCreatePayload !== null && !hasPath(this.pendingCreatePayload, field.path)) return;
-      setPathValue(acknowledged, field.path, cloneValue(getPathValue(pending, field.path)));
+      if (this.pendingCreatePayload !== null && !hasPath(this.pendingCreatePayload, field.path) && !this.moduleDescriptor.create?.workflow) return;
+      setPathValue(acknowledged, field.path, restoreProtectedValues(field,
+        getPathValue(pending, field.path)));
     });
     const nextWorking = cloneValue(acknowledged) || {};
     editableFields(this.moduleDescriptor).forEach((field) => {
       const latestValue = getPathValue(latest, field.path);
       if (!valuesEqual(latestValue, getPathValue(pending, field.path))) {
-        setPathValue(nextWorking, field.path, cloneValue(latestValue));
+        setPathValue(nextWorking, field.path, restoreProtectedValues(field, latestValue));
       }
     });
+    this.canonicalRecord = cloneValue(confirmed);
     this.serverSnapshot = acknowledged;
     this.workingRecord = nextWorking;
     this.pendingSnapshot = null;
@@ -219,5 +318,23 @@ export class FormState {
       validateField(field, value, field.path, errors);
     });
     return errors;
+  }
+
+  isFreeTextInput(path) {
+    const parts = path.split(".").filter(part => !/^\d+$/.test(part));
+    let fields = this.moduleDescriptor.fields;
+    let field;
+    while (parts.length) {
+      field = fields?.find(candidate => parts.slice(0, candidate.path.split(".").length).join(".") === candidate.path);
+      if (!field) return false;
+      parts.splice(0, field.path.split(".").length);
+      fields = field.item_fields;
+    }
+    return field?.widget === "text_select";
+  }
+
+  requireValidInputs({draft = false} = {}) {
+    const errors = this.validate().filter(error => error.input && !(draft && error.path && this.isFreeTextInput(error.path)));
+    if (errors.length) throw new Error(errors.map(error => `${error.path}: ${error.message}`).join(" "));
   }
 }

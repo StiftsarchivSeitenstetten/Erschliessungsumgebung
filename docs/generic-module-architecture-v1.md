@@ -744,3 +744,47 @@ Weitere Einzelheiten stehen in `docs/autographen-9-6.md`.
 Der Foto-Pilot bleibt der verbindliche Regressionstest. Vor jedem größeren Refactoring müssen die bestehenden Tests grün sein. Neue generische Infrastruktur bekommt eigene Tests, bevor bestehende Foto-Logik darauf umgestellt wird.
 
 Der aktuelle Schritt baut eine generische ID-/Signaturengine, schaltet die generische Schreib-API aber nicht für den Produktivbetrieb frei. `foto_papierabzuege` bleibt als Zugriffsschlüssel erhalten; die bestehende Foto-API, die bestehende Foto-Erfassungsmaske und die bestehenden YAML-/Markdown-Daten werden nicht migriert.
+
+
+## Unterstützungsgrenze gemischt editierbarer Repeater (Lösungsweg B)
+
+Repeater haben keine dauerhafte Zeilenidentität. Weder Backend noch lokale
+Wiederherstellung dürfen deshalb Zeilen anhand ihrer Arrayposition mit einem
+früheren Datensatz zusammenführen. Vollständig editierbare Repeater ersetzen
+weiterhin die ganze Liste, einschließlich ihrer strukturierten, nicht einzeln
+als Formularfeld dargestellten Werte (Autographen/Fotos). Sie erhalten keine
+zusätzliche zeilenbezogene Schutzwirkung.
+
+Bei eingeschränkten Unterfeldrechten prüft `backend/modules/repeater.py` rekursiv
+Schema und effektive Rollenrechte. Jedes geschützte oder im gemischten
+Zeilenschema nicht deklarierte Feld muss über seine gesamte Objektpfadkette
+`required` und durch ein unmittelbares, eindeutiges `const` bestimmt sein.
+Ein Default, Enum mit einem Eintrag oder gleichbleibende Zeilenanzahl genügen
+nicht. Verschachtelte editierbare Repeater werden ebenso geprüft. Offene
+Objektstrukturen, bedingte/alternative Zeilenstrukturen und vollständig geschützte
+strukturierte Untergruppen werden konservativ abgelehnt. Explizite Rechte für
+nicht deklarierte Repeaterfelder sind ebenfalls unzulässig. Fehler nennen Rolle,
+Feldpfad und Ursache. Die Registry protokolliert und überspringt ausschließlich
+das betroffene unsichere Modul; andere Module bleiben verfügbar.
+
+Der Writer ergänzt ausschließlich kanonische Konstanten, niemals Bestandswerte
+nach Position. Vor dem Ersetzen prüft er **alle** alten gemischten Zeilen, auch
+entfernte: fehlende/abweichende Konstanten und unbekannte Bestandsinformationen
+führen zur Ablehnung. Geschützte Clientfelder bleiben verboten, auch bei richtigem
+Konstantenwert. Sichtbare Konstanten liefert der Descriptor als `const`;
+unsichtbare Konstanten und nicht deklarierte geschützte Werte bleiben auf dem
+Server. Das Frontend rekonstruiert nur sichtbare erforderliche Konstanten.
+Thoma unterstützt damit weiterhin beliebiges Hinzufügen/Entfernen von Maßgruppen
+mit der kanonischen Einheit `mm`. Fachliche Mindestgruppenregeln gelten weiterhin.
+
+Queue-Snapshots werden nicht migriert, umgeschrieben oder pauschal gelöscht.
+Gültige bisherige Thoma-Snapshots mit ausschließlich editierbaren Daten bleiben
+verwendbar. Vor erneutem Versand werden Descriptor und Snapshot geprüft;
+unsichere Aufträge pausieren mit Ursache und bleiben erhalten. Bei unklarem
+Übertragungsergebnis bleibt die Ungewissheit erhalten: Update-Read-back erfolgt
+vor einer möglichen Wiederholung; Creates behalten Operations-ID und originalen
+Snapshot. Unsichere unklare Creates werden nicht blind erneut versendet.
+Ein schon angewendetes Update kann über den bestehenden Read-back bestätigt
+werden. Dies ist eine sichere Begrenzung unterstützter Fälle, keine allgemeine
+Lösung für variable geschützte Zeilenwerte. Solche Werte benötigen künftig
+verlässliche, serverseitig geprüfte Zeilenidentität und einen gesonderten Auftrag.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
+from pathlib import PurePosixPath
 from typing import Any
 
 import yaml
@@ -19,7 +20,11 @@ from .runtime import RecordRuntime, RecordValidationError
 from .strategies import allocate_server_values
 
 
-def render_record_content(record: dict[str, Any], previous_content: str | None = None) -> str:
+def render_record_content(
+    record: dict[str, Any], previous_content: str | None = None, *, path: str = "record.md",
+) -> str:
+    if PurePosixPath(path).suffix in {".yaml", ".yml"}:
+        return yaml.safe_dump(record, allow_unicode=True, sort_keys=False)
     body = ""
     if previous_content and previous_content.startswith("---\n"):
         _, separator, previous_body = previous_content[4:].partition("\n---\n")
@@ -47,14 +52,18 @@ def create_generic_record(
     server_values: Mapping[str, Any] | None = None,
     operation_id: str | None = None,
     reserved_identity: Mapping[str, Any] | None = None,
+    action: str | None = None,
 ) -> GenericStoredRecord:
     if operation_id is not None:
         validate_operation_id(operation_id)
     head = repository.get_branch_head()
     state = ModuleState(repository, module)
     RecordRuntime(module, repository).filter_for_edit(payload, user.role)
+    RecordRuntime(module, repository).apply_action({}, action, user)
     request_identity = dict(reserved_identity) if reserved_identity is not None else None
     create_request = {"record": deepcopy(payload), "identity": request_identity}
+    if action is not None:
+        create_request["action"] = action
     existing_operation = state.create_operation(operation_id) if operation_id is not None else None
     if existing_operation is not None:
         if existing_operation.get("request") != create_request:
@@ -87,7 +96,7 @@ def create_generic_record(
     if not isinstance(record_id, str) or not record_id or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for char in record_id):
         raise RecordValidationError(["Serverseitige technische ID fehlt oder ist ungueltig."])
 
-    record = RecordRuntime(module, repository).prepare_create(payload, user, server_values=values)
+    record = RecordRuntime(module, repository).prepare_create(payload, user, server_values=values, action=action)
     path = record_path(module, record_id)
     try:
         repository.read_file(path)
@@ -96,7 +105,7 @@ def create_generic_record(
     else:
         raise RepositoryConflictError(f"Datensatz existiert bereits: {record_id}")
 
-    content = render_record_content(record)
+    content = render_record_content(record, path=path)
     if operation_id is not None:
         state.set_create_operation(operation_id, {
             "request": create_request,
@@ -119,6 +128,7 @@ def update_generic_record(
     payload: dict[str, Any],
     base_revision: str,
     user: Any,
+    action: str | None = None,
 ) -> GenericStoredRecord:
     if not base_revision:
         raise RecordValidationError(["base_revision ist fuer PUT erforderlich."])
@@ -139,8 +149,8 @@ def update_generic_record(
         proposed = get_path_value(payload, partition_field, get_path_value(previous.data, partition_field, None))
         if proposed != get_path_value(previous.data, partition_field, None):
             raise RecordValidationError(["Signaturpartition darf bei PUT nicht ohne explizite Modulfreigabe geaendert werden."])
-    updated = runtime.prepare_update(previous.data, payload, user)
-    content = render_record_content(updated, previous_file.content)
+    updated = runtime.prepare_update(previous.data, payload, user, action=action)
+    content = render_record_content(updated, previous_file.content, path=path)
     files = {path: content}
     files.update(index_write_files(repository, module, updated, content, create=False))
     repository.commit_files(

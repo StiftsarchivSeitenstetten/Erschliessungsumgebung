@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from functools import lru_cache
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,8 @@ import yaml
 from ..config import ROOT
 from ..vocabularies import VocabularyError, load_vocabulary
 from .runtime import ModuleDefinition, ModuleField, ModuleSection
+from .access import is_server_managed_field
+from .repeater import repeater_plan, UnsafeRepeaterError
 
 
 MODULE_DIR = ROOT / "ui" / "modules"
@@ -23,6 +26,10 @@ VOCABULARY_SCHEMA_PATH = ROOT / "schemas" / "vocabulary.schema.json"
 
 
 class ModuleConfigError(ValueError):
+    pass
+
+
+class RepeaterConfigError(ModuleConfigError):
     pass
 
 
@@ -235,11 +242,24 @@ def _field_access(field_path: str, rights: dict[str, dict[str, Any]]) -> tuple[t
     return tuple(view), tuple(edit)
 
 
-def _module_field(raw_field: dict[str, Any], section_id: str, rights: dict[str, dict[str, Any]]) -> ModuleField:
+def _module_field(
+    raw_field: dict[str, Any], section_id: str, rights: dict[str, dict[str, Any]],
+    parent: tuple[tuple[str, ...], tuple[str, ...]] | None = None, prefix: str = "",
+) -> ModuleField:
     path = raw_field["path"]
-    view_roles, edit_roles = _field_access(path, rights)
+    full_path = f"{prefix}.{path}" if prefix else path
+    if parent is None:
+        view_roles, edit_roles = _field_access(full_path, rights)
+    elif full_path not in rights:
+        view_roles, edit_roles = parent
+    else:
+        own_view, own_edit = _field_access(full_path, rights)
+        view_roles = tuple(role for role in parent[0] if role in own_view)
+        edit_roles = tuple(role for role in parent[1] if role in own_edit and role in view_roles)
+    if is_server_managed_field(path):
+        edit_roles = ()
     item_fields = tuple(
-        replace(_module_field(item, section_id, rights={}), view_roles=view_roles, edit_roles=edit_roles)
+        _module_field(item, section_id, rights, (view_roles, edit_roles), f"{full_path}[]")
         for item in raw_field.get("item_fields", []) or []
     )
     return ModuleField(
@@ -357,12 +377,18 @@ def _enrich_fields_from_schema(fields: tuple[ModuleField, ...], schema: dict[str
             )
             for item in field.item_fields
         )
-        return replace(
+        enriched = replace(
             field,
             required=False,
             options=field.options or _schema_options(property_schema),
             item_fields=item_fields,
+            schema_default=property_schema.get("default", property_schema.get("const")),
+            has_default="default" in property_schema or "const" in property_schema,
+            exclusive_minimum=property_schema.get("exclusiveMinimum"),
+            schema_const=property_schema.get("const"),
+            has_const="const" in property_schema,
         )
+        return enriched
 
     enriched: list[ModuleField] = []
     for field in fields:
@@ -372,6 +398,40 @@ def _enrich_fields_from_schema(fields: tuple[ModuleField, ...], schema: dict[str
             required=_schema_requires_path(schema, field.path, resolver),
         ))
     return tuple(enriched)
+
+
+def _check_repeater_policies(fields, schema, rights):
+    core = _load_schema(CORE_DATATYPES_SCHEMA_PATH)
+    resolver = jsonschema.RefResolver.from_schema(schema, store={core["$id"]: core})
+    resolve = lambda node: _resolved_schema(node, resolver)
+    declared = set()
+
+    def collect(fields, prefix=""):
+        for field in fields:
+            full = prefix + field.path
+            declared.add(full)
+            collect(field.item_fields, full + "[].")
+    collect(fields)
+    for path in rights:
+        if "[]" in path and path not in declared:
+            raise RepeaterConfigError(f"{path}: Rechte für nicht deklarierte Zeilenfelder können nicht eindeutig ausgewertet werden.")
+
+    def check(field, node, prefix):
+        node = resolve(node)
+        policies = {}
+        if field.widget == "repeater":
+            for role in field.edit_roles:
+                if field.can_edit(role):
+                    try:
+                        plan = repeater_plan(field, node, role, resolve, prefix)
+                    except UnsafeRepeaterError as exc:
+                        raise RepeaterConfigError(f"Rolle {role}, {exc}") from exc
+                    policies[role] = "constants" if plan.mixed else "replace"
+        item_schema = resolve(node.get("items", {}))
+        children = tuple(check(child, _schema_for_path(item_schema, child.path, resolver), f"{prefix}[].{child.path}") for child in field.item_fields)
+        return replace(field, item_fields=children, repeater_policies=policies)
+
+    return tuple(check(field, _schema_for_path(schema, field.path, resolver), field.path) for field in fields)
 
 
 def load_module(path: Path) -> ModuleDefinition:
@@ -394,6 +454,7 @@ def load_module(path: Path) -> ModuleDefinition:
     field_rights = _field_rights(raw, fachkonfiguration)
     sections, fields = _sections_and_fields(raw, field_rights)
     fields = _enrich_fields_from_schema(fields, schema)
+    fields = _check_repeater_policies(fields, schema, field_rights)
     _validate_vocabulary_fields(fields, vocabularies)
 
     return ModuleDefinition(
@@ -426,7 +487,13 @@ def load_module(path: Path) -> ModuleDefinition:
 
 def load_modules(paths: list[Path] | tuple[Path, ...]) -> tuple[ModuleDefinition, ...]:
     sorted_paths = sorted(paths)
-    modules = tuple(load_module(path) for path in sorted_paths)
+    valid_modules = []
+    for path in sorted_paths:
+        try:
+            valid_modules.append(load_module(path))
+        except RepeaterConfigError as exc:
+            logging.getLogger(__name__).error("Modul %s deaktiviert: %s", path, exc)
+    modules = tuple(valid_modules)
     seen: dict[str, int] = {}
     for index, module in enumerate(modules):
         for key in (module.id, module.access_key):

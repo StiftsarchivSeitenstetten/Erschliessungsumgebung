@@ -1,5 +1,5 @@
 import { getPathValue } from "./path-utils.js";
-import { createDefaultWidgetRegistry } from "./widget-registry.js?v=vocabulary-2";
+import { createDefaultWidgetRegistry } from "./widget-registry.js?v=thoma-review-1";
 
 function element(tag, attributes = {}, children = []) {
   const node = document.createElement(tag);

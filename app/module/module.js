@@ -1,13 +1,16 @@
-import { FormRenderer } from "../generic/form-renderer.js?v=vocabulary-2";
-import { FormState } from "../generic/form-state.js?v=recovery-1";
+import {nextRecordSeed, singleFlight, guardUnsavedChanges} from "../generic/next-record.js?v=thoma-navigation-2";
+import {validateActionSnapshot} from "../generic/record-actions.js?v=thoma-review-1";
+import { FormRenderer } from "../generic/form-renderer.js?v=thoma-review-1";
+import { FormState, validateRepeaterSnapshot } from "../generic/form-state.js?v=thoma-review-1";
 import { ResultState, renderRecordList } from "../generic/record-list.js?v=create-1";
-import { RecordCreate, reserveQueuedRecordIdentity, sendQueuedRecordCreate } from "../generic/record-create.js?v=recovery-1";
-import { RecordUpdate, classifyQueuedUpdateReadBack, readQueuedRecordUpdate, sendQueuedRecordUpdate } from "../generic/record-update.js?v=recovery-1";
+import { RecordCreate, reserveQueuedRecordIdentity, sendQueuedRecordCreate } from "../generic/record-create.js?v=thoma-review-1";
+import { RecordUpdate, classifyQueuedUpdateReadBack, readQueuedRecordUpdate, sendQueuedRecordUpdate } from "../generic/record-update.js?v=thoma-review-1";
 import { createIndexedDbSaveQueueStore } from "../generic/module-save-queue-store.js?v=queue-isolation-1";
-import { createSaveQueueProcessor, queueEntryMatchesContext, queueRecordKey, queueStatusMessage } from "../generic/module-save-queue.js?v=queue-recovery-2";
+import { createSaveQueueProcessor, queueEntryMatchesContext, queueRecordKey, queueStatusMessage } from "../generic/module-save-queue.js?v=thoma-review-1";
 import { PresetStore, presettableFields } from "../generic/preset-store.js?v=preset-1";
 import { VocabularyClient } from "../generic/vocabulary-client.js?v=vocabulary-2";
-import { reviewDateTextFields } from "../generic/widget-registry.js?v=vocabulary-2";
+import { reviewDateTextFields } from "../generic/widget-registry.js?v=thoma-review-1";
+import { getPathValue, setPathValue } from "../generic/path-utils.js";
 
 const params = new URLSearchParams(window.location.search);
 const moduleKey = params.get("module");
@@ -34,6 +37,7 @@ let saveQueueProcessor = null;
 let queueInitializationError = null;
 let activeQueueRecordKeys = new Set();
 let queueEntries = [];
+let createStarting = false;
 const queueContexts = new Map();
 const vocabularyClient = new VocabularyClient();
 
@@ -55,7 +59,7 @@ function currentQueueContext() {
 
 function currentCreateAwaitingReservation() {
   const context = currentQueueContext();
-  return Boolean(context?.create && context.identityAssignment === "reserve_before_create" && !context.identityReserved);
+  return Boolean(currentCreate?.earlyReservation && !currentCreate.recordId) || Boolean(context?.create && context.identityAssignment === "reserve_before_create" && !context.identityReserved);
 }
 
 function currentPreset() {
@@ -80,7 +84,23 @@ function updatePresetControls(message = "") {
 
 function updateSaveButton() {
   const operation = currentCreate || currentUpdate;
-  $("#save-record").disabled = saveInProgress || currentRecordHasQueueEntry() || Boolean(currentQueueContext()) || !operation?.canSave(mode);
+  const mayEdit = currentDescriptor?.fields?.some(field => field.visible && field.editable);
+  const awaiting = Boolean(currentCreate?.earlyReservation && !currentCreate.recordId);
+  const busy = saveInProgress || createStarting || awaiting;
+  const editable = mode === "edit" && Boolean(operation) && mayEdit;
+  const saveDisabled = !editable || busy || currentRecordHasQueueEntry() || Boolean(currentQueueContext()) || (!currentCreate && !currentFormState?.isDirty());
+  const discardDisabled = !editable || saveInProgress || !currentFormState?.hasUnpersistedChanges();
+  document.querySelectorAll('[data-record-action="save"]').forEach(button => { button.disabled = saveDisabled; button.textContent = "Datensatz speichern"; });
+  document.querySelectorAll('[data-record-action="discard"]').forEach(button => { button.disabled = discardDisabled; });
+  toggleEdit.hidden = !currentUpdate || mode !== "read";
+  toggleEdit.disabled = !mayEdit || busy;
+  toggleEdit.textContent = "Datensatz bearbeiten";
+  $("#new-record").disabled = busy;
+  $("#back-to-list").disabled = busy;
+  $("#previous-record").disabled = busy || !state.neighbor(-1);
+  $("#next-record").disabled = busy || !state.neighbor(1);
+
+
 }
 
 function updateQueueStatus(entries = []) {
@@ -94,12 +114,14 @@ function updateQueueStatus(entries = []) {
     queueStatus.textContent = queueStatusMessage(entries, saveQueueProcessor?.isRunning());
   }
   const first = entries[0];
+  $("#queue-panel h2").textContent = first?.operation === "reservation" ? "Lokale Identitätsreservierung" : first && ["queued", "saving", "reserving"].includes(first.status) ? "Speicherwarteschlange" : "Speicherung fehlgeschlagen";
+  $("#retry-queue").textContent = first?.operation === "reservation" ? "Reservierung wiederaufnehmen" : "Speicherung erneut versuchen";
+  $("#discard-queue-entry").textContent = first?.operation === "reservation" ? "Reservierung aufgeben" : "Lokale Speicherung verwerfen";
   const workerRunning = Boolean(saveQueueProcessor?.isRunning());
-  const needsRecovery = Boolean(queueInitializationError || first && !["queued", "reserving", "saving"].includes(first.status));
-  $("#queue-panel").hidden = !needsRecovery;
+  $("#queue-panel").hidden = !queueInitializationError && !entries.length;
   $("#open-queue-entry").disabled = !first;
   $("#discard-queue-entry").disabled = !first || workerRunning;
-  $("#retry-queue").disabled = !first || workerRunning || ["conflict", "validation_error"].includes(first.status);
+  $("#retry-queue").disabled = !first || workerRunning || (first.operation !== "reservation" && ["conflict", "validation_error"].includes(first.status));
   updateSaveButton();
 }
 
@@ -115,6 +137,7 @@ function queueEntryMatchesCurrent(entry, context = queueContexts.get(entry.opera
 }
 
 function queueFailureMessage(entry) {
+  if (entry.last_error?.message?.startsWith("Lokaler Snapshot pausiert:")) return entry.last_error.message;
   if (entry.status === "auth_error") return "Anmeldung abgelaufen. Der lokal gesicherte Speichervorgang bleibt erhalten.";
   if (entry.status === "conflict") return "Der Serverstand wurde geändert. Der lokale Queue-Snapshot bleibt erhalten.";
   if (entry.status === "validation_error") return "Speichern wurde abgelehnt. Der lokale Queue-Snapshot bleibt erhalten.";
@@ -128,6 +151,9 @@ async function handleQueueChange(entry, entries) {
     if (!existingOperationIds.has(operationId)) queueContexts.delete(operationId);
   }
   updateQueueStatus(entries);
+  if (entry?.operation === "reservation" && currentCreate?.earlyReservation && currentCreate.operationId === entry.operation_id) {
+    showEarlyIdentity(entry);
+  }
   const context = entry ? queueContexts.get(entry.operation_id) : null;
   if (context) context.status = entry.status;
   if (!entry || !queueEntryMatchesCurrent(entry)) return;
@@ -187,6 +213,18 @@ async function resolveQueuedUpdate(entry) {
   return classifyQueuedUpdateReadBack(entry, data, descriptor);
 }
 
+async function validateQueuedSnapshot(entry) {
+  let descriptor;
+  try {
+    descriptor = currentDescriptor?.module === entry.module_id
+      ? currentDescriptor
+      : await queueJson(`/api/modules/${encodeURIComponent(entry.module_id)}`);
+  } catch (error) {
+    throw new Error(`${entry.module_id}: Modulkonfiguration konnte nicht sicher geprüft werden (${error.message}). Der gespeicherte Auftrag bleibt erhalten.`);
+  }
+  validateRepeaterSnapshot(descriptor, entry.snapshot);
+}
+
 async function handleQueueReserved(entry, reservation) {
   const context = queueContexts.get(entry.operation_id);
   if (!queueEntryMatchesCurrent(entry, context)) return;
@@ -221,7 +259,7 @@ async function handleQueueSuccess(entry, data) {
     updatePayloadPreview();
     $("#save-status").textContent = context.formState.isDirty()
       ? "Zwischenstand gespeichert; weitere Änderungen sind noch nicht gespeichert."
-      : "Gespeichert";
+      : entry.action === "complete" || entry.action === "save" ? "Abgeschlossen gespeichert" : entry.action === "draft" ? "Entwurf gespeichert" : "Gespeichert";
   }
 }
 
@@ -250,6 +288,7 @@ async function initializeSaveQueue() {
       sendCreate: sendQueuedCreate,
       reserveIdentity: reserveQueuedIdentity,
       resolveUpdate: resolveQueuedUpdate,
+      validateSnapshot: validateQueuedSnapshot,
       onChange: handleQueueChange,
       onReserved: handleQueueReserved,
       onSuccess: handleQueueSuccess,
@@ -269,6 +308,10 @@ async function openQueuedSnapshot(entry, push = true) {
     location.href = `/app/module/?module=${encodeURIComponent(entry.module_id)}&queue=${encodeURIComponent(entry.operation_id)}`;
     return;
   }
+  if (entry.operation === "reservation") {
+    await startCreate(push, entry);
+    return;
+  }
   let baseline = currentDescriptor.empty_record || {};
   if (entry.operation === "update") {
     try {
@@ -278,11 +321,12 @@ async function openQueuedSnapshot(entry, push = true) {
       baseline = {};
     }
   }
-  currentFormState = new FormState(currentDescriptor, baseline);
-  currentFormState.loadWorkingSnapshot(entry.snapshot);
+  const restoredState = new FormState(currentDescriptor, baseline);
+  restoredState.loadWorkingSnapshot(entry.snapshot);
+  currentFormState = restoredState;
   if (entry.identity) currentFormState.applyServerValues(entry.identity);
-  if (entry.operation === "create") currentFormState.beginCreateSave();
-  else currentFormState.beginSave();
+  if (entry.operation === "create") currentFormState.beginCreateSave({draft: entry.action === "draft"});
+  else currentFormState.beginSave({draft: entry.action === "draft"});
   if (entry.operation === "create") {
     currentCreate = new RecordCreate(currentDescriptor.module, currentFormState);
     currentCreate.recordId = entry.record_id;
@@ -342,19 +386,32 @@ async function apiFetch(url) {
 function syncStateFromForm() {
   if (mode === "edit" && currentFormState) renderer.readIntoState(preview, currentFormState);
 }
-async function allowNavigation() {
-  if (saveInProgress) return false;
+async function allowNavigation(starting = false) {
+  if (saveInProgress || createStarting && !starting) return false;
   syncStateFromForm();
   if (currentCreateAwaitingReservation()) return false;
-  if (!currentFormState?.hasUnpersistedChanges()) return true;
-  const dialog = $("#discard-dialog");
-  if (dialog.open) return false;
-  dialog.returnValue = "cancel";
-  dialog.showModal();
-  return new Promise(resolve => dialog.addEventListener("close", () => resolve(dialog.returnValue === "discard"), {once: true}));
+  return guardUnsavedChanges({
+    hasChanges: () => Boolean(currentFormState?.hasUnpersistedChanges()),
+    choose: async () => {
+      const dialog = $("#discard-dialog");
+      if (dialog.open) return "cancel";
+      const saveButton = $("#save-and-next");
+      saveButton.hidden = false;
+      saveButton.textContent = "Speichern und weiter";
+      dialog.returnValue = "cancel";
+      dialog.showModal();
+      try {
+        return await new Promise(resolve => dialog.addEventListener("close", () => resolve(dialog.returnValue), {once: true}));
+      } finally { saveButton.hidden = true; }
+    },
+    save: () => saveRecord()
+  });
 }
 function updateUrl() {
-  if (location.pathname + location.search !== state.url()) history.pushState(null, "", state.url());
+  const url = new URL(state.url(), location.origin);
+  if (state.creating && currentCreate?.earlyReservation) url.searchParams.set("reservation", currentCreate.operationId);
+  const target = url.pathname + url.search;
+  if (location.pathname + location.search !== target) history.pushState(null, "", target);
   acceptedUrl = location.href;
 }
 function showView() {
@@ -363,6 +420,7 @@ function showView() {
   $("#detail-panel").hidden = !opened;
   $("#previous-record").disabled = !state.neighbor(-1);
   $("#next-record").disabled = !state.neighbor(1);
+  updateSaveButton();
   $("#record-position").textContent = !opened ? "" : state.creating ? "Neuer, noch nicht gespeicherter Datensatz" : `${state.recordId} · ${state.position < 0 ? "Außerhalb der Trefferliste" : `${state.position + 1} / ${state.records.length}`}`;
 }
 async function openRecord(moduleDescriptor, recordId, push = true) {
@@ -396,33 +454,117 @@ async function openRecord(moduleDescriptor, recordId, push = true) {
   updatePresetControls();
   if (push) updateUrl();
 }
-async function startCreate(push = true) {
-  if (!await allowNavigation()) return;
-  ++generation;
-  currentFormState = new FormState(currentDescriptor, currentDescriptor.empty_record || {});
-  currentCreate = new RecordCreate(currentDescriptor.module, currentFormState);
-  currentUpdate = null;
-  state.recordId = null;
-  state.creating = true;
-  mode = "edit";
-  renderer = new FormRenderer({ mode });
-  payloadPreview.textContent = "";
-  $("#save-status").textContent = "Änderungen noch nicht gespeichert";
-  toggleEdit.textContent = "Read-Modus anzeigen";
-  discardChanges.disabled = true;
-  $("#save-record").textContent = "Datensatz speichern";
-  renderCurrentRecord();
-  renderer.readIntoState(preview, currentFormState);
-  currentFormState.reset(currentFormState.current);
-  const presetPaths = presetStore.apply(currentFormState, { includeInitialDefaults: true });
-  if (presetPaths.length) renderCurrentRecord();
-  showView();
-  updatePayloadPreview();
-  updatePresetControls(presetPaths.length ? "Vorbelegungen wurden auf den neuen Datensatz angewendet." : "");
-  if (push) updateUrl();
+function showEarlyIdentity(entry) {
+  const confirmed = entry.status === "reserved" && entry.identity?.id === entry.record_id;
+  preview.inert = !confirmed;
+  $("#identity-reservation").hidden = false;
+  $("#identity-values").textContent = confirmed
+    ? Object.entries(entry.identity).filter(([path]) => path === "id" || currentDescriptor.fields.some(field => field.path === path && field.visible)).map(([path, value]) => `${currentDescriptor.fields.find(field => field.path === path)?.label || (path === "id" ? "Record-ID" : path)}: ${value}`).join(" · ")
+    : "Keine verbindliche Kennung bestätigt.";
+  $("#retry-reservation").hidden = confirmed;
+  $("#retry-reservation").disabled = entry.status === "reserving" && createStarting;
+  if (confirmed) {
+    syncStateFromForm();
+    currentCreate.recordId = entry.record_id;
+    currentCreate.identityInputs = entry.identity_inputs;
+    currentFormState.applyServerValues(entry.identity);
+    Object.entries(entry.identity).forEach(([path, value]) => setPathValue(currentFormState.serverSnapshot, path, value));
+    state.recordId = entry.record_id;
+    renderCurrentRecord();
+    const focusField = currentDescriptor.fields.find(field => field.path === currentCreate.nextFocus && field.editable && field.visible);
+    if (focusField) preview.querySelector(`[data-field-id='${focusField.id}'] input, [data-field-id='${focusField.id}'] textarea`)?.focus();
+  }
+  $("#save-status").textContent = confirmed
+    ? "Identität verbindlich reserviert. Fachlicher Datensatz noch nicht gespeichert."
+    : "Reservierung noch nicht bestätigt. Lokal wiederaufnehmbar; kein Datensatz gespeichert.";
+  updateSaveButton();
+}
+
+async function startCreate(push = true, resumeEntry = null, next = null) {
+  if (createStarting) return;
+  createStarting = true;
+  try {
+    if (!next && !await allowNavigation(true)) return;
+    if (!resumeEntry && currentCreate?.earlyReservation && !currentQueueContext()) {
+      if (!window.confirm("Reservierung aufgeben? Bereits vergebene Nummern bleiben verbraucht.")) return;
+      await saveQueueProcessor.discard(currentCreate.operationId);
+    }
+    if (!next && currentDescriptor.create?.next_record) next = {seed: nextRecordSeed(currentDescriptor, {})};
+    ++generation;
+    currentFormState = new FormState(currentDescriptor, next?.seed || currentDescriptor.empty_record || {});
+    currentCreate = new RecordCreate(currentDescriptor.module, currentFormState);
+    currentCreate.earlyReservation = Boolean(currentDescriptor.create?.reserve_on_start || resumeEntry);
+    if (resumeEntry) currentCreate.operationId = resumeEntry.operation_id;
+    currentCreate.nextFocus = next ? currentDescriptor.create.next_record.focus_field : null;
+    currentUpdate = null;
+    state.recordId = null;
+    state.creating = true;
+    mode = "edit";
+    renderer = new FormRenderer({ mode });
+    payloadPreview.textContent = "";
+    $("#save-status").textContent = "Änderungen noch nicht gespeichert";
+    toggleEdit.textContent = "Read-Modus anzeigen";
+    discardChanges.disabled = true;
+    $("#save-record").textContent = "Datensatz speichern";
+    renderCurrentRecord();
+    renderer.readIntoState(preview, currentFormState);
+    currentFormState.reset(currentFormState.current);
+    const presetPaths = next ? [] : presetStore.apply(currentFormState, { includeInitialDefaults: true });
+    if (presetPaths.length) renderCurrentRecord();
+    showView();
+    updatePayloadPreview();
+    updatePresetControls(presetPaths.length ? "Vorbelegungen wurden auf den neuen Datensatz angewendet." : "");
+    if (push) updateUrl();
+    if (currentCreate.earlyReservation) {
+      if (!saveQueueProcessor || queueInitializationError) throw new Error("Lokale Reservierung nicht verfügbar. Keine Nummer angefordert.");
+      const identityInputs = {};
+      const signature = currentDescriptor.signature_strategy;
+      const partitionPath = signature?.partition_field || "signatur.format";
+      const partition = getPathValue(currentFormState.current, partitionPath);
+      const partitionEditable = currentDescriptor.fields.some(field => field.editable &&
+        (field.path === partitionPath || partitionPath.startsWith(`${field.path}.`)));
+      if (partition !== undefined && partitionEditable) setPathValue(identityInputs, partitionPath, partition);
+      const entry = resumeEntry || await saveQueueProcessor.prepareReservation({
+        operationId: currentCreate.operationId, moduleId: currentDescriptor.module, identityInputs,
+        identityPaths: ["id", ...(signature?.strategy ? [`${signature.output_path || "signatur"}.anzeige`] : [])]
+      });
+      // The durable operation is addressable before the first network request.
+      updateUrl();
+      showEarlyIdentity(entry);
+      try {
+        const reserved = await saveQueueProcessor.resumeReservation(entry.operation_id);
+        showEarlyIdentity(reserved);
+      } catch (error) {
+        showEarlyIdentity(await saveQueueStore.get(entry.operation_id));
+        $("#module-error").textContent = `${error.message} Wiederaufnahme verwendet dieselbe Operations-ID.`;
+      }
+    }
+  } finally {
+    createStarting = false;
+    updateSaveButton();
+    if (currentCreate?.earlyReservation && !currentCreate.recordId) $("#retry-reservation").disabled = false;
+  }
 }
 function renderCurrentRecord() {
-  preview.replaceChildren(renderer.render(currentDescriptor, currentFormState));
+  $("#identity-reservation").hidden = !currentCreate?.earlyReservation;
+  preview.inert = Boolean(currentCreate?.earlyReservation && !currentCreate.recordId);
+  let descriptor = currentDescriptor;
+  if (currentCreate?.earlyReservation && currentCreate.identityInputs) {
+    descriptor = {...currentDescriptor, fields: currentDescriptor.fields.map(field => {
+      const value = getPathValue(currentCreate.identityInputs, field.path);
+      if (value === undefined) return field;
+      currentFormState.setValue(field.path, value);
+      return {...field, editable: false};
+    })};
+  }
+  const wasClean = !currentFormState.isDirty();
+  preview.replaceChildren(renderer.render(descriptor, currentFormState));
+  // Empty optional controls may render absent server fields as empty strings.
+  // Establish their UI baseline only while clean, never over pending edits.
+  if (wasClean && mode === "edit" && currentFormState.pendingSnapshot === null) {
+    renderer.readIntoState(preview, currentFormState);
+    currentFormState.serverSnapshot = structuredClone(currentFormState.current);
+  }
 }
 function updatePayloadPreview() {
   syncStateFromForm();
@@ -463,7 +605,7 @@ async function loadResults(query, push = true, preserveRecord = false) {
   $("#search-text").value = state.q;
   $("#lookup-field").value = state.lookupField;
   $("#lookup-value").value = state.lookupValue;
-  renderRecordList($("#record-list"), currentDescriptor, state.records, id => run(() => openRecord(currentDescriptor, id)));
+  renderRecordList($("#record-list"), currentDescriptor, state.records, id => run(() => openRecord(currentDescriptor, id)), state.queryString());
   console.debug("Module list " + JSON.stringify({records: state.records.length, requestMs: Math.round(received - started), renderMs: Math.round(performance.now() - received), heapBytes: performance.memory?.usedJSHeapSize}));
   $("#result-count").textContent = `${state.records.length} Treffer`;
   showView();
@@ -499,18 +641,27 @@ async function init() {
   $("#lookup-controls").hidden = !lookups.length;
   $("#fulltext-controls").hidden = !currentDescriptor.search?.fulltext?.length;
   const recordId = params.get("record");
+  state.contextTracked = true;
+  state.searchContext = params.get("search") === "1" || Boolean(params.get("q") || params.get("lookup_value")) || (!recordId && !params.get("new"));
   await loadResults(queryFromUrl(), false);
   const queuedOperationId = params.get("queue");
   const queuedEntry = queuedOperationId ? await saveQueueStore?.get(queuedOperationId) : null;
   if (queuedEntry && queuedEntry.module_id === currentDescriptor.module) await openQueuedSnapshot(queuedEntry, false);
-  else if (params.get("new") === "1") await startCreate(false);
+  else if (params.get("new") === "1") {
+    const reservationId = params.get("reservation");
+    const reservation = reservationId ? await saveQueueStore?.get(reservationId) : null;
+    if (reservationId && (!reservation || reservation.module_id !== currentDescriptor.module)) throw new Error("Lokale Operation nicht gefunden. Für ein anderes Objekt ausdrücklich eine Neuanlage beginnen.");
+    if (reservation) await openQueuedSnapshot(reservation, false);
+    else await startCreate(false);
+  }
   else if (recordId) await openRecord(currentDescriptor, recordId, false);
   scheduleQueueProcessing();
 }
-$("#new-record").addEventListener("click", () => run(() => startCreate()));
+$("#new-record").addEventListener("click", () => run(() => currentDescriptor.create?.next_record ? nextObject() : startCreate()));
 $("#search-form").addEventListener("submit", async event => {
   event.preventDefault();
   if (!await allowNavigation()) return;
+  state.searchContext = true;
   const lookupValue = $("#lookup-value").value.trim();
   const lookupField = $("#lookup-field").value;
   if (lookupValue && !lookupField) {
@@ -520,10 +671,11 @@ $("#search-form").addEventListener("submit", async event => {
   run(() => loadResults({ q: $("#search-text").value.trim(), lookupField: lookupValue ? lookupField : "", lookupValue }));
 });
 $("#clear-search").addEventListener("click", async () => {
-  if (await allowNavigation()) run(() => loadResults({ q: "", lookupField: "", lookupValue: "" }));
+  if (await allowNavigation()) { state.searchContext = true; run(() => loadResults({ q: "", lookupField: "", lookupValue: "" })); }
 });
 $("#back-to-list").addEventListener("click", async () => {
   if (!await allowNavigation()) return;
+  state.searchContext = true;
   ++generation;
   currentFormState = null;
   currentUpdate = null;
@@ -557,9 +709,16 @@ window.addEventListener("popstate", async () => {
   run(async () => {
     const query = new URLSearchParams(location.search);
     const recordId = query.get("record");
+    state.searchContext = query.get("search") === "1" || Boolean(query.get("q") || query.get("lookup_value")) || (!recordId && !query.get("new"));
     if (query.get("module") !== moduleKey) { location.reload(); return; }
     if (await loadResults(queryFromUrl(), false)) {
-      if (query.get("new") === "1") await startCreate(false);
+      if (query.get("new") === "1") {
+        const reservationId = query.get("reservation");
+        const entry = reservationId ? await saveQueueStore?.get(reservationId) : null;
+        if (reservationId && !entry) throw new Error("Lokale Operation nicht gefunden. Neue Erfassung ausdrücklich beginnen.");
+        if (entry) await openQueuedSnapshot(entry, false);
+        else await startCreate(false);
+      }
       else if (recordId) await openRecord(currentDescriptor, recordId, false);
       acceptedUrl = location.href;
     }
@@ -568,7 +727,8 @@ window.addEventListener("popstate", async () => {
 toggleEdit.addEventListener("click", () => {
   if (!currentFormState) return;
   syncStateFromForm();
-  mode = mode === "read" ? "edit" : "read";
+  if (mode !== "read" || toggleEdit.disabled) return;
+  mode = "edit";
   renderer = new FormRenderer({ mode });
   toggleEdit.textContent = mode === "read" ? "Edit-Modus aktivieren" : "Read-Modus anzeigen";
   renderCurrentRecord();
@@ -604,23 +764,55 @@ $("#delete-preset").addEventListener("click", () => {
     $("#module-error").textContent = "Vorbelegungen konnten nicht lokal gelöscht werden.";
   }
 });
-discardChanges.addEventListener("click", () => {
+function discardCurrentChanges() {
   if (!currentFormState) return;
   currentFormState.discardChanges();
   $("#save-status").textContent = "";
   $("#module-error").textContent = "";
   renderCurrentRecord();
   updatePayloadPreview();
-});
+}
+document.querySelectorAll('[data-record-action="discard"]').forEach(button => button.addEventListener("click", discardCurrentChanges));
 for (const event of ["input", "change", "click"]) preview.addEventListener(event, () => {
   const dateReview = reviewDateTextFields(preview);
   updatePayloadPreview();
   if (dateReview.blocking && mode === "edit" && (currentCreate || currentUpdate)) {
-    $("#save-record").disabled = false;
-    discardChanges.disabled = false;
+    updateSaveButton();
   }
 });
-$("#save-record").addEventListener("click", async () => {
+const nextObject = singleFlight(async () => {
+  if (!currentDescriptor?.create?.next_record || saveInProgress || createStarting) return;
+  if (!await allowNavigation()) return;
+  const config = currentDescriptor.create.next_record;
+  const entries = await saveQueueStore.list();
+  const oldReservation = entries.find(entry => entry.module_id === currentDescriptor.module &&
+    entry.operation === "reservation" && entry.operation_id === currentCreate?.operationId)
+    || entries.find(entry => entry.module_id === currentDescriptor.module && entry.operation === "reservation");
+  if (oldReservation && oldReservation.status !== "reserved") {
+    $("#module-error").textContent = "Reservierung noch ungeklärt. Bitte den lokalen Stand öffnen und dieselbe Reservierung wiederaufnehmen, bevor eine andere Erfassung begonnen wird.";
+    return;
+  }
+  if (oldReservation && !window.confirm("Reservierung aufgeben? Bereits vergebene Nummern bleiben verbraucht.")) return;
+  const seed = nextRecordSeed(currentDescriptor, currentFormState?.current || {});
+  // Persist before replacing the previous form; local failures preserve all inputs.
+  const operationId = window.crypto.randomUUID();
+  const signature = currentDescriptor.signature_strategy;
+  const partitionPath = signature?.partition_field || "signatur.format";
+  const identityInputs = {};
+  if (currentDescriptor.fields.some(f => f.path === partitionPath && f.editable)) {
+    setPathValue(identityInputs, partitionPath, getPathValue(seed, partitionPath));
+  }
+  const entry = await saveQueueProcessor.prepareReservation({operationId, moduleId: currentDescriptor.module,
+    identityInputs, identityPaths: ["id", `${signature.output_path || "signatur"}.anzeige`]});
+  if (oldReservation?.operation === "reservation") await saveQueueProcessor.discard(oldReservation.operation_id);
+  await startCreate(true, entry, {seed});
+  const field = currentDescriptor.fields.find(f => f.path === config.focus_field && f.editable && f.visible);
+  if (field && currentCreate?.recordId) preview.querySelector(`[data-field-id='${field.id}'] input, [data-field-id='${field.id}'] textarea`)?.focus();
+});
+
+
+document.querySelectorAll('[data-record-action="save"]').forEach(button => button.addEventListener("click", () => saveRecord()));
+async function saveRecord(requestedAction) {
   if (saveInProgress) return;
   $("#module-error").textContent = "";
   try {
@@ -631,15 +823,24 @@ $("#save-record").addEventListener("click", async () => {
     }
     syncStateFromForm();
     const operation = currentCreate || currentUpdate;
-    if (!operation?.canSave(mode) || currentRecordHasQueueEntry() || currentQueueContext()) return;
+    const workflow = currentDescriptor.create?.workflow;
+    const action = workflow ? (requestedAction || (getPathValue(currentFormState.original, workflow.status_path) === workflow.completed_status ? "save" : "complete")) : undefined;
+    if ((!workflow && !operation?.canSave(mode)) || !operation || mode !== "edit" || currentRecordHasQueueEntry() || currentQueueContext()) return;
     saveInProgress = true;
     const wasCreate = Boolean(currentCreate);
     updateSaveButton();
     if (!saveQueueProcessor || queueInitializationError) {
       throw new Error("Lokale Speicherwarteschlange nicht verfügbar. Es wurde nichts an den Server gesendet.");
     }
-    const operationId = window.crypto.randomUUID();
-    const snapshot = wasCreate ? currentFormState.beginCreateSave() : currentFormState.beginSave();
+    const operationId = wasCreate && currentCreate.earlyReservation ? currentCreate.operationId : window.crypto.randomUUID();
+    const options = {draft: action === "draft"};
+    const snapshot = wasCreate ? currentFormState.beginCreateSave(options) : currentFormState.beginSave(options);
+    if (workflow) {
+      currentFormState.requireValidInputs({draft: action === "draft"});
+      const record = snapshot;
+      await validateActionSnapshot(currentDescriptor.module, {action, record, operation_id: operationId,
+        ...(wasCreate ? {identity: (await saveQueueStore.get(operationId))?.identity} : {record_id: currentUpdate.recordId, base_revision: currentUpdate.revision})}, csrfToken());
+    }
     const identityAssignment = currentDescriptor.create?.identity_assignment || "on_create";
     queueContexts.set(operationId, {
       operationId,
@@ -647,7 +848,7 @@ $("#save-record").addEventListener("click", async () => {
       update: currentUpdate,
       create: currentCreate,
       identityAssignment,
-      identityReserved: false
+      identityReserved: Boolean(wasCreate && currentCreate.earlyReservation && currentCreate.recordId)
     });
     try {
       if (wasCreate) {
@@ -655,6 +856,8 @@ $("#save-record").addEventListener("click", async () => {
           operationId,
           moduleId: currentCreate.moduleKey,
           identityAssignment,
+          action,
+          requireReservation: Boolean(currentCreate.earlyReservation),
           snapshot
         });
       } else {
@@ -662,6 +865,7 @@ $("#save-record").addEventListener("click", async () => {
           operationId,
           moduleId: currentUpdate.moduleKey,
           recordId: currentUpdate.recordId,
+          action,
           baseRevision: currentUpdate.revision,
           snapshot
         });
@@ -678,15 +882,23 @@ $("#save-record").addEventListener("click", async () => {
     }
     $("#save-status").textContent = "Speichern …";
     scheduleQueueProcessing();
+    return true;
   } catch (error) {
-    $("#save-status").textContent = "Speicherfehler";
+    currentFormState?.cancelSave();
+    $("#save-status").textContent = "Nicht gespeichert";
     $("#module-error").textContent = error.message || "Netzwerkfehler. Ihre Änderungen bleiben erhalten.";
   } finally {
     saveInProgress = false;
     updateSaveButton();
   }
-});
+}
 $("#show-payload").addEventListener("click", updatePayloadPreview);
+$("#retry-reservation").addEventListener("click", () => run(async () => {
+  if (!currentCreate?.earlyReservation) return;
+  const operationId = currentCreate.operationId;
+  const entry = await saveQueueProcessor.resumeReservation(operationId);
+  if (currentCreate?.operationId === operationId) showEarlyIdentity(entry);
+}));
 $("#retry-queue").addEventListener("click", () => run(async () => {
   const retried = await saveQueueProcessor?.retryFirst();
   if (!retried) $("#module-error").textContent = "Dieser Queue-Zustand kann nicht blind wiederholt werden. Öffnen Sie den lokalen Stand.";
@@ -697,13 +909,25 @@ $("#open-queue-entry").addEventListener("click", () => run(async () => {
 }));
 $("#discard-queue-entry").addEventListener("click", () => run(async () => {
   const entry = queueEntries[0];
-  if (!entry || !window.confirm("Lokale Speicherung wirklich verwerfen? Der gespeicherte Snapshot geht dabei unwiderruflich verloren.")) return;
+  if (!entry || !window.confirm(entry.operation === "reservation"
+    ? "Reservierung aufgeben? Bereits vergebene Nummern bleiben verbraucht. Ungespeicherte fachliche Eingaben gehen verloren."
+    : "Lokale Speicherung wirklich verwerfen? Der gespeicherte Snapshot geht dabei unwiderruflich verloren.")) return;
   const context = queueContexts.get(entry.operation_id);
   if (context?.formState === currentFormState) currentFormState.cancelSave();
   await saveQueueProcessor.discard(entry.operation_id);
+  if (entry.operation === "reservation" && currentCreate?.operationId === entry.operation_id) {
+    currentCreate = null;
+    currentFormState = null;
+    state.creating = false;
+    state.recordId = null;
+    showView();
+    updateUrl();
+  }
   queueContexts.delete(entry.operation_id);
   updateSaveButton();
-  $("#save-status").textContent = "Lokale Speicherung verworfen; es wurde keine Backend-Operation ausgelöst.";
+  $("#save-status").textContent = entry.operation === "reservation"
+    ? "Lokale Reservierung aufgegeben; bereits vergebene Nummern bleiben verbraucht."
+    : "Lokale Speicherung verworfen; es wurde keine Backend-Operation ausgelöst.";
   scheduleQueueProcessing();
 }));
 run(init);

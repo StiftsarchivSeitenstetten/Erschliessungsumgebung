@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stiftsarchiv-seitenstetten.github.io/erschliessungsumgebung/schemas/thoma.schema.json",
+  "title": "Ersterfassung Sammlung Thoma",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "datensatz_typ",
+    "modul",
+    "id",
+    "sammlung",
+    "erfassungsstatus",
+    "signatur",
+    "erschliessung",
+    "technik"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "datensatz_typ": {
+      "const": "thoma"
+    },
+    "modul": {
+      "const": "sammlung_thoma"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^Thoma(?!000000$)[0-9]{6}$"
+    },
+    "sammlung": {
+      "const": "Sammlung Thoma"
+    },
+    "erfassungsstatus": {
+      "type": "string",
+      "enum": [
+        "entwurf",
+        "abgeschlossen"
+      ],
+      "default": "entwurf"
+    },
+    "signatur": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "nummer",
+        "anzeige"
+      ],
+      "properties": {
+        "format": {
+          "const": "A"
+        },
+        "nummer": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "anzeige": {
+          "type": "string",
+          "pattern": "^Sammlung Thoma A/[1-9][0-9]*$"
+        }
+      }
+    },
+    "erschliessung": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "objektart",
+        "masse"
+      ],
+      "properties": {
+        "objektart": {
+          "const": "Andachtsbild"
+        },
+        "urspruengliche_ordnung": {
+          "type": "string"
+        },
+        "motiv": {
+          "type": "string"
+        },
+        "beschreibung": {
+          "type": "string",
+          "default": ""
+        },
+        "masse": {
+          "type": "array",
+          "minItems": 1,
+          "default": [
+            {
+              "massart": "Objektmaß",
+              "hoehe": null,
+              "breite": null,
+              "einheit": "mm",
+              "bemerkung": ""
+            }
+          ],
+          "contains": {
+            "type": "object",
+            "required": [
+              "massart"
+            ],
+            "properties": {
+              "massart": {
+                "const": "Objektmaß"
+              }
+            }
+          },
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "massart",
+              "einheit"
+            ],
+            "properties": {
+              "massart": {
+                "type": "string",
+                "default": ""
+              },
+              "hoehe": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "exclusiveMinimum": 0,
+                "default": null
+              },
+              "breite": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "exclusiveMinimum": 0,
+                "default": null
+              },
+              "einheit": {
+                "const": "mm",
+                "default": "mm"
+              },
+              "bemerkung": {
+                "type": "string",
+                "default": ""
+              }
+            }
+          }
+        }
+      }
+    },
+    "technik": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "erstellt_am",
+        "erstellt_von",
+        "geaendert_am",
+        "geaendert_von"
+      ],
+      "properties": {
+        "erstellt_am": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "erstellt_von": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "geaendert_am": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "geaendert_von": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "erfassungsstatus"
+        ],
+        "properties": {
+          "erfassungsstatus": {
+            "const": "abgeschlossen"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "erschliessung": {
+            "required": [
+              "beschreibung"
+            ],
+            "properties": {
+              "beschreibung": {
+                "pattern": "\\S"
+              },
+              "masse": {
+                "items": {
+                  "required": [
+                    "massart",
+                    "hoehe",
+                    "breite",
+                    "einheit"
+                  ],
+                  "properties": {
+                    "massart": {
+                      "pattern": "\\S"
+                    },
+                    "hoehe": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    "breite": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

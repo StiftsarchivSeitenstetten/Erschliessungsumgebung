@@ -1,0 +1,191 @@
+config_version: 1
+
+# The file name uses hyphens; all runtime keys and canonical records use sammlung_thoma.
+module:
+  id: sammlung_thoma
+  access_key: sammlung_thoma
+  label: "Sammlung Thoma"
+  description: "Ersterfassung der Sammlung Thoma."
+  record_type: thoma
+  short_label: "Sammlung Thoma"
+  category: "Sammlungen"
+  entrypoint: generic
+  order: 30
+
+schema:
+  path: "../../schemas/thoma.schema.json"
+
+storage:
+  data_dir: data/sammlung-thoma
+  filename:
+    strategy: record_id_with_extension
+    extension: ".yaml"
+  state:
+    path: state/sammlung-thoma.json
+  index:
+    path: indexes/generic/sammlung-thoma.json
+
+id:
+  strategy: prefixed_sequence
+  prefix: "Thoma"
+  width: 6
+
+signature:
+  strategy: partitioned_sequence
+  partitions: [A]
+  pattern: "Sammlung Thoma {partition}/{nummer}"
+
+create:
+  identity_assignment: reserve_before_create
+  reserve_on_start: true
+  next_record:
+    carry_fields: [erschliessung.objektart, signatur.format]
+    focus_field: erschliessung.urspruengliche_ordnung
+  workflow:
+    status_path: erfassungsstatus
+    draft_status: entwurf
+    completed_status: abgeschlossen
+    roles: [ehrenamtlich, redaktion, admin]
+  server_values:
+    schema_version: 1
+    modul: sammlung_thoma
+    sammlung: "Sammlung Thoma"
+    erfassungsstatus: entwurf
+    signatur.format: A
+
+form:
+  sections:
+    - id: identifikation
+      label: "Identifikation"
+      order: 10
+      fields:
+        - path: sammlung
+          widget: text
+          label: "Sammlung"
+          order: 10
+        - path: id
+          widget: text
+          label: "Inventarnummer"
+          order: 20
+        - path: signatur.anzeige
+          widget: text
+          label: "Lagersignatur"
+          order: 30
+        - path: erschliessung.objektart
+          widget: select
+          label: "Objektart"
+          order: 40
+          options:
+            - {value: "Andachtsbild", label: "Andachtsbild"}
+        - path: signatur.format
+          widget: select
+          label: "Lagergruppe"
+          order: 50
+          options:
+            - {value: "A", label: "A"}
+        - path: erschliessung.urspruengliche_ordnung
+          widget: text
+          label: "Ursprüngliche Ordnung"
+          order: 60
+        - path: erfassungsstatus
+          widget: text
+          label: "Erfassungsstatus"
+          order: 70
+    - id: beschreibung
+      label: "Beschreibung"
+      order: 20
+      fields:
+        - path: erschliessung.motiv
+          widget: text
+          label: "Motiv"
+          order: 10
+        - path: erschliessung.beschreibung
+          widget: textarea
+          label: "Beschreibung"
+          order: 20
+          rows: 5
+    - id: abmessungen
+      label: "Abmessungen"
+      order: 30
+      fields:
+        - path: erschliessung.masse
+          widget: repeater
+          label: "Maßgruppen"
+          order: 10
+          item_fields:
+            - path: massart
+              widget: text_select
+              label: "Maßart"
+              order: 10
+              options:
+                - {value: "Objektmaß", label: "Objektmaß"}
+                - {value: "Objektmaß, geöffnet", label: "Objektmaß, geöffnet"}
+                - {value: "Plattenmaß", label: "Plattenmaß"}
+                - {value: "Lichte Weite", label: "Lichte Weite"}
+            - path: hoehe
+              widget: decimal
+              label: "Höhe"
+              order: 20
+            - path: breite
+              widget: decimal
+              label: "Breite"
+              order: 30
+            - path: einheit
+              widget: text
+              label: "Einheit"
+              order: 40
+            - path: bemerkung
+              widget: text
+              label: "Maßbemerkung"
+              order: 50
+
+access:
+  fields:
+    sammlung: &read_only
+      view: [ehrenamtlich, redaktion, admin]
+      edit: []
+    id: *read_only
+    signatur.anzeige: *read_only
+    signatur.nummer: *read_only
+    signatur.format: *read_only
+    erfassungsstatus: *read_only
+    erschliessung.objektart: &all_edit
+      view: [ehrenamtlich, redaktion, admin]
+      edit: [ehrenamtlich, redaktion, admin]
+    erschliessung.urspruengliche_ordnung: *all_edit
+    erschliessung.motiv: *all_edit
+    erschliessung.beschreibung: *all_edit
+    erschliessung.masse: *all_edit
+    erschliessung.masse[].einheit: *read_only
+
+search:
+  lookup: [id, signatur.anzeige]
+  fulltext: [id, signatur.anzeige, erschliessung.motiv]
+  default_sort:
+    path: id
+    direction: asc
+
+list:
+  columns:
+    - {label: "Inventarnummer", path: id, sortable: true}
+    - {label: "Lagersignatur", path: signatur.anzeige, sortable: true}
+    - {label: "Motiv", path: erschliessung.motiv, sortable: false}
+    - {label: "Erfassungsstatus", path: erfassungsstatus, sortable: true}
+  default_sort:
+    path: id
+    direction: asc
+
+presets:
+  enabled_fields: []
+  disabled_fields: [id, sammlung, signatur, erfassungsstatus, erschliessung, technik]
+
+ui_profiles:
+  standard:
+    label: "Standard"
+    technical_preview: false
+  barrierearm:
+    label: "Barrierearm"
+    technical_preview: false
+  redaktion:
+    label: "Redaktionelle Darstellung"
+    technical_preview: true

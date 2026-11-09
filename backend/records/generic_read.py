@@ -63,13 +63,14 @@ def list_generic_records(repository: DataRepository, module: ModuleDefinition) -
 
 def list_values_for_role(record: dict[str, Any], module: ModuleDefinition, role: str) -> dict[str, Any]:
     runtime = RecordRuntime(module)
+    visible = runtime.filter_for_view(record, role)
     values: dict[str, Any] = {}
     for column in module.list_config.get("columns", []):
         path = column["path"]
         if not is_path_visible(module, path, role):
             continue
-        if path_exists(record, path):
-            values[path] = get_path_value(record, path)
+        if path_exists(visible, path):
+            values[path] = get_path_value(visible, path)
     return values
 
 

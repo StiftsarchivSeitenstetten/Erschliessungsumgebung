@@ -298,3 +298,17 @@ class RecordRuntimeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class RepeaterReplacementRegressionTest(unittest.TestCase):
+    def test_unrestricted_repeater_does_not_resurrect_removed_optional_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            module = load_module(write_runtime_module(root, write_runtime_schema(root)))
+            runtime = RecordRuntime(module)
+            user = RuntimeUser('test', 'redaktion')
+            existing = runtime.prepare_create(valid_payload(), user, {'id':'test-0001', 'datensatz_typ':'test'})
+            existing['daten']['beteiligte'] = [{'name':'First', 'rolle':{'id':'empfaenger','vocabulary_id':'rollen'}}, {'name':'Second'}]
+            payload = valid_payload()
+            payload['daten']['beteiligte'] = [{'name':'Second'}]
+            updated = runtime.prepare_update(existing, payload, user)
+            self.assertEqual(updated['daten']['beteiligte'], [{'name':'Second'}])

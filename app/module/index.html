@@ -30,9 +30,27 @@
           <button id="discard-queue-entry" type="button" class="secondary" disabled>Lokale Speicherung verwerfen</button>
         </div>
       </section>
+      <section class="record-toolbar">
+        <div class="preview-actions">
+          <button id="back-to-list" type="button" class="secondary">Bestehenden Datensatz öffnen</button>
+          <button id="new-record" type="button">Neuer Datensatz</button>
+        </div>
+        <nav class="preview-actions" aria-label="Datensatznavigation">
+          <button id="previous-record" type="button" disabled>Vorheriger Datensatz</button>
+          <button id="next-record" type="button" disabled>Nächster Datensatz</button>
+          <span id="record-position" role="status"></span>
+        </nav>
+        <div class="preview-actions">
+          <button id="toggle-edit" type="button" class="secondary" hidden>Datensatz bearbeiten</button>
+          <button id="save-record" data-record-action="save" type="button" disabled>Datensatz speichern</button>
+          <button id="discard-changes" data-record-action="discard" type="button" class="secondary" disabled>Änderungen verwerfen</button>
+          <button id="show-payload" type="button" hidden>Payload anzeigen</button>
+        </div>
+        <p id="save-status" role="status"></p>
+      </section>
       <section id="list-panel" class="form-section">
         <h2>Datensätze</h2>
-        <div class="preview-actions"><button id="new-record" type="button">Neuer Datensatz</button></div>
+
         <form id="search-form" class="search-controls">
           <div id="fulltext-controls"><label for="search-text">Volltextsuche</label><input id="search-text" type="search"></div>
           <div id="lookup-controls">
@@ -46,24 +64,15 @@
         <div id="record-list" class="generic-record-list"></div>
       </section>
       <div id="detail-panel" hidden>
-      <nav class="preview-actions" aria-label="Treffernavigation">
-        <button id="back-to-list" type="button" class="secondary">Zur Trefferliste</button>
-        <button id="previous-record" type="button" class="secondary" disabled>Vorheriger</button>
-        <button id="next-record" type="button" class="secondary" disabled>Nächster</button>
-        <span id="record-position" role="status"></span>
-      </nav>
-      <section class="record-toolbar">
-        <div>
-          <p id="save-status" role="status"></p>
-        </div>
-        <div class="preview-actions">
-          <button id="toggle-edit" type="button" class="secondary">Edit-Modus aktivieren</button>
-          <button id="discard-changes" type="button" class="secondary" disabled>Änderungen verwerfen</button>
-          <button id="show-payload" type="button" hidden>Payload anzeigen</button>
-          <button id="save-record" type="button" disabled>Datensatz speichern</button>
-        </div>
+      <section id="identity-reservation" class="form-section" hidden aria-live="polite">
+        <p id="identity-values"></p>
+        <button id="retry-reservation" type="button" class="secondary">Reservierung wiederaufnehmen</button>
       </section>
       <section id="record-preview" class="form-section" aria-live="polite"></section>
+      <div class="preview-actions" aria-label="Datensatzaktionen unten">
+        <button data-record-action="save" type="button" disabled>Datensatz speichern</button>
+        <button data-record-action="discard" type="button" class="secondary" disabled>Änderungen verwerfen</button>
+      </div>
       <section class="preset-panel" aria-labelledby="preset-heading">
         <div>
           <h2 id="preset-heading">Vorbelegungen</h2>
@@ -84,12 +93,13 @@
     </main>
     <dialog id="discard-dialog" aria-labelledby="discard-heading">
       <h2 id="discard-heading">Ungespeicherte Änderungen</h2>
-      <p>Änderungen verwerfen und fortfahren?</p>
+      <p>Ungesicherte Änderungen vor dem Wechsel speichern oder ausdrücklich verwerfen?</p>
       <form method="dialog" class="preview-actions">
         <button value="cancel" class="secondary" autofocus>Abbrechen</button>
-        <button value="discard">Änderungen verwerfen</button>
+        <button id="save-and-next" value="save" hidden>Speichern und weiter</button>
+        <button value="discard">Änderungen verwerfen und weiter</button>
       </form>
     </dialog>
-    <script type="module" src="module.js?v=recovery-2"></script>
+    <script type="module" src="module.js?v=thoma-navigation-2"></script>
   </body>
 </html>

@@ -51,7 +51,7 @@ export async function sendQueuedRecordUpdate(entry, csrfToken, request = (url, o
     method: "PUT",
     credentials: "same-origin",
     headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken},
-    body: JSON.stringify({base_revision: entry.base_revision, record: entry.snapshot})
+    body: JSON.stringify({...(entry.action ? {action: entry.action} : {}), base_revision: entry.base_revision, record: entry.snapshot})
   });
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
@@ -88,7 +88,10 @@ export async function readQueuedRecordUpdate(entry, request = (url, options) => 
 }
 
 export function classifyQueuedUpdateReadBack(entry, data, moduleDescriptor) {
-  if (editableSnapshotsEqual(moduleDescriptor, entry.snapshot, data.record)) {
+  const workflow = moduleDescriptor.create?.workflow;
+  const target = workflow && (entry.action === "draft" ? workflow.draft_status : workflow.completed_status);
+  const statusMatches = !entry.action || getPathValue(data.record, workflow?.status_path) === target;
+  if (statusMatches && editableSnapshotsEqual(moduleDescriptor, entry.snapshot, data.record)) {
     return {outcome: "applied", result: data};
   }
   if (data.meta.revision === entry.base_revision) {
@@ -96,4 +99,6 @@ export function classifyQueuedUpdateReadBack(entry, data, moduleDescriptor) {
   }
   return {outcome: "conflict", result: data};
 }
-import { editableSnapshotsEqual } from "./form-state.js";
+import { editableSnapshotsEqual } from "./form-state.js?v=thoma-review-1";
+
+import {getPathValue} from "./path-utils.js";

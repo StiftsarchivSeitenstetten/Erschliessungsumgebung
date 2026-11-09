@@ -120,12 +120,12 @@ class GenericNavigationTest(unittest.TestCase):
         discard_recovery = script[script.index('$("#discard-queue-entry").addEventListener'):script.index("run(init);")]
         self.assertLess(discard_recovery.index("await saveQueueProcessor.discard"), discard_recovery.index("queueContexts.delete"))
         self.assertIn("updateSaveButton();", discard_recovery)
-        self.assertIn('module-save-queue.js?v=queue-recovery-2', script)
-        self.assertIn('new FormState(currentDescriptor, currentDescriptor.empty_record || {})', script)
+        self.assertIn('module-save-queue.js?v=thoma-review-1', script)
+        self.assertIn('new FormState(currentDescriptor, next?.seed || currentDescriptor.empty_record || {})', script)
         self.assertIn("currentFormState.reset(currentFormState.current)", script)
         self.assertIn("currentCreate || currentUpdate", script)
         self.assertIn('query.get("new") === "1"', script)
-        self.assertNotIn(".sort(", component)
+        self.assertIn("this.searchContext ? this.records", component)
 
 
 if __name__ == "__main__":

@@ -158,3 +158,28 @@ assert.equal((await moduleStore.get("generic-retained")).status, "queued");
 assert.ok(lockNames.every(name => name === "erschliessung-save-queue"));
 
 console.log("Legacy photo and generic module queues remain isolated across paths, databases, updates, deletes and shared locking");
+
+// Reservation-only entries use the same IndexedDB store and survive reopening it.
+let durableReservations = 0;
+const durableHandlers = {reserveIdentity: async entry => {
+  durableReservations++;
+  return {record_id: 'synthetic-1', identity: {id: 'synthetic-1', 'signatur.anzeige': 'Test A/1'}};
+}};
+const durableProcessor = createSaveQueueProcessor({store: moduleStore, ...durableHandlers});
+await durableProcessor.prepareReservation({operationId: 'durable-reservation', moduleId: 'synthetic', identityInputs: {}, identityPaths: ['id', 'signatur.anzeige']});
+assert.equal(durableReservations, 0);
+const reopenedStore = createIndexedDbSaveQueueStore({indexedDB});
+const reopenedProcessor = createSaveQueueProcessor({store: reopenedStore, ...durableHandlers});
+await reopenedProcessor.initializeRecovery();
+const durable = await reopenedProcessor.resumeReservation('durable-reservation');
+assert.equal(durable.status, 'reserved');
+assert.equal(durable.snapshot, undefined);
+const againProcessor = createSaveQueueProcessor({store: createIndexedDbSaveQueueStore({indexedDB}), ...durableHandlers});
+await againProcessor.initializeRecovery();
+await againProcessor.resumeReservation('durable-reservation');
+assert.equal(durableReservations, 1);
+await againProcessor.enqueueCreate({operationId: 'durable-reservation', moduleId: 'synthetic', identityAssignment: 'reserve_before_create', snapshot: {text: 'Latest input'}});
+assert.equal((await moduleStore.get('durable-reservation')).status, 'queued');
+assert.equal((await moduleStore.get('durable-reservation')).identity.id, 'synthetic-1');
+assert.deepEqual((await moduleStore.get('durable-reservation')).snapshot, {text: 'Latest input'});
+console.log('Reservation-only persistence and promotion survive IndexedDB store reopening');
